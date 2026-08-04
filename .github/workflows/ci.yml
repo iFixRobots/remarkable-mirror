@@ -1,0 +1,87 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: 10.0.302
+          cache: true
+          cache-dependency-path: mirror/windows/ReMarkableMirror/packages.lock.json
+
+      - name: Set up Go
+        uses: actions/setup-go@4dc6199c7b1a012772edbd06daecab0f50c9053c # v6.1.0
+        with:
+          go-version: 1.26.5
+          check-latest: false
+          cache: false
+
+      - name: Test tablet agent
+        working-directory: mirror/agent
+        run: |
+          go test ./...
+          go vet ./...
+
+      - name: Restore locked Windows dependencies
+        run: >-
+          dotnet restore mirror/windows/ReMarkableMirror/ReMarkableMirror.csproj
+          --configfile mirror/windows/NuGet.config
+          --locked-mode
+
+      - name: Build Windows app
+        run: >-
+          dotnet build mirror/windows/ReMarkableMirror/ReMarkableMirror.csproj
+          --configuration Debug
+          --no-restore
+          -p:Platform=x64
+
+      - name: Parse PowerShell sources
+        shell: pwsh
+        run: |
+          $failed = $false
+          Get-ChildItem scripts -Recurse -Include *.ps1,*.psm1 | ForEach-Object {
+              $tokens = $null
+              $errors = $null
+              [void][System.Management.Automation.Language.Parser]::ParseFile(
+                  $_.FullName,
+                  [ref]$tokens,
+                  [ref]$errors)
+              if ($errors.Count -gt 0) {
+                  $failed = $true
+                  $errors | ForEach-Object { Write-Error "$($_.Extent.File): $($_.Message)" }
+              }
+          }
+          if ($failed) { throw 'PowerShell parsing failed.' }
+
+      - name: Run focused host policy checks
+        shell: pwsh
+        run: |
+          $checks = @(
+              'Test-RemarkableMirrorDeviceProfileStore.ps1',
+              'Test-RemarkableMirrorFilesLoopbackPackaging.ps1',
+              'Test-RemarkableMirrorInputRecoveryPolicy.ps1',
+              'Test-RemarkableMirrorInputSessionRoutePolicy.ps1',
+              'Test-RemarkableMirrorPassiveRouteProbe.ps1',
+              'Test-RemarkableMirrorPrerequisiteUsbBoundary.ps1',
+              'Test-RemarkableMirrorWindowsNetworkIdentityMatcher.ps1',
+              'Test-RemarkableMirrorPackageMetadata.ps1'
+          )
+          foreach ($check in $checks) {
+              & pwsh -NoLogo -NoProfile -File (Join-Path 'scripts' $check)
+              if ($LASTEXITCODE -ne 0) { throw "$check failed." }
+          }

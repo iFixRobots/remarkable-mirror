@@ -1,0 +1,67 @@
+name: Bug report
+description: Report a reproducible reMarkable Mirror problem
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not post passwords, keys, tokens, document contents, or unreviewed diagnostics. Report security problems privately through the Security tab.
+
+  - type: input
+    id: mirror-version
+    attributes:
+      label: Mirror version
+      placeholder: 1.x.x.x
+    validations:
+      required: true
+
+  - type: input
+    id: tablet
+    attributes:
+      label: Tablet and software version
+      placeholder: Paper Pro Move, 3.x.x.x
+    validations:
+      required: true
+
+  - type: dropdown
+    id: route
+    attributes:
+      label: Connection
+      options:
+        - USB
+        - Wi-Fi
+        - Both
+        - No connection established
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Include whether the tablet was awake and unlocked.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy check
+      options:
+        - label: I removed credentials, document contents, and personal network details.
+          required: true

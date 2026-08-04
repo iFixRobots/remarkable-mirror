@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "ReMarkableMirror (Package)": {
+      "commandName": "MsixPackage"
+    },
+    "ReMarkableMirror (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}
