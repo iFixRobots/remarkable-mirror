@@ -13,7 +13,6 @@
     <EnableMsixTooling>true</EnableMsixTooling>
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
     <PortablePublishProfileSelected Condition="'$(PublishProfile)' == 'win-x64-portable' or '$(PublishProfile)' == 'win-x64-portable.pubxml'">true</PortablePublishProfileSelected>
-    <WindowsAppSdkPackageVersion Condition="'$(PortablePublishProfileSelected)' == 'true'">2.3.1</WindowsAppSdkPackageVersion>
     <WindowsAppSdkPackageVersion Condition="'$(WindowsAppSdkPackageVersion)' == ''">1.8.260317003</WindowsAppSdkPackageVersion>
     <NuGetLockFilePath Condition="'$(PortablePublishProfileSelected)' == 'true'">$(MSBuildProjectDirectory)\packages.portable.lock.json</NuGetLockFilePath>
     <DefineConstants Condition="'$(PortablePublishProfileSelected)' == 'true'">$(DefineConstants);REMARKABLE_MIRROR_PORTABLE</DefineConstants>
@@ -21,7 +20,7 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
-  <ItemGroup>
+  <ItemGroup Condition="'$(PortablePublishProfileSelected)' != 'true'">
     <Content Include="Assets\SplashScreen.scale-200.png" />
     <Content Include="Assets\LockScreenLogo.scale-200.png" />
     <Content Include="Assets\Square150x150Logo.scale-200.png" />
@@ -35,7 +34,16 @@
     <Content Include="ThirdParty\Microsoft\**\*" />
   </ItemGroup>
 
-  <ItemGroup>
+  <ItemGroup Condition="'$(PortablePublishProfileSelected)' == 'true'">
+    <Content Include="Assets\AppIcon.ico" />
+    <None Remove=".gitignore;app.manifest;App.xaml;Files\FilesPaneView.xaml;LibraryTile.xaml;MainPage.xaml;MainWindow.xaml;Package.appxmanifest;packages.lock.json;packages.portable.lock.json;Properties\launchSettings.json;Properties\PublishProfiles\*.pubxml" />
+    <Content Remove="Package.appxmanifest" />
+    <AppxManifest Remove="Package.appxmanifest" />
+    <ApplicationDefinition Update="App.xaml" CopyToOutputDirectory="Never" CopyToPublishDirectory="Never" />
+    <Page Update="Files\FilesPaneView.xaml;LibraryTile.xaml;MainPage.xaml;MainWindow.xaml" CopyToOutputDirectory="Never" CopyToPublishDirectory="Never" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(PortablePublishProfileSelected)' != 'true'">
     <Manifest Include="$(ApplicationManifest)" />
   </ItemGroup>
 
@@ -58,8 +66,19 @@
   -->
   <ItemGroup>
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.7705" />
-    <PackageReference Include="Microsoft.WindowsAppSDK" Version="$(WindowsAppSdkPackageVersion)" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools.WinApp" Version="0.3.1" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(PortablePublishProfileSelected)' != 'true'">
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="$(WindowsAppSdkPackageVersion)" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(PortablePublishProfileSelected)' == 'true'">
+    <PackageReference Include="Microsoft.WindowsAppSDK.Base" Version="1.8.251216001" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.DWrite" Version="1.8.25122902" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.Foundation" Version="1.8.260222000" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.InteractiveExperiences" Version="1.8.260125001" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.WinUI" Version="1.8.260224000" />
   </ItemGroup>
 
   <!--
@@ -73,8 +92,9 @@
 
   <!-- Publish Properties -->
   <PropertyGroup>
-    <PublishReadyToRun Condition="'$(Configuration)' == 'Debug'">False</PublishReadyToRun>
-    <PublishReadyToRun Condition="'$(Configuration)' != 'Debug'">True</PublishReadyToRun>
+    <PublishReadyToRun Condition="'$(PortablePublishProfileSelected)' == 'true'">False</PublishReadyToRun>
+    <PublishReadyToRun Condition="'$(PortablePublishProfileSelected)' != 'true' and '$(Configuration)' == 'Debug'">False</PublishReadyToRun>
+    <PublishReadyToRun Condition="'$(PortablePublishProfileSelected)' != 'true' and '$(Configuration)' != 'Debug'">True</PublishReadyToRun>
     <PublishTrimmed>False</PublishTrimmed>
   </PropertyGroup>
 </Project>

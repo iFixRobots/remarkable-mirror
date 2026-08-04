@@ -90,9 +90,11 @@ foreach ($marker in @(
         'actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1',
         'actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1',
         '-p:Configuration=Release',
-        '-p:PublishReadyToRun=true',
+        '-p:PublishReadyToRun=false',
         '-p:PublishProfile=win-x64-portable.pubxml',
+        'Portable EXE is unexpectedly large:',
         'Start-Process -FilePath $portableExe -PassThru -WindowStyle Hidden',
+        "path: `${{ runner.temp }}/remarkable-mirror-package/ReMarkableMirror-*-x64.zip",
         'name: remarkable-mirror-portable-windows-x64',
         'name: remarkable-mirror-windows-installer'
     )) {

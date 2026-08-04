@@ -98,20 +98,25 @@ GitHub account that has access to it.
 2. Open **Build Windows downloads**.
 3. Choose the newest successful run on `main`.
 4. Under **Artifacts**, download **remarkable-mirror-windows-installer**.
-5. Extract the downloaded artifact to a normal folder.
-6. Open the included `ReMarkableMirror-...-x64` folder. Keep everything in that
-   folder together.
+5. Extract the downloaded GitHub artifact to a normal folder.
+6. Extract the included `ReMarkableMirror-...-x64.zip`.
+7. Open the resulting `ReMarkableMirror-...-x64` folder. Keep everything in
+   that folder together.
 
 Do not run `Install.cmd` from inside a compressed archive. Skip to
 [Enable reMarkable Developer Mode](#4-enable-remarkable-developer-mode).
 
 The Actions run also includes **remarkable-mirror-portable-windows-x64**. That
-download is one `ReMarkableMirror.exe` for a tablet and Windows account that
-have already completed `Install.cmd`. It does not install the tablet components,
-SSH key, device profile, or Windows package, so it is not the first-time setup.
-The portable EXE is not Authenticode-signed, so Windows may warn before opening
-it. Actions downloads remain build candidates until they are installed and
-owner-tested.
+artifact extracts to one `ReMarkableMirror.exe` for a tablet and Windows account
+that have already completed `Install.cmd`. It does not install the tablet
+components, SSH key, device profile, or Windows package, so it is not the
+first-time setup. The portable EXE is not Authenticode-signed, so Windows may
+warn before opening it. Actions downloads remain build candidates until they
+are installed and owner-tested.
+
+The downloaded installer carries the .NET runtime Mirror needs. You do not need
+the .NET SDK, Visual Studio, Go, Docker, or the source tree unless you choose to
+build the package yourself in the next section.
 
 ### If an official release ZIP exists
 

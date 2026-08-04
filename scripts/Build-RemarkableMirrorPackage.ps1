@@ -417,13 +417,15 @@ try {
         '--runtime', 'win-x64',
         '--configfile', $buildNugetConfigPath,
         '--locked-mode',
-        '-p:Platform=x64'
+        '-p:Platform=x64',
+        '-p:SelfContained=true'
     )
     $publishArguments = @(
         'publish',
         $buildProjectPath,
         '--configuration', 'Release',
         '--runtime', 'win-x64',
+        '--self-contained', 'true',
         '--configfile', $buildNugetConfigPath,
         '--no-restore',
         '-p:Platform=x64',
@@ -598,6 +600,42 @@ try {
         throw "Finished MSIX identity does not match the requested name, publisher, version, and architecture."
     }
 
+    $requiredDotnetRuntimeFiles = @(
+        'coreclr.dll',
+        'hostfxr.dll',
+        'hostpolicy.dll',
+        'System.Private.CoreLib.dll'
+    )
+    foreach ($requiredDotnetRuntimeFile in $requiredDotnetRuntimeFiles) {
+        $requiredDotnetRuntimePath = Join-Path $unpackDirectory $requiredDotnetRuntimeFile
+        if (-not (Test-Path -LiteralPath $requiredDotnetRuntimePath -PathType Leaf)) {
+            throw "Finished MSIX is missing its self-contained .NET runtime file: $requiredDotnetRuntimeFile"
+        }
+    }
+
+    $runtimeConfigPath = Join-Path $unpackDirectory 'ReMarkableMirror.runtimeconfig.json'
+    if (-not (Test-Path -LiteralPath $runtimeConfigPath -PathType Leaf)) {
+        throw 'Finished MSIX is missing ReMarkableMirror.runtimeconfig.json.'
+    }
+    $runtimeConfig = [System.IO.File]::ReadAllText($runtimeConfigPath) | ConvertFrom-Json
+    $includedFrameworksProperty = $runtimeConfig.runtimeOptions.PSObject.Properties['includedFrameworks']
+    $externalFrameworkProperty = $runtimeConfig.runtimeOptions.PSObject.Properties['framework']
+    $includedDotnetRuntime = @(
+        if ($null -ne $includedFrameworksProperty) {
+            $includedFrameworksProperty.Value |
+                Where-Object { $_.name -ceq 'Microsoft.NETCore.App' }
+        }
+    )
+    if ($includedDotnetRuntime.Count -ne 1 -or
+        [string]::IsNullOrWhiteSpace([string]$includedDotnetRuntime[0].version)) {
+        throw 'Finished MSIX does not declare one included Microsoft.NETCore.App runtime.'
+    }
+    if ($null -ne $externalFrameworkProperty -and
+        $externalFrameworkProperty.Value.name -ceq 'Microsoft.NETCore.App') {
+        throw 'Finished MSIX still declares Microsoft.NETCore.App as an external framework.'
+    }
+    $embeddedDotnetRuntimeVersion = [string]$includedDotnetRuntime[0].version
+
     $packageHash = (Get-FileHash -LiteralPath $packagePath -Algorithm SHA256).Hash.ToLowerInvariant()
     $certificateHash = (Get-FileHash -LiteralPath $certificatePath -Algorithm SHA256).Hash.ToLowerInvariant()
     $runtimePackage = Get-ChildItem -LiteralPath $dependencyDirectory -Filter '*.msix' -File | Select-Object -First 1
@@ -629,8 +667,9 @@ files under %USERPROFILE%\.ssh:
   remarkable_known_hosts
 
 The installer requests one Windows administrator prompt to trust the included
-local signing certificate, installs the Windows App Runtime and Mirror, then
-installs the package-matching tablet probe, pinned XOVI release and three required
+local signing certificate, installs the Windows App Runtime and Mirror with its
+matching .NET runtime built in, then installs the package-matching tablet probe,
+pinned XOVI release and three required
 extensions, plus USB transport wake support. XOVI is started only when Mirror
 connects. It is never configured to start at tablet boot.
 
@@ -684,6 +723,11 @@ an older tablet setup.
             version = $Version
             architecture = 'x64'
             sha256 = $packageHash
+            dotnet = [ordered]@{
+                deployment = 'self-contained'
+                runtime = 'Microsoft.NETCore.App'
+                version = $embeddedDotnetRuntimeVersion
+            }
         }
         certificate = [ordered]@{
             file = [System.IO.Path]::GetFileName($certificatePath)

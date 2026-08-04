@@ -22,7 +22,9 @@ jobs:
         with:
           dotnet-version: 10.0.302
           cache: true
-          cache-dependency-path: mirror/windows/ReMarkableMirror/packages.lock.json
+          cache-dependency-path: |
+            mirror/windows/ReMarkableMirror/packages.lock.json
+            mirror/windows/ReMarkableMirror/packages.portable.lock.json
 
       - name: Set up Go
         uses: actions/setup-go@4dc6199c7b1a012772edbd06daecab0f50c9053c # v6.1.0

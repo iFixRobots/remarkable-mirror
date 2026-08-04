@@ -14,6 +14,12 @@ Notable user-visible changes are recorded here.
   started guide and a self-contained package onboarding guide.
 - Added GitHub Actions builds for a complete Windows installer and a portable
   Windows executable.
+- Reduced the portable executable from 283.52 MiB to about 67 MiB by removing
+  unused AI, machine-learning, Widgets, and ReadyToRun payloads and compressing
+  the remaining self-contained runtime.
+- Made clean-runner installer builds carry Mirror's matching .NET runtime and
+  stopped uploading a duplicate expanded installer folder beside the release
+  ZIP.
 - Recorded owner-tested Pen input over Wi-Fi in installed Gold
   `1.2608.416.5801`.
 

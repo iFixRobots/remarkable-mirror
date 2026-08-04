@@ -70,9 +70,10 @@ software version.
 
 Every push to `main` builds two Windows downloads in GitHub Actions:
 
-- **remarkable-mirror-windows-installer** contains the complete installer,
-  Windows package, tablet components, and setup guide. Use this for a new setup.
-- **remarkable-mirror-portable-windows-x64** contains one
+- **remarkable-mirror-windows-installer** contains one versioned installer ZIP.
+  Inside are the Windows package, its matching .NET and Windows App runtimes,
+  the tablet components, and the setup guide. Use this for a new setup.
+- **remarkable-mirror-portable-windows-x64** extracts to one self-contained
   `ReMarkableMirror.exe`. Use it only after the installer has already prepared
   the tablet and Windows account.
 
@@ -82,7 +83,9 @@ warn before opening it. Use the complete installer for first-time setup.
 
 Open **Actions > Build Windows downloads**, choose a successful run, and find
 both files under **Artifacts**. [Getting started](docs/GETTING_STARTED.md) walks
-through the complete installer path.
+through the complete installer path. GitHub wraps each Actions artifact in a
+ZIP; for the installer, extract that download and then extract the versioned
+installer ZIP inside it.
 
 The repository is intentionally private while I finish the owner review. The
 downloads are therefore available only to signed-in GitHub collaborators. There

@@ -123,7 +123,8 @@ repair command can supply the missing Wi-Fi password.
 - For the current private build, download
   **remarkable-mirror-windows-installer** from a successful
   **Build Windows downloads** run in this repository's Actions tab.
-- Extract the full ZIP before running `Install.cmd`.
+- Extract the GitHub artifact, then extract the versioned installer ZIP inside
+  it before running `Install.cmd`.
 - Do not use the portable `ReMarkableMirror.exe` for first-time setup. It does
   not install the tablet components or create the Windows device profile.
 - Use PowerShell 7.5 or newer.

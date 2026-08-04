@@ -194,8 +194,10 @@ dotnet publish $project `
 ```
 
 The normal package remains on the same Windows App SDK used by the accepted
-Gold build. The portable profile has a separate locked dependency set for its
-unpackaged Windows data folders.
+Gold build. The portable profile uses only the Base, DWrite, Foundation,
+Interactive Experiences, and WinUI parts of that same runtime line. It leaves
+out AI, machine learning, Widgets, and the shared-runtime package, compresses
+the single-file payload, and does not build a ReadyToRun composite image.
 
 ## GitHub Actions downloads
 
@@ -206,8 +208,10 @@ and uploads two Windows artifacts:
 - `remarkable-mirror-windows-installer`
 - `remarkable-mirror-portable-windows-x64`
 
-The installer artifact contains the complete release folder and shareable ZIP.
-The portable artifact contains exactly one `ReMarkableMirror.exe`.
+The installer artifact contains only the versioned shareable ZIP; it does not
+upload a duplicate expanded release folder. The portable artifact contains
+exactly one `ReMarkableMirror.exe`. GitHub wraps either artifact in its own ZIP
+when it is downloaded from Actions.
 
 ## Build a development package
 
@@ -226,6 +230,11 @@ $packageIdentity = New-Guid
 The build creates or reuses a local non-exportable signing certificate for that
 publisher, signs the MSIX, and writes the release folder and ZIP under ignored
 `artifacts\remarkable-mirror`.
+
+The application MSIX includes its matching .NET runtime. The Windows App SDK
+1.8 runtime remains the separate dependency inside the same release folder, so
+`Install.cmd` can set up a new Windows account without a preinstalled .NET SDK
+or runtime.
 
 Official iFixRobots packages refuse a dirty source tree. The explicit dirty-tree
 override exists for a maintainer's local development artifact. Do not publish

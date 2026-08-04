@@ -24,7 +24,7 @@ is derived from the native interface-selection hooks in upstream
 
 ## Microsoft Windows components
 
-The Windows project restores these pinned NuGet packages:
+The installed package restores these pinned NuGet packages:
 
 - `Microsoft.Windows.SDK.BuildTools` `10.0.26100.7705`, under the Microsoft
   Windows SDK license terms;
@@ -32,15 +32,22 @@ The Windows project restores these pinned NuGet packages:
   license terms included in that package; and
 - `Microsoft.Windows.SDK.BuildTools.WinApp` `0.3.1`, MIT.
 
-The restored dependency graph also includes Microsoft WebView2 and
-`System.Numerics.Tensors`. Their package license files remain authoritative.
+The portable build stays on the same Windows App SDK 1.8 line but references
+only these runtime components directly: Base `1.8.251216001`, DWrite
+`1.8.25122902`, Foundation `1.8.260222000`, Interactive Experiences
+`1.8.260125001`, and WinUI `1.8.260224000`.
+
+The installed package's full dependency graph also includes Microsoft WebView2
+and `System.Numerics.Tensors`. The smaller portable graph still includes
+WebView2 through WinUI, but it does not include Tensors, AI, machine learning,
+or Widgets. Their package license files remain authoritative.
 An official release ZIP will carry the matching Microsoft Windows App Runtime x64
 dependency beside the application. Microsoft license files supplied with those
 packages and runtimes remain authoritative.
 
 The packaging workflow includes the exact restored license and notice texts under
 `ThirdParty/Microsoft` for Windows App SDK, WebView2,
-`System.Numerics.Tensors`, the .NET runtime, and the Windows Desktop runtime.
+`System.Numerics.Tensors`, the WinUI component package, and the .NET runtime.
 
 ## Corresponding source for binary releases
 

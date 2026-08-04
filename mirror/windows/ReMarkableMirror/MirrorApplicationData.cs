@@ -17,13 +17,19 @@ internal static class MirrorApplicationData
     private static ApplicationDataFolders ResolveFolders()
     {
 #if REMARKABLE_MIRROR_PORTABLE
-        var unpackagedApplicationData =
-            Microsoft.Windows.Storage.ApplicationData.GetForUnpackaged(Publisher, Product);
-        Directory.CreateDirectory(unpackagedApplicationData.LocalPath);
-        Directory.CreateDirectory(unpackagedApplicationData.TemporaryPath);
+        var localPath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            Publisher,
+            Product);
+        var temporaryPath = Path.Combine(
+            Path.GetTempPath(),
+            Publisher,
+            Product);
+        Directory.CreateDirectory(localPath);
+        Directory.CreateDirectory(temporaryPath);
         return new(
-            unpackagedApplicationData.LocalFolder,
-            unpackagedApplicationData.TemporaryFolder);
+            StorageFolder.GetFolderFromPathAsync(localPath).AsTask().GetAwaiter().GetResult(),
+            StorageFolder.GetFolderFromPathAsync(temporaryPath).AsTask().GetAwaiter().GetResult());
 #else
         var packagedApplicationData = Windows.Storage.ApplicationData.Current;
         return new(

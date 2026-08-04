@@ -12,6 +12,10 @@ installation and owner testing can promote a candidate. They are not a public
 release. A public release still follows the signing, source, and publishing
 steps below.
 
+The installer Actions artifact contains only the versioned distribution ZIP;
+the expanded staging directory is not uploaded beside it. The portable artifact
+contains only its self-contained EXE.
+
 ## Before building
 
 1. Reconcile user-facing documentation and `CHANGELOG.md`.
@@ -51,6 +55,9 @@ Official builds refuse a dirty tree. `release.json` must contain:
 
 - Authenticode signature is valid.
 - The MSIX manifest identity matches `release.json`.
+- The application MSIX contains its declared self-contained .NET runtime, while
+  the release folder contains exactly one matching Windows App Runtime
+  dependency.
 - The MSIX and ZIP contain the project legal files and the exact restored
   Microsoft license/notice payload under `ThirdParty/Microsoft`.
 - The ZIP contains one coherent release tree and no private keys or captures.
