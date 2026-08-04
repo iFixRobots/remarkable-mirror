@@ -92,7 +92,7 @@ foreach ($marker in @(
 $publishedExtensions = @(
     [regex]::Matches(
         $installerText,
-        '(?m)^publish_extension (?<name>[a-z0-9-]+\.so)$'
+        '(?m)^publish_extension (?<name>[a-z0-9-]+\.so)\r?$'
     ) |
         ForEach-Object { $_.Groups['name'].Value }
 )
@@ -116,7 +116,7 @@ foreach ($forbiddenMarker in @(
 }
 
 $definitionText = [System.IO.File]::ReadAllText($definitionPath)
-if ($definitionText -cnotmatch '(?m)^version 0\.1\.0$' -or
+if ($definitionText -cnotmatch '(?m)^version 0\.1\.0\r?$' -or
     $packageText -cnotmatch "version = '0\.1\.0'") {
     throw 'Files loopback source and package metadata versions do not match.'
 }

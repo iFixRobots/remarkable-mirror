@@ -853,7 +853,7 @@ printf '%s\n' 'RMMIRROR_PREREQUISITES=installed'
         -Arguments ($sshOptions + @($remoteHost, $installCommand)) `
         -TimeoutMilliseconds 60000 `
         -FailureMessage 'Could not install the Mirror tablet prerequisites'
-    if ($install.Stdout -notmatch '(?m)^RMMIRROR_PREREQUISITES=installed$') {
+    if ($install.Stdout -notmatch '(?m)^RMMIRROR_PREREQUISITES=installed\r?$') {
         throw 'Tablet prerequisite install did not return its completion marker.'
     }
 
@@ -1055,7 +1055,7 @@ printf '%s\n' 'RMMIRROR_WIFI=verified'
             )) `
             -TimeoutMilliseconds 15000 `
             -FailureMessage 'Could not verify the paired tablet identity over Wi-Fi'
-        if ($wifiVerification.Stdout -notmatch '(?m)^RMMIRROR_WIFI=verified$') {
+        if ($wifiVerification.Stdout -notmatch '(?m)^RMMIRROR_WIFI=verified\r?$') {
             throw 'Wi-Fi SSH did not return its verification marker.'
         }
 

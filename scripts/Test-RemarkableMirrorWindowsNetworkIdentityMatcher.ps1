@@ -16,7 +16,7 @@ if (-not $source.Contains('FileName = "powershell.exe"', [StringComparison]::Ord
 
 $assignmentMatch = [regex]::Match(
     $source,
-    '(?m)^\s*\$networkIdentity = (?<expression>.+)$'
+    '(?m)^\s*\$networkIdentity = (?<expression>[^\r\n]+)\r?$'
 )
 if (-not $assignmentMatch.Success) {
     throw 'The matcher network-identity expression could not be extracted.'
