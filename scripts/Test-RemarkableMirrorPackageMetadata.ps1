@@ -11,6 +11,7 @@ $packageBuilderPath = Join-Path $repositoryRoot 'scripts\Build-RemarkableMirrorP
 $packageInstallerPath = Join-Path $repositoryRoot 'scripts\Install-RemarkableMirror.ps1'
 $releaseProvenancePath = Join-Path $repositoryRoot 'scripts\lib\RemarkableReleaseProvenance.ps1'
 $filesLoopbackBuilderPath = Join-Path $repositoryRoot 'scripts\Build-RemarkableFilesLoopback.ps1'
+$filesLoopbackArtifactHelperPath = Join-Path $repositoryRoot 'scripts\lib\RemarkableFilesLoopbackArtifact.ps1'
 $manifestPath = Join-Path $repositoryRoot 'mirror\windows\ReMarkableMirror\Package.appxmanifest'
 $globalJsonPath = Join-Path $repositoryRoot 'global.json'
 $goModPath = Join-Path $repositoryRoot 'mirror\agent\go.mod'
@@ -37,7 +38,7 @@ $packageOnboardingText = [System.IO.File]::ReadAllText($packageOnboardingPath)
 foreach ($requiredMarker in @(
         'You already have a reMarkable Mirror release package.',
         'beta `3.28.0.164`, OS build `5.8.199`',
-        'this exact packaged path',
+        'this package still needs one',
         'images/remarkable-mirror-live-wifi.png',
         'images/remarkable-mirror-files.png',
         'images/remarkable-mirror-preparing.png',
@@ -70,6 +71,8 @@ foreach ($requiredParameter in @(
         'Publisher',
         'PackageIdentity',
         'PublisherDisplayName',
+        'PrebuiltFilesLoopbackPath',
+        'PrebuiltFilesLoopbackSha256',
         'AllowDirtyOfficialDevelopmentBuild'
     )) {
     if ($requiredParameter -cnotin $parameterNames) {
@@ -82,7 +85,10 @@ foreach ($requiredMarker in @(
         "[string]`$Publisher = 'CN=iFixRobots'",
         "[Guid]`$PackageIdentity = [Guid]'A184FD6B-E071-4B75-A3B4-DF4397457284'",
         "`$releaseProvenancePath = Join-Path `$PSScriptRoot 'lib\RemarkableReleaseProvenance.ps1'",
+        "`$filesLoopbackArtifactHelperPath = Join-Path `$PSScriptRoot 'lib\RemarkableFilesLoopbackArtifact.ps1'",
         'Get-RemarkableReleaseProvenance',
+        'PrebuiltFilesLoopbackPath and PrebuiltFilesLoopbackSha256 must be supplied together.',
+        'Get-VerifiedRemarkableFilesLoopbackArtifact',
         "`$expectedDotnetSdkVersion = '10.0.302'",
         "`$publicOnboardingGuidePath = Join-Path `$repositoryRoot 'docs\PACKAGE_ONBOARDING.md'",
         "`$publicGettingStartedGuidePath = Join-Path `$repositoryRoot 'docs\GETTING_STARTED.md'",
@@ -140,6 +146,28 @@ if (-not $filesLoopbackBuilderText.Contains(
         'ToolchainEnvironment = $toolchainEnvironment',
         [StringComparison]::Ordinal)) {
     throw 'Files loopback build result does not report its exact toolchain environment.'
+}
+
+$artifactHelperTokens = $null
+$artifactHelperParseErrors = $null
+[void][System.Management.Automation.Language.Parser]::ParseFile(
+    $filesLoopbackArtifactHelperPath,
+    [ref]$artifactHelperTokens,
+    [ref]$artifactHelperParseErrors
+)
+if ($artifactHelperParseErrors.Count -ne 0) {
+    throw "Files loopback artifact helper did not parse: $($artifactHelperParseErrors[0].Message)"
+}
+$filesLoopbackArtifactHelperText = [System.IO.File]::ReadAllText($filesLoopbackArtifactHelperPath)
+foreach ($requiredMarker in @(
+        'function Get-RemarkableFilesLoopbackBuildConfiguration',
+        'function Get-VerifiedRemarkableFilesLoopbackArtifact',
+        'Prebuilt Files loopback SHA-256 mismatch:',
+        'Prebuilt Files loopback artifact is not a 64-bit little-endian AArch64 shared object.'
+    )) {
+    if (-not $filesLoopbackArtifactHelperText.Contains($requiredMarker, [StringComparison]::Ordinal)) {
+        throw "Files loopback artifact helper is missing required validation: $requiredMarker"
+    }
 }
 
 $installerTokens = $null

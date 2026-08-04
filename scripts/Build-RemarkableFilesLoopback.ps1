@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$OutputDirectory = (Join-Path $PSScriptRoot '..\tmp\mirror\files-loopback'),
+    [string]$OutputDirectory = (Join-Path $PSScriptRoot '../tmp/mirror/files-loopback'),
     [switch]$Force
 )
 
@@ -8,13 +8,27 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $repositoryRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
-$sourceDirectory = Join-Path $repositoryRoot 'mirror\agent\xovi\rmmirror-files-loopback'
+$artifactHelperPath = Join-Path $PSScriptRoot 'lib/RemarkableFilesLoopbackArtifact.ps1'
+if (-not (Test-Path -LiteralPath $artifactHelperPath -PathType Leaf)) {
+    throw "Required Files loopback artifact helper does not exist: $artifactHelperPath"
+}
+. $artifactHelperPath
+
+$configuration = Get-RemarkableFilesLoopbackBuildConfiguration
+$sourceDirectory = Join-Path $repositoryRoot 'mirror/agent/xovi/rmmirror-files-loopback'
 $allowedOutputRoot = [System.IO.Path]::GetFullPath((Join-Path $repositoryRoot 'tmp'))
-$toolchainImage = 'eeems/remarkable-toolchain@sha256:893ad3bc55d0ef23603a2fcef05572694cadc8ce9410ada9c28e4879e859d9ce'
-$toolchainEnvironment = '/opt/codex/ferrari/5.7.119/environment-setup-cortexa53-crypto-remarkable-linux'
-$xoviRepository = 'https://github.com/asivery/xovi.git'
-$xoviGeneratorCommit = '0c8d5269b55c851901d4e4a754dc2d7deab40b17'
-$binaryName = 'rmmirror-files-loopback.so'
+$toolchainImage = $configuration.ToolchainImage
+$toolchainEnvironment = $configuration.ToolchainEnvironment
+$xoviRepository = $configuration.XoviRepository
+$xoviGeneratorCommit = $configuration.XoviGeneratorCommit
+$binaryName = $configuration.BinaryName
+$pathComparison = if ([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform(
+        [System.Runtime.InteropServices.OSPlatform]::Windows)) {
+    [StringComparison]::OrdinalIgnoreCase
+}
+else {
+    [StringComparison]::Ordinal
+}
 
 foreach ($sourceName in @(
         'main.cpp',
@@ -35,18 +49,23 @@ else {
 }
 $outputDirectoryFull = [System.IO.Path]::GetFullPath($outputCandidate)
 $allowedOutputPrefix = $allowedOutputRoot.TrimEnd(
-    [System.IO.Path]::DirectorySeparatorChar
+    [System.IO.Path]::DirectorySeparatorChar,
+    [System.IO.Path]::AltDirectorySeparatorChar
 ) + [System.IO.Path]::DirectorySeparatorChar
-if ($outputDirectoryFull -ne $allowedOutputRoot -and
+if (-not [string]::Equals($outputDirectoryFull, $allowedOutputRoot, $pathComparison) -and
     -not $outputDirectoryFull.StartsWith(
         $allowedOutputPrefix,
-        [StringComparison]::OrdinalIgnoreCase
+        $pathComparison
     )) {
     throw "OutputDirectory must remain under $allowedOutputRoot"
 }
 
-$docker = (Get-Command docker.exe -ErrorAction Stop).Source
-$git = (Get-Command git.exe -ErrorAction Stop).Source
+$docker = Get-Command docker -CommandType Application -ErrorAction Stop |
+    Select-Object -First 1 -ExpandProperty Source
+$git = Get-Command git -CommandType Application -ErrorAction Stop |
+    Select-Object -First 1 -ExpandProperty Source
+$tar = Get-Command tar -CommandType Application -ErrorAction Stop |
+    Select-Object -First 1 -ExpandProperty Source
 
 & $docker image inspect $toolchainImage *> $null
 if ($LASTEXITCODE -ne 0) {
@@ -64,7 +83,7 @@ if ($toolchainImage -notin $repoDigests) {
     throw "The local toolchain image does not expose the required digest: $toolchainImage"
 }
 
-$generatorRepository = Join-Path $repositoryRoot "tmp\mirror\xovi-generator-$xoviGeneratorCommit"
+$generatorRepository = Join-Path $repositoryRoot "tmp/mirror/xovi-generator-$xoviGeneratorCommit"
 if (-not (Test-Path -LiteralPath $generatorRepository)) {
     New-Item -ItemType Directory -Path (Split-Path -Parent $generatorRepository) -Force | Out-Null
     & $git init --quiet $generatorRepository
@@ -149,7 +168,7 @@ try {
         if ($LASTEXITCODE -ne 0) {
             throw 'Could not export the pinned Xovi generator sources.'
         }
-        & tar.exe -xf $generatorArchive -C $isolatedGenerator
+        & $tar -xf $generatorArchive -C $isolatedGenerator
         if ($LASTEXITCODE -ne 0) {
             throw 'Could not extract the pinned Xovi generator sources.'
         }
@@ -166,8 +185,8 @@ try {
         }
     }
 
-    $firstBuild = Join-Path $firstBuildRoot "source\$binaryName"
-    $secondBuild = Join-Path $secondBuildRoot "source\$binaryName"
+    $firstBuild = Join-Path $firstBuildRoot "source/$binaryName"
+    $secondBuild = Join-Path $secondBuildRoot "source/$binaryName"
     $firstHash = (Get-FileHash -LiteralPath $firstBuild -Algorithm SHA256).Hash.ToLowerInvariant()
     $secondHash = (Get-FileHash -LiteralPath $secondBuild -Algorithm SHA256).Hash.ToLowerInvariant()
     if ($firstHash -cne $secondHash) {
@@ -211,11 +230,12 @@ finally {
     if (Test-Path -LiteralPath $buildRoot) {
         $buildRootFull = [System.IO.Path]::GetFullPath($buildRoot)
         $outputPrefix = $outputDirectoryFull.TrimEnd(
-            [System.IO.Path]::DirectorySeparatorChar
+            [System.IO.Path]::DirectorySeparatorChar,
+            [System.IO.Path]::AltDirectorySeparatorChar
         ) + [System.IO.Path]::DirectorySeparatorChar
         if (-not $buildRootFull.StartsWith(
                 $outputPrefix,
-                [StringComparison]::OrdinalIgnoreCase
+                $pathComparison
             )) {
             throw "Refusing to clean build path outside $outputDirectoryFull"
         }

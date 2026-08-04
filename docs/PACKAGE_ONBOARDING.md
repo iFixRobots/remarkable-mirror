@@ -5,17 +5,17 @@ that folder to a working USB and Wi-Fi connection. Keep the whole extracted
 folder together while you install it.
 
 > [!IMPORTANT]
-> This package targets the reMarkable Paper Pro Move, code name `chiappa`. The
-> exercised tablet software is beta `3.28.0.164`, OS build `5.8.199`. Do not run
+> This package targets the reMarkable Paper Pro Move, code name `chiappa`. It has
+> been tested with beta `3.28.0.164`, OS build `5.8.199`. Do not run
 > tablet setup on another model or software version unless the release notes
 > explicitly include it.
 
 The installed app needs Windows 11 x64 build `22621` or newer.
 
 > [!NOTE]
-> I have exercised these pieces on my own tablet, but this exact packaged path
-> still needs one complete run on a freshly reset tablet and a clean Windows
-> account. Stop at the first mismatch instead of improvising past it.
+> I have tested each part on my own tablet, but this package still needs one
+> complete run on a freshly reset tablet and a clean Windows account. If a step
+> does not match what you see, stop there and report it.
 
 ![reMarkable Mirror connected over Wi-Fi](images/remarkable-mirror-live-wifi.png)
 
@@ -273,7 +273,7 @@ Return to this extracted release folder and double-click `Install.cmd`.
 
 Keep the tablet connected and unlocked until setup finishes. Accept the one
 Windows administrator prompt. The installer validates the package, installs the
-Windows app, provisions matching tablet components, and enables the tablet's
+Windows app, installs the tablet components Mirror needs, and enables the tablet's
 official SSH-over-WLAN setting.
 
 Before starting, confirm the tablet still explicitly says Wi-Fi is
@@ -288,7 +288,7 @@ On success, the installer window closes and reMarkable Mirror opens
 automatically. If the installer window stays open, setup failed and its last
 lines contain the error. Read that error before closing the window.
 
-## Prove USB first
+## Check USB first
 
 Mirror should already be open after a successful install. If it was closed, open
 it from Start. Wait for **Live over USB**.
@@ -300,8 +300,8 @@ it from Start. Wait for **Live over USB**.
 - Left-click the camera button to copy a screenshot. Right-click it and choose
   **Save screenshot as...** to open **Save As**.
 - Open **Files** while the tablet is unlocked.
-- Drop a small disposable PDF into the tablet. EPUB import is not part of the
-  completed proof yet.
+- Drop a small disposable PDF into the tablet. EPUB import has not been fully
+  tested yet.
 - Click a document to open **Save As** for PDF. Right-click it to choose
   **Save as PDF...** or **Save native RMDOC...**. Explorer drag-out is not
   implemented yet.
@@ -311,12 +311,12 @@ Unlocking starts the stock Files listener again.
 
 ![Files waits for unlock while the mirror stays live](images/remarkable-mirror-files.png)
 
-## Then prove Wi-Fi
+## Then check Wi-Fi
 
 Confirm the tablet says Wi-Fi is connected. Unplug USB-C, leave the tablet awake,
-and wait for **Live over Wi-Fi**. Repeat touch, keyboard, and screenshot checks,
-then confirm that the Files library loads. The broader Wi-Fi import and export
-matrix is still being tested.
+and wait for **Live over Wi-Fi**. Repeat touch, keyboard, Pen, and screenshot
+checks, then confirm that the Files library loads. I have not tested every
+file-transfer format over Wi-Fi yet.
 
 Full Linux suspend turns off Wi-Fi, so a network packet cannot wake a disconnected
 radio. Press the power button or connect USB-C and Mirror will reconnect when the
@@ -324,7 +324,7 @@ tablet is reachable.
 
 ## If something fails
 
-Do not rerun random setup commands. Match the visible app state to the bundled
+Use the visible app state to find the matching section in the bundled
 [Troubleshooting guide](TROUBLESHOOTING.md).
 
 After a firmware A/B root-slot switch, first confirm that this release explicitly

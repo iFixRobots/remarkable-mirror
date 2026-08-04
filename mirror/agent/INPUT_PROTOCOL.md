@@ -167,10 +167,11 @@ current frame. The restart-budget reset and bounded retry policy protect
 Xochitl's stock start limit. The current-generation publication rule prevents
 recovery from silently publishing a frame-only session.
 
-The public repository has no binary release yet. Pen over Wi-Fi, killed-helper
-watchdog restoration from a public build, multi-touch, Unicode/IME input, and
-other tablet models or firmware versions remain outside the current support
-claim. Release notes must describe the exact paths exercised for that release.
+Pen over Wi-Fi is owner-tested in installed Gold `1.2608.416.5801`.
+Killed-helper watchdog restoration from a downloadable build, multi-touch,
+Unicode/IME input, and other tablet models or firmware versions remain outside
+the current support claim. Release notes must say exactly which paths were
+tested for that release.
 
 The event/device mechanics follow the Linux kernel's
 [uinput interface](https://kernel.org/doc/html/latest/input/uinput.html) and

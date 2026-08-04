@@ -8,7 +8,7 @@ Thanks for helping make reMarkable Mirror better.
 - Keep personal tablet data, document names, network details, passwords, keys,
   tokens, captures, and diagnostic logs out of commits.
 - Separate observed behavior from assumptions about reMarkable firmware.
-- Do not claim a tablet path is tested unless you exercised that exact path.
+- Do not claim a tablet path is tested unless you tested that exact path.
 - Keep input session-only. Do not add persistent Xochitl or virtual-input boot
   hooks.
 
@@ -31,7 +31,7 @@ dotnet build mirror\windows\ReMarkableMirror\ReMarkableMirror.csproj `
 ```
 
 Run the non-live focused PowerShell checks relevant to your change. A script with
-`Live` in its name may contact or change a provisioned tablet and is never a
+`Live` in its name may contact or change a prepared tablet and is never a
 casual test.
 
 ## Pull requests
@@ -41,9 +41,9 @@ A useful pull request explains:
 - the user-visible problem;
 - the chosen fix and why;
 - which exact checks ran;
-- whether a real tablet path was exercised;
+- whether a real tablet path was tested;
 - screenshots for visual changes; and
-- any behavior that remains unproved.
+- any behavior that has not been tested.
 
 Keep changes focused. Update user-facing documentation in the same pull request
 when behavior changes.

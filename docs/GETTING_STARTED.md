@@ -4,9 +4,8 @@ This is the full path from a normal Paper Pro Move to a working reMarkable
 Mirror installation on Windows. Read it once from the top before changing the
 tablet. The reset is the only part you cannot casually undo.
 
-I have kept this deliberately linear. If a step fails, stop there and use the
-linked troubleshooting section. Do not keep stacking later steps on top of a
-broken prerequisite.
+Follow these steps in order. If one fails, stop there and use the linked
+troubleshooting section before continuing.
 
 > [!NOTE]
 > There are two unrelated settings named Developer Mode in this guide.
@@ -14,10 +13,9 @@ broken prerequisite.
 > **Windows Developer Mode** lets Windows build and run development packages.
 
 > [!IMPORTANT]
-> I have exercised these pieces on my own tablet, but I have not yet run this
-> exact document from a blank Windows PC and a freshly reset tablet. I am not
-> going to pretend otherwise. During the source-only stage, stop at the first
-> mismatch and report it instead of improvising past it.
+> I have tested each part on my own tablet, but I have not yet followed this
+> guide from start to finish on a newly set up Windows PC and freshly reset
+> tablet. If a step does not match what you see, stop there and report it.
 
 ## What you will end up with
 
@@ -25,7 +23,7 @@ At the end of this guide, you should have:
 
 - reMarkable Mirror installed like a normal Windows app
 - live display and input over a direct USB-C cable
-- live display, touch, and keyboard input over your trusted local Wi-Fi
+- live display, touch, keyboard, and Pen input over Wi-Fi
 - screenshots copied or saved from the app
 - the Files drawer available whenever the tablet is unlocked
 - a dedicated SSH key used only for this tablet
@@ -34,9 +32,9 @@ At the end of this guide, you should have:
 
 ## Confirm that your setup matches mine
 
-The current code has been exercised on this exact configuration:
+I have tested the current version with this setup:
 
-| Part | Exercised configuration |
+| Part | Tested setup |
 | --- | --- |
 | Tablet | reMarkable Paper Pro Move, code name `chiappa` |
 | Tablet software | Beta `3.28.0.164`, OS build `5.8.199` |
@@ -52,11 +50,11 @@ values shown under **Settings > General > Help > About**.
 
 - A reMarkable Paper Pro Move
 - A USB-C cable that carries data, not a charge-only cable
-- Windows 11 x64 build `22621` or newer for an official package
-- Windows 11 x64 `23H2` or newer for the current source-only build path
-- The signed-in Windows account must itself be an administrator. Entering a
-  different administrator's credentials is not a tested install path.
-- A trusted Wi-Fi network shared by the PC and tablet for wireless use
+- Windows 11 x64 build `22621` or newer for the installer or portable app
+- Windows 11 x64 `23H2` or newer if you build the installer from source
+- Sign in to Windows with an administrator account. Setup stores Mirror and its
+  SSH files for that account.
+- A Wi-Fi network that both the PC and tablet can join
 - The tablet's reMarkable account credentials if you will restore cloud content
 - About 30 to 60 minutes when the Windows tools already exist, plus however long
   the tablet reset and sync take. A fresh source-build machine will take longer
@@ -86,31 +84,46 @@ If content is not visible in another official app, do not assume it is backed
 up. Stop and fix that first. PDF exports are useful copies, but they are not a
 full-fidelity restore of editable notebooks and organization.
 
-I do not yet have a one-size-fits-all local notebook backup and restore tool for
-other people's tablets. For a first public setup, the supported cloud path is
-the path I recommend.
+I do not yet have a general local notebook backup and restore tool for other
+people's tablets. For now, use reMarkable Cloud for backup and restore.
 
-## 2. Decide whether you have a release or source
+## 2. Get the Windows installer
 
-### If you downloaded an official release ZIP
+### Download it from GitHub Actions
 
-Extract the entire ZIP to a normal folder. Do not run `Install.cmd` from inside
-the compressed archive. Skip to
+The repository is private during owner review, so you must be signed into a
+GitHub account that has access to it.
+
+1. Open the repository's **Actions** tab.
+2. Open **Build Windows downloads**.
+3. Choose the newest successful run on `main`.
+4. Under **Artifacts**, download **remarkable-mirror-windows-installer**.
+5. Extract the downloaded artifact to a normal folder.
+6. Open the included `ReMarkableMirror-...-x64` folder. Keep everything in that
+   folder together.
+
+Do not run `Install.cmd` from inside a compressed archive. Skip to
 [Enable reMarkable Developer Mode](#4-enable-remarkable-developer-mode).
 
-Only use an official package from this repository's GitHub Releases page. A
-visible publisher name is not proof that a random download came from this
-project.
+The Actions run also includes **remarkable-mirror-portable-windows-x64**. That
+download is one `ReMarkableMirror.exe` for a tablet and Windows account that
+have already completed `Install.cmd`. It does not install the tablet components,
+SSH key, device profile, or Windows package, so it is not the first-time setup.
 
-### If there is no official release ZIP
+### If an official release ZIP exists
 
-That is the current state of the project. Build a development package from
-source by completing the next section.
+Download the Windows installer ZIP from this repository's GitHub Releases page,
+then extract the entire ZIP to a normal folder. Only use a download from this
+repository. A visible publisher name does not tell you where a file came from.
+
+### If you cannot use either download
+
+Build a development package from source by completing the next section.
 
 ## 3. Build the package from source
 
-This section is for the current source-only release state. Once official binary
-packages exist, ordinary users will skip it.
+Skip this section if you downloaded the complete installer from GitHub Actions
+or GitHub Releases.
 
 ### Install the Windows tools
 
@@ -208,7 +221,7 @@ Expected minimums and exact pins:
 > [!IMPORTANT]
 > The repository is private during owner review. The clone command below works
 > only for an authenticated GitHub account that has been added as a
-> collaborator. There is no anonymous source or binary download yet.
+> collaborator. There is no anonymous download yet.
 
 ```powershell
 git clone https://github.com/iFixRobots/remarkable-mirror.git
@@ -418,9 +431,8 @@ $fingerprint
 If the scan fails, the tablet is not ready. Wake it, finish the first post-boot
 unlock, confirm the USB address and route, and run only this scan block again.
 
-This is trust on first use across the physical USB cable. The cable and the
-direct `10.11.99.1` route are the trust anchor for this first pairing. The saved
-fingerprint is used to reject unexpected host-key changes later.
+This first USB connection saves your tablet's SSH fingerprint. Mirror uses that
+fingerprint to reject a different tablet identity later.
 
 Replace the private key's inherited Windows permissions with one rule for the
 current account:
@@ -509,15 +521,15 @@ extensions, Files loopback, and USB transport wake support. Touch, pen, and
 keyboard input are started only when Mirror connects. They are not installed as
 persistent tablet startup hooks.
 
-The installer also enables reMarkable's `rm-ssh-over-wlan` setting. That lets the
-same pinned SSH identity work over the trusted Wi-Fi network. It does not expose
-the Files web service directly on Wi-Fi.
+The installer also enables reMarkable's `rm-ssh-over-wlan` setting. Mirror then
+reuses the SSH key you set up over USB when the PC and tablet are on the same
+Wi-Fi network. It does not expose the Files web service directly on Wi-Fi.
 
 On success, the installer window closes and reMarkable Mirror opens
 automatically. If the installer window stays open, setup failed and the last
 lines contain the error. Read that error before closing the window.
 
-## 9. Prove the first USB connection
+## 9. Check the first USB connection
 
 Mirror should already be open after a successful install. If it was closed, open
 **reMarkable Mirror** from the Windows Start menu. Leave USB connected.
@@ -544,7 +556,7 @@ Check each item:
    as...** to open **Save As**.
 6. Open **Files** while the tablet is unlocked. Confirm the library loads.
 7. Drop a small disposable PDF onto the send area and confirm it appears on the
-   tablet. EPUB import is not part of the completed proof yet.
+   tablet. EPUB import has not been fully tested yet.
 8. Click a document to open **Save As** for its PDF, then save it to a normal
    Windows folder.
 9. Right-click a document and confirm you can choose **Save as PDF...** or
@@ -555,20 +567,20 @@ Files waits. That is expected:
 
 ![Files waits for unlock while the mirror stays live](images/remarkable-mirror-files.png)
 
-## 10. Prove Wi-Fi
+## 10. Check Wi-Fi
 
-Confirm the tablet itself says it is connected to the same trusted network as
-the PC. Remember that Developer Mode's reset removed the old Wi-Fi profile.
+Confirm that the tablet and PC are connected to the same Wi-Fi network. Remember
+that Developer Mode's reset removed the old Wi-Fi profile.
 
 With Mirror already working over USB:
 
 1. Unplug the USB-C cable.
-2. Leave the tablet awake for this first proof.
+2. Leave the tablet awake for this first check.
 3. Wait for the app to reconnect.
 4. Confirm the status reads **Live over Wi-Fi**.
-5. Repeat touch, keyboard, and screenshot checks.
-6. Open **Files** and confirm that the library loads over Wi-Fi. The broader
-   import and export matrix is still being tested.
+5. Repeat touch, keyboard, Pen, and screenshot checks.
+6. Open **Files** and confirm that the library loads over Wi-Fi. I have not
+   tested every file-transfer format over Wi-Fi yet.
 
 The app pins the tablet identity learned over the direct USB connection. It does
 not accept an arbitrary SSH host just because one appears on the network.
@@ -590,6 +602,7 @@ not accept an arbitrary SSH host just because one appears on the network.
 - [ ] a document can be saved as PDF and native RMDOC to a Windows folder
 - [ ] unplugging USB reaches **Live over Wi-Fi**
 - [ ] Wi-Fi touch and keyboard input work
+- [ ] Wi-Fi Pen input works
 - [ ] Wi-Fi Files loads when the tablet is unlocked
 
 If one box fails, do not call the setup finished. Start with
@@ -604,7 +617,7 @@ update:
 
 1. check that the release explicitly supports the tablet's new software
    version;
-2. if it does not, stop and report the new version instead of provisioning it;
+2. if it does not, stop and report the new version;
 3. if it does, connect the tablet over USB-C;
 4. wake it and complete the first post-boot unlock;
 5. run `Install.cmd` from that supported release again; and
@@ -620,8 +633,8 @@ repair after every future root-slot switch is not ready yet.
 | **Connecting** | A known route exists and the app is opening a connection | Wait briefly |
 | **Preparing your reMarkable** | Display and input for this connection are starting | Wait; unlock if this is the first post-boot unlock |
 | **Live over USB** | Display and input are ready through the cable | Nothing |
-| **Live over Wi-Fi** | Display, touch, and keyboard are ready through the trusted network | Nothing |
-| **Connect or wake your reMarkable** | No authenticated route is reachable | Wake it or connect USB-C |
+| **Live over Wi-Fi** | Display, touch, keyboard, and Pen are ready over Wi-Fi | Nothing |
+| **Connect or wake your reMarkable** | Mirror cannot reach the tablet | Wake it or connect USB-C |
 | **Repair** | The active tablet root is missing matching components | Confirm firmware support, then run the supported release's `Install.cmd` over unlocked USB |
 | Files says connect while Mirror is live | The tablet is locked or the stock Files listener is unavailable | Unlock and confirm USB web interface is enabled |
 

@@ -6,7 +6,7 @@ repeatedly rerunning the installer or pressing **Retry**.
 
 ## USB does not create the direct tablet network
 
-Initial pairing and tablet provisioning require the physical USB network. With
+First-time setup requires the physical USB network. With
 the tablet connected through a data-capable USB-C cable, Windows should show
 `10.11.99.11/27` and the tablet should answer as `10.11.99.1`.
 
@@ -25,8 +25,8 @@ If both are missing:
 4. unplug and reconnect USB once; and
 5. check Windows Device Manager for a disabled or failed USB network adapter.
 
-Do not substitute a Wi-Fi address for initial provisioning. The installer
-deliberately requires the direct USB source and route before changing the tablet.
+Do not try to do first-time setup over Wi-Fi. The installer must see the tablet
+over USB before it changes anything.
 
 ## SSH host scan returns nothing
 
@@ -67,20 +67,19 @@ setup.
 
 ## Connect or wake your reMarkable
 
-Mirror has no reachable authenticated route yet.
+Mirror cannot reach your tablet right now.
 
 - Connect USB-C for the most direct recovery path.
 - Wake the tablet physically if it entered full Linux suspend.
 - Complete the first post-boot passcode unlock.
-- For Wi-Fi, confirm the tablet is connected to the paired local network.
+- For Wi-Fi, confirm the tablet and PC are on the same Wi-Fi network.
 
 Deep suspend disconnects Wi-Fi. A network packet cannot reach a disconnected
 radio; physical power or USB is the expected recovery path.
 
 ## Repair tablet setup
 
-The app reached the tablet but the current active root does not have matching
-prerequisites. This commonly follows a firmware A/B root-slot switch.
+A tablet update may have removed the components Mirror installed.
 
 First confirm that the release explicitly supports the tablet's current
 software version. If it does not, stop and report the version. If it does,
@@ -95,25 +94,23 @@ Files is independent from display and input.
 2. Enable **Settings > General > Storage > USB web interface** on the tablet.
 3. Leave the Files drawer open for a few seconds or choose refresh.
 
-Xochitl deliberately closes its web service while passcode-locked. The existing
-SSH forward remains safe and the app detects the listener after unlock.
+The tablet turns off Files while it is passcode-locked. Unlock it and Mirror
+will reconnect Files automatically.
 
 ## Frames update but controls do not
 
-Current releases remove **Live** when the input connection disappears and make
-at most one automatic retry after cleaning up the old connection. Choose
-**Retry** if the app asks. If the condition persists, close Mirror once, verify
-physical tablet touch works, then reopen it.
+Mirror tries to reconnect the controls once. If it shows **Retry**, select it.
+If the controls still do not work, close Mirror, confirm touch works on the
+tablet, and reopen it.
 
 Do not repeatedly launch multiple Mirror instances. Include the app's copied
-diagnostic details in a bug report, after reviewing them for local network data.
+diagnostic details in a bug report after checking them for local network details.
 
 ## The tablet asks for its passcode after an apparent sleep screen
 
-An E-ink sleep image does not prove the tablet finished booting or that encrypted
-home storage is available. Enter the passcode on the tablet or through Mirror
-once input becomes available. Mirror treats this state neutrally rather than
-claiming a reboot cause.
+The screen can keep showing a sleep image while the tablet is still starting.
+Enter the passcode on the tablet, or through Mirror once input appears, to finish
+unlocking it.
 
 ## Wi-Fi stopped after Developer Mode setup
 
@@ -123,21 +120,23 @@ repair command can supply the missing Wi-Fi password.
 
 ## Package installation fails
 
-- There is no official public binary release yet. Build a development package
-  from this source rather than trusting an unofficial download.
+- For the current private build, download
+  **remarkable-mirror-windows-installer** from a successful
+  **Build Windows downloads** run in this repository's Actions tab.
 - Extract the full ZIP before running `Install.cmd`.
+- Do not use the portable `ReMarkableMirror.exe` for first-time setup. It does
+  not install the tablet components or create the Windows device profile.
 - Use PowerShell 7.5 or newer.
 - Keep the MSIX, certificate, dependency package, installer, and `components`
   directory together.
 - Do not mix files from different releases.
 
-For a future official package, do not treat the visible publisher name
-`CN=iFixRobots` as proof by itself. Confirm that the download came from this
-repository's GitHub Releases page, compare its SHA-256 and certificate
-fingerprint with the values published on that release, and then confirm the
-Authenticode signature is valid. The installer also checks package identity,
-publisher, version, and file hash against `release.json`, but an internal
-manifest cannot establish the origin of an untrusted download by itself.
+For a public release, a visible publisher name such as `CN=iFixRobots` does not
+show where the file came from. Download it from this repository's GitHub
+Releases page, compare the SHA-256 and certificate fingerprint with the release
+notes, and confirm the Authenticode signature is valid. The installer also
+checks the package identity, publisher, version, and file hash against
+`release.json`.
 
 ## After a firmware update
 

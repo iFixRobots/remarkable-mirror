@@ -1,8 +1,7 @@
 # Device setup reference
 
-For a first installation, use [Getting started](GETTING_STARTED.md). It is the
-canonical end-to-end guide and includes the Windows tools, exact commands,
-screenshots, install path, and success checklist.
+For a first installation, use [Getting started](GETTING_STARTED.md). It includes
+the Windows tools, commands, screenshots, install path, and success checklist.
 
 This page is the shorter tablet-side reference for people who already know the
 project.
@@ -38,7 +37,7 @@ For the tablet's own Developer Mode steps, follow reMarkable's
 ## Install the tablet pieces
 
 The first setup must use the direct USB route. Keep the tablet connected and
-unlocked while `Install.cmd` installs the matching probe, Xovi
+unlocked while `Install.cmd` installs the included probe, Xovi
 runtime and extensions, Files loopback, and transport wake component.
 
 Touch, pen, and keyboard input are session-only. Mirror starts them when a
@@ -49,7 +48,7 @@ connection is ready. They are not persistent tablet boot hooks.
 Mirror never needs the Wi-Fi password. Enter it only on the tablet. Wireless
 Mirror requires:
 
-- the tablet connected to the paired trusted network;
+- the tablet and PC connected to the same Wi-Fi network;
 - root SSH-over-WLAN enabled by the installer;
 - the dedicated SSH key and pinned host identity; and
 - a tablet state where the Wi-Fi radio is awake.

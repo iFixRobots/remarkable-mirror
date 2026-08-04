@@ -1,0 +1,190 @@
+name: Build Windows downloads
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  files-loopback:
+    name: Build Files loopback extension
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    outputs:
+      sha256: ${{ steps.build.outputs.sha256 }}
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Build and verify extension twice
+        id: build
+        shell: pwsh
+        run: |
+          if ($PSVersionTable.PSVersion -lt [version]'7.5') {
+              throw "PowerShell 7.5 or newer is required; found $($PSVersionTable.PSVersion)."
+          }
+          $build = & ./scripts/Build-RemarkableFilesLoopback.ps1 -Force
+          if (-not $build.TwoCleanBuildsHashIdentical -or
+              -not $build.NetworkDisabledDuringCompilation) {
+              throw 'The Files loopback build did not report both deterministic-build checks.'
+          }
+          "sha256=$($build.Sha256)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Upload verified extension
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: remarkable-files-loopback
+          path: tmp/mirror/files-loopback/rmmirror-files-loopback.so
+          if-no-files-found: error
+          retention-days: 1
+
+  windows-downloads:
+    name: Build Windows downloads
+    needs: files-loopback
+    runs-on: windows-2025
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: 10.0.302
+          cache: true
+          cache-dependency-path: |
+            mirror/windows/ReMarkableMirror/packages.lock.json
+            mirror/windows/ReMarkableMirror/packages.portable.lock.json
+
+      - name: Set up Go
+        uses: actions/setup-go@4dc6199c7b1a012772edbd06daecab0f50c9053c # v6.1.0
+        with:
+          go-version: 1.26.5
+          check-latest: false
+          cache: false
+
+      - name: Build portable Windows executable
+        shell: pwsh
+        run: |
+          if ($PSVersionTable.PSVersion -lt [version]'7.5') {
+              throw "PowerShell 7.5 or newer is required; found $($PSVersionTable.PSVersion)."
+          }
+          $project = 'mirror/windows/ReMarkableMirror/ReMarkableMirror.csproj'
+          $nugetConfig = 'mirror/windows/NuGet.config'
+          $portableOutput = Join-Path $env:RUNNER_TEMP 'remarkable-mirror-portable'
+          dotnet restore $project `
+              --configfile $nugetConfig `
+              --locked-mode `
+              -p:PublishProfile=win-x64-portable.pubxml
+          if ($LASTEXITCODE -ne 0) {
+              throw "Portable restore failed with exit code $LASTEXITCODE."
+          }
+          dotnet publish $project `
+              --configuration Release `
+              --no-restore `
+              -p:PublishProfile=win-x64-portable.pubxml `
+              -o $portableOutput
+          if ($LASTEXITCODE -ne 0) {
+              throw "Portable publish failed with exit code $LASTEXITCODE."
+          }
+          $portableFiles = @(Get-ChildItem -LiteralPath $portableOutput -File)
+          $portableExe = Join-Path $portableOutput 'ReMarkableMirror.exe'
+          if ($portableFiles.Count -ne 1 -or
+              -not (Test-Path -LiteralPath $portableExe -PathType Leaf)) {
+              throw 'Portable publish did not produce exactly one ReMarkableMirror.exe.'
+          }
+          $portableHash = (Get-FileHash -LiteralPath $portableExe -Algorithm SHA256).Hash.ToLowerInvariant()
+          "Portable EXE SHA-256: ``$portableHash``" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+
+      - name: Launch-smoke portable executable
+        shell: pwsh
+        run: |
+          $portableExe = Join-Path $env:RUNNER_TEMP 'remarkable-mirror-portable/ReMarkableMirror.exe'
+          $process = Start-Process -FilePath $portableExe -PassThru -WindowStyle Hidden
+          try {
+              $deadline = [DateTime]::UtcNow.AddSeconds(10)
+              do {
+                  Start-Sleep -Milliseconds 250
+                  $process.Refresh()
+                  if ($process.HasExited) {
+                      throw "Portable ReMarkableMirror.exe exited during launch smoke with code $($process.ExitCode)."
+                  }
+              } while ([DateTime]::UtcNow -lt $deadline)
+          }
+          finally {
+              $process.Refresh()
+              if (-not $process.HasExited) {
+                  Stop-Process -Id $process.Id -Force
+                  [void]$process.WaitForExit(5000)
+              }
+          }
+
+      - name: Upload portable Windows executable
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: remarkable-mirror-portable-windows-x64
+          path: ${{ runner.temp }}/remarkable-mirror-portable/ReMarkableMirror.exe
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Download verified extension
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: remarkable-files-loopback
+          path: ${{ runner.temp }}/remarkable-files-loopback
+
+      - name: Build complete installer folder
+        shell: pwsh
+        env:
+          FILES_LOOPBACK_SHA256: ${{ needs.files-loopback.outputs.sha256 }}
+        run: |
+          if ($PSVersionTable.PSVersion -lt [version]'7.5') {
+              throw "PowerShell 7.5 or newer is required; found $($PSVersionTable.PSVersion)."
+          }
+          $prebuilt = Join-Path $env:RUNNER_TEMP 'remarkable-files-loopback/rmmirror-files-loopback.so'
+          $output = Join-Path $env:RUNNER_TEMP 'remarkable-mirror-package'
+          & ./scripts/Build-RemarkableMirrorPackage.ps1 `
+              -OutputDirectory $output `
+              -PrebuiltFilesLoopbackPath $prebuilt `
+              -PrebuiltFilesLoopbackSha256 $env:FILES_LOOPBACK_SHA256
+
+          $releaseDirectories = @(Get-ChildItem -LiteralPath $output -Directory -Filter 'ReMarkableMirror-*-x64')
+          $releaseArchives = @(Get-ChildItem -LiteralPath $output -File -Filter 'ReMarkableMirror-*-x64.zip')
+          if ($releaseDirectories.Count -ne 1 -or $releaseArchives.Count -ne 1) {
+              throw 'Packaging did not produce exactly one installer folder and one matching ZIP.'
+          }
+          foreach ($requiredRelativePath in @(
+                  'Install.cmd',
+                  'Install-RemarkableMirror.ps1',
+                  'release.json',
+                  'ReMarkableMirror.cer',
+                  'components/rmmirror-probe',
+                  'components/rmmirror-transport-wake',
+                  'components/rmmirror-files-loopback.so'
+              )) {
+              $requiredPath = Join-Path $releaseDirectories[0].FullName $requiredRelativePath
+              if (-not (Test-Path -LiteralPath $requiredPath -PathType Leaf)) {
+                  throw "Installer folder is missing: $requiredRelativePath"
+              }
+          }
+          $applicationPackages = @(Get-ChildItem -LiteralPath $releaseDirectories[0].FullName -File -Filter '*.msix')
+          if ($applicationPackages.Count -ne 1) {
+              throw "Installer folder contains $($applicationPackages.Count) application MSIX files instead of one."
+          }
+
+      - name: Upload complete Windows installer
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: remarkable-mirror-windows-installer
+          path: ${{ runner.temp }}/remarkable-mirror-package
+          if-no-files-found: error
+          retention-days: 30

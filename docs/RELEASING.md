@@ -5,6 +5,12 @@ iFixRobots package identity. The build uses .NET SDK 10.0.302 and Go 1.26.5;
 the root `global.json`, Go module, CI workflow, and package builder enforce those
 exact versions.
 
+Every push to `main` also creates private GitHub Actions downloads for owner
+review. Those artifacts are installer and portable build candidates until the
+workflow completes and they are downloaded and checked. They are not a public
+release. A public release still follows the signing, source, and publishing
+steps below.
+
 ## Before building
 
 1. Reconcile user-facing documentation and `CHANGELOG.md`.
@@ -52,7 +58,7 @@ Official builds refuse a dirty tree. `release.json` must contain:
 - README and Getting started screenshots contain no personal notebooks,
   handwritten content, credentials, network details, or background windows.
 - The package is non-development after installation.
-- The changed path is exercised on a real tablet.
+- The changed path is tested on a real tablet.
 - Previously accepted window shape, Files motion, input, and screenshot behavior
   remain unchanged unless the release intentionally changes them.
 - The corresponding-source archive contains the exact tagged Mirror repository,
@@ -67,11 +73,11 @@ Tag the exact source commit. Attach the ZIP, MSIX, public certificate, and
 `release.json` to the GitHub release. Attach the versioned corresponding-source
 archive beside them. Publish SHA-256 values for the ZIP, MSIX, and source archive
 plus the signing certificate fingerprint in the release notes. A publisher
-common name or a manifest inside the download is not sufficient origin proof on
-its own.
+common name or a manifest inside the download does not tell users where the file
+came from.
 
-Release notes must distinguish exercised behavior from work that remains
-unproved. A binary release is not complete until its corresponding source is
+Release notes must distinguish tested behavior from work that has not been
+tested. A binary release is not complete until its corresponding source is
 available from the same release.
 
 Never publish an artifact built from a non-public source tree or a dirty tree.

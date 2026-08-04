@@ -167,9 +167,47 @@ Get-ChildItem scripts\Test-RemarkableMirror*.ps1 |
     ForEach-Object { & $_.FullName }
 ```
 
-Scripts with `Live` in the name can contact or change an already provisioned
+Scripts with `Live` in the name can contact or change an already prepared
 tablet. Read the named checkpoint before running one. They are not onboarding
 shortcuts.
+
+## Build the portable Windows executable
+
+The portable build is one self-contained x64 `.exe`. It is useful for a Windows
+account and tablet that have already completed the full installer. It does not
+replace first-time setup.
+
+```powershell
+$project = 'mirror\windows\ReMarkableMirror\ReMarkableMirror.csproj'
+$nugetConfig = 'mirror\windows\NuGet.config'
+
+dotnet restore $project `
+    --configfile $nugetConfig `
+    --locked-mode `
+    -p:PublishProfile=win-x64-portable.pubxml
+
+dotnet publish $project `
+    --configuration Release `
+    --no-restore `
+    -p:PublishProfile=win-x64-portable.pubxml `
+    -o artifacts\remarkable-mirror-portable
+```
+
+The normal package remains on the same Windows App SDK used by the accepted
+Gold build. The portable profile has a separate locked dependency set for its
+unpackaged Windows data folders.
+
+## GitHub Actions downloads
+
+`.github/workflows/package.yml` runs after each push to `main` and can also be
+started manually. It builds the Files loopback extension on Ubuntu, then builds
+and uploads two Windows artifacts:
+
+- `remarkable-mirror-windows-installer`
+- `remarkable-mirror-portable-windows-x64`
+
+The installer artifact contains the complete release folder and shareable ZIP.
+The portable artifact contains exactly one `ReMarkableMirror.exe`.
 
 ## Build a development package
 
@@ -204,7 +242,7 @@ Build the package first, then follow these sections of Getting started:
 5. [Pair one dedicated SSH key](GETTING_STARTED.md#7-pair-one-dedicated-ssh-key)
 6. [Install Mirror and its tablet components](GETTING_STARTED.md#8-install-mirror-and-its-tablet-components)
 
-The package flow is the one supported way to provision public-tree components.
+The package flow is the supported way to install the tablet components.
 The repository does not include a second launcher that stages arbitrary tablet
 state outside that package.
 
@@ -217,4 +255,4 @@ state outside that package.
 - Keep root passwords, SSH identities, host captures, and document content out
   of the repository and issue attachments.
 - Do not claim a device or firmware version is supported until the affected path
-  has actually been exercised there.
+  has actually been tested there.

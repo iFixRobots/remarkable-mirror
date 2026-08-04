@@ -1,12 +1,11 @@
 # Privacy
 
-reMarkable Mirror is local-first software.
+reMarkable Mirror talks directly to your tablet.
 
 ## Data flow
 
-The app connects directly to the tablet over its USB network or a trusted local
-Wi-Fi network. There is no iFixRobots account, relay, analytics service, document
-index, or screenshot upload service.
+The app connects to the tablet over USB or Wi-Fi. There is no iFixRobots account,
+relay, analytics service, document index, or screenshot upload service.
 
 Mirror handles these categories locally:
 
@@ -20,13 +19,13 @@ Mirror handles these categories locally:
 
 ## Local storage
 
-The device profile is stored for the current Windows user. It contains route and
-capability metadata plus references to credential files, not the Wi-Fi password.
-The Wi-Fi password remains managed by the tablet and Windows.
+The device profile is stored for the current Windows user. It contains connection
+settings and paths to Mirror's credential files. It never stores the Wi-Fi
+password. The tablet and Windows manage that password themselves.
 
-Clipboard screenshots use a temporary PNG backing file so they remain valid
-after the app closes. Bounded automatic cleanup of those files is still open;
-users can remove old Mirror PNGs from their Windows temporary directory.
+Clipboard screenshots use a temporary PNG file so they remain valid after the
+app closes. Mirror does not automatically remove those files yet. You can delete
+old Mirror PNGs from the Windows temporary directory.
 
 ## Logs
 
@@ -37,15 +36,14 @@ before posting them publicly.
 
 ## Network boundary
 
-Setup enables Developer Mode root SSH over WLAN and stores a dedicated
-passphrase-free SSH key for non-interactive `BatchMode` connections. The key
-lives under the current Windows user's `.ssh` directory. The device profile and
-wake token are ACL-restricted to that user. All three remain outside the
-repository. Review and protect the key's Windows ACL because anyone who obtains
-it can authenticate as root to the paired tablet.
+Setup enables Developer Mode root SSH over WLAN and creates a dedicated SSH key
+so Mirror can reconnect without prompting. The key lives under the current
+Windows user's `.ssh` directory. Windows limits the device profile and wake token
+to that user. Anyone who obtains the SSH key can access the paired tablet as
+root, so keep it private.
 
 Files and wake services use bearer credentials on the tablet. Mirror does not
 expose them directly to the LAN. Files travels through authenticated SSH. The
 wake HTTP endpoint binds only to tablet loopback and the direct USB interface;
 the pre-SSH Windows request uses only a verified USB route. Use Wi-Fi Mirror
-only on a network you trust.
+only on a private network you control. Avoid public and guest Wi-Fi.

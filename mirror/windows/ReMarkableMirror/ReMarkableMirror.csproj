@@ -12,6 +12,11 @@
     <WinUISDKReferences>false</WinUISDKReferences>
     <EnableMsixTooling>true</EnableMsixTooling>
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <PortablePublishProfileSelected Condition="'$(PublishProfile)' == 'win-x64-portable' or '$(PublishProfile)' == 'win-x64-portable.pubxml'">true</PortablePublishProfileSelected>
+    <WindowsAppSdkPackageVersion Condition="'$(PortablePublishProfileSelected)' == 'true'">2.3.1</WindowsAppSdkPackageVersion>
+    <WindowsAppSdkPackageVersion Condition="'$(WindowsAppSdkPackageVersion)' == ''">1.8.260317003</WindowsAppSdkPackageVersion>
+    <NuGetLockFilePath Condition="'$(PortablePublishProfileSelected)' == 'true'">$(MSBuildProjectDirectory)\packages.portable.lock.json</NuGetLockFilePath>
+    <DefineConstants Condition="'$(PortablePublishProfileSelected)' == 'true'">$(DefineConstants);REMARKABLE_MIRROR_PORTABLE</DefineConstants>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
   </PropertyGroup>
@@ -53,7 +58,7 @@
   -->
   <ItemGroup>
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.7705" />
-    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260317003" />
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="$(WindowsAppSdkPackageVersion)" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools.WinApp" Version="0.3.1" />
   </ItemGroup>
 

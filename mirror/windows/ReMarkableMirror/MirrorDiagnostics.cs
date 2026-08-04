@@ -1,6 +1,4 @@
 using System.Security;
-using Windows.Storage;
-
 namespace ReMarkableMirror;
 
 public sealed class MirrorDiagnostics
@@ -13,7 +11,7 @@ public sealed class MirrorDiagnostics
     public MirrorDiagnostics()
     {
         FilePath = Path.Combine(
-            ApplicationData.Current.LocalFolder.Path,
+            MirrorApplicationData.LocalFolder.Path,
             "mirror.log");
     }
 

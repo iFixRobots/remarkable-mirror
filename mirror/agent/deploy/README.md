@@ -88,7 +88,8 @@ service and install script. Direct tablet use is:
 
 Installation affects only the currently active A/B root slot. After an OTA or
 slot switch, connect by USB, complete the first post-boot unlock, and rerun
-`Install.cmd`. Automatic cross-slot provisioning is not implemented.
+`Install.cmd`. Automatic installation on a newly active root slot is not
+implemented.
 
 Install, rollback, and removal are transactional. The script snapshots the
 prior files and enablement, acquires a distinct timed kernel wake lock, and
@@ -100,14 +101,14 @@ does not silently invalidate the paired Windows host.
 
 The host-side entry point is
 `scripts/Install-RemarkableMirrorPrerequisites.ps1`. It stages and verifies the
-release components, installs the service, retrieves the wake token over trusted
-USB SSH, and stores that token for the current Windows user without printing it.
-For Wi-Fi Mirror it also runs `rm-ssh-over-wlan on`, verifies the root
-`dropbear-wlan.socket`, and proves the same pinned host identity over WLAN. That
-deliberately enables root SSH on the tablet's Wi-Fi interface. The dedicated
-SSH key is passphrase-free because every product connection uses
-`BatchMode=yes`; protect it as a root credential and use Wi-Fi Mirror only on a
-trusted network.
+release components, installs the service, retrieves the wake token over the
+direct USB SSH connection, and stores that token for the current Windows user
+without printing it. For Wi-Fi Mirror it also runs `rm-ssh-over-wlan on`, checks
+the root `dropbear-wlan.socket`, and confirms that Wi-Fi reaches the same tablet
+identity first saved over USB. This enables root SSH on the tablet's Wi-Fi
+interface. The dedicated SSH key is passphrase-free because every product
+connection uses `BatchMode=yes`; protect it as a root credential and use Wi-Fi
+Mirror only on a private network you control.
 
 ## Packaged tablet components
 
@@ -134,8 +135,8 @@ at an explicit `Retry` instead of another hidden handoff.
 
 ## Current support boundary
 
-The current source supports USB and Wi-Fi display, `Touch + Type`, short-sleep
-recovery, Files over an authenticated SSH tunnel, lock-gated Files recovery
-after unlock, and fail-open sleep after USB detach. There is no binary release
-yet. Pen over Wi-Fi, full-suspend wireless wake, automatic A/B slot
-provisioning, and live failure recovery remain separate release proofs.
+The current source supports USB and Wi-Fi display, `Touch + Type`, Pen,
+short-sleep recovery, Files through SSH, Files recovery after unlock, and normal
+sleep after USB detach. Pen over Wi-Fi is owner-tested in installed Gold
+`1.2608.416.5801`. Full-suspend wireless wake, automatic A/B slot repair, and
+recovery from every live connection failure remain separate work.

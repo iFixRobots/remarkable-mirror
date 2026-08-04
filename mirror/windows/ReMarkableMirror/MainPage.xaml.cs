@@ -2685,7 +2685,7 @@ public sealed partial class MainPage : Page
         {
             var extension = native ? ".rmdoc" : ".pdf";
             var exportDirectory = Path.Combine(
-                ApplicationData.Current.TemporaryFolder.Path,
+                MirrorApplicationData.TemporaryFolder.Path,
                 "exports");
             stagedPath = Path.Combine(exportDirectory, $"{Guid.NewGuid():N}{extension}");
             Directory.CreateDirectory(exportDirectory);
@@ -2807,7 +2807,7 @@ public sealed partial class MainPage : Page
         try
         {
             var frameAtClick = _latestFrame.ToArray();
-            var screenshotFile = await ApplicationData.Current.TemporaryFolder.CreateFileAsync(
+            var screenshotFile = await MirrorApplicationData.TemporaryFolder.CreateFileAsync(
                 $"reMarkable screenshot {DateTime.Now:yyyy-MM-dd HH-mm-ss}.png",
                 CreationCollisionOption.GenerateUniqueName);
             using (var stream = await screenshotFile.OpenAsync(FileAccessMode.ReadWrite))

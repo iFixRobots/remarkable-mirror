@@ -5,6 +5,8 @@ param(
     [string]$Publisher = 'CN=iFixRobots',
     [Guid]$PackageIdentity = [Guid]'A184FD6B-E071-4B75-A3B4-DF4397457284',
     [string]$PublisherDisplayName,
+    [string]$PrebuiltFilesLoopbackPath,
+    [string]$PrebuiltFilesLoopbackSha256,
     [switch]$AllowDirtyOfficialDevelopmentBuild
 )
 
@@ -22,6 +24,7 @@ $installerLauncherPath = Join-Path $PSScriptRoot 'Install-RemarkableMirror.cmd'
 $prerequisiteScriptPath = Join-Path $PSScriptRoot 'Install-RemarkableMirrorPrerequisites.ps1'
 $captureHelperPath = Join-Path $PSScriptRoot 'lib\RemarkableRmctlCapture.ps1'
 $releaseProvenancePath = Join-Path $PSScriptRoot 'lib\RemarkableReleaseProvenance.ps1'
+$filesLoopbackArtifactHelperPath = Join-Path $PSScriptRoot 'lib\RemarkableFilesLoopbackArtifact.ps1'
 $probeBuildScriptPath = Join-Path $PSScriptRoot 'Build-RemarkableMirrorAgent.ps1'
 $probeMainSourcePath = Join-Path $repositoryRoot 'mirror\agent\cmd\rmmirror-probe\main.go'
 $passiveRouteProbePath = Join-Path $repositoryRoot 'mirror\windows\ReMarkableMirror\PassiveRouteProbe.cs'
@@ -106,6 +109,7 @@ foreach ($requiredPath in @(
         $prerequisiteScriptPath,
         $captureHelperPath,
         $releaseProvenancePath,
+        $filesLoopbackArtifactHelperPath,
         $probeBuildScriptPath,
         $probeMainSourcePath,
         $passiveRouteProbePath,
@@ -130,6 +134,16 @@ foreach ($requiredPath in @(
     if (-not (Test-Path -LiteralPath $requiredPath -PathType Leaf)) {
         throw "Required packaging input does not exist: $requiredPath"
     }
+}
+
+$hasPrebuiltFilesLoopbackPath = -not [string]::IsNullOrWhiteSpace($PrebuiltFilesLoopbackPath)
+$hasPrebuiltFilesLoopbackHash = -not [string]::IsNullOrWhiteSpace($PrebuiltFilesLoopbackSha256)
+if ($hasPrebuiltFilesLoopbackPath -ne $hasPrebuiltFilesLoopbackHash) {
+    throw 'PrebuiltFilesLoopbackPath and PrebuiltFilesLoopbackSha256 must be supplied together.'
+}
+$usePrebuiltFilesLoopback = $hasPrebuiltFilesLoopbackPath
+if ($usePrebuiltFilesLoopback) {
+    $PrebuiltFilesLoopbackPath = [System.IO.Path]::GetFullPath($PrebuiltFilesLoopbackPath)
 }
 
 $probeMainSource = [System.IO.File]::ReadAllText($probeMainSourcePath)
@@ -170,6 +184,7 @@ if (@($probeVersionConsumers | Where-Object { $_ -cne $mirrorProbeVersion }).Cou
 }
 
 . $releaseProvenancePath
+. $filesLoopbackArtifactHelperPath
 $releaseProvenance = Get-RemarkableReleaseProvenance `
     -RepositoryRoot $repositoryRoot `
     -Publisher $publisher `
@@ -507,10 +522,17 @@ try {
     $releaseTransportPath = Join-Path $releaseComponentDirectory 'rmmirror-transport-wake'
     Copy-Item -LiteralPath $transportBuild.OutputPath -Destination $releaseTransportPath
 
-    $filesLoopbackBuildDirectory = Join-Path $temporaryRoot 'files-loopback'
-    $filesLoopbackBuild = & $filesLoopbackBuildScriptPath `
-        -OutputDirectory $filesLoopbackBuildDirectory `
-        -Force
+    $filesLoopbackBuild = if ($usePrebuiltFilesLoopback) {
+        Get-VerifiedRemarkableFilesLoopbackArtifact `
+            -Path $PrebuiltFilesLoopbackPath `
+            -ExpectedSha256 $PrebuiltFilesLoopbackSha256
+    }
+    else {
+        $filesLoopbackBuildDirectory = Join-Path $temporaryRoot 'files-loopback'
+        & $filesLoopbackBuildScriptPath `
+            -OutputDirectory $filesLoopbackBuildDirectory `
+            -Force
+    }
     if ($null -eq $filesLoopbackBuild -or
         -not (Test-Path -LiteralPath $filesLoopbackBuild.OutputPath -PathType Leaf)) {
         throw 'The Files loopback build did not return a usable ARM64 shared object.'
