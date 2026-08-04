@@ -84,6 +84,8 @@ jobs:
           dotnet restore $project `
               --configfile $nugetConfig `
               --locked-mode `
+              -p:Configuration=Release `
+              -p:PublishReadyToRun=true `
               -p:PublishProfile=win-x64-portable.pubxml
           if ($LASTEXITCODE -ne 0) {
               throw "Portable restore failed with exit code $LASTEXITCODE."
@@ -91,6 +93,7 @@ jobs:
           dotnet publish $project `
               --configuration Release `
               --no-restore `
+              -p:PublishReadyToRun=true `
               -p:PublishProfile=win-x64-portable.pubxml `
               -o $portableOutput
           if ($LASTEXITCODE -ne 0) {
