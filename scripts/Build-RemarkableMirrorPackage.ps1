@@ -638,9 +638,9 @@ For another PC or tablet, Developer Mode, the first post-boot unlock, an
 authorized SSH identity and host trust must already be set up. This installer
 does not enable Developer Mode, bypass the tablet passcode, or create SSH trust.
 Enabling Developer Mode performs a factory reset and removes saved Wi-Fi
-networks and credentials. After the reset, rejoin the trusted network from the
-tablet UI and wait until it explicitly says Connected. Enter that password only
-on the tablet. The Files view uses the tablet's stock web interface through the
+networks and credentials. After the reset, reconnect the tablet to Wi-Fi from
+the tablet UI and wait until it explicitly says Connected. Enter that password
+only on the tablet. The Files view uses the tablet's stock web interface through the
 pinned SSH connection; the package-matching loopback extension makes it
 available for either USB or Wi-Fi without exposing it directly on the Wi-Fi
 network. Read ONBOARDING.md

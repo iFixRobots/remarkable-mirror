@@ -109,6 +109,9 @@ The Actions run also includes **remarkable-mirror-portable-windows-x64**. That
 download is one `ReMarkableMirror.exe` for a tablet and Windows account that
 have already completed `Install.cmd`. It does not install the tablet components,
 SSH key, device profile, or Windows package, so it is not the first-time setup.
+The portable EXE is not Authenticode-signed, so Windows may warn before opening
+it. Actions downloads remain build candidates until they are installed and
+owner-tested.
 
 ### If an official release ZIP exists
 

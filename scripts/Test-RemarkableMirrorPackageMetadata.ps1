@@ -122,11 +122,16 @@ foreach ($requiredMarker in @(
         "legal = [ordered]@{",
         "microsoft_notices = 'ThirdParty/Microsoft/README.md'",
         'The included installer reads the exact package identity, publisher, version and',
-        'explicitly opts into a local development artifact marked source_dirty=true.'
+        'explicitly opts into a local development artifact marked source_dirty=true.',
+        'After the reset, reconnect the tablet to Wi-Fi from'
     )) {
     if (-not $builderText.Contains($requiredMarker, [StringComparison]::Ordinal)) {
         throw "Package builder is missing source metadata/identity marker: $requiredMarker"
     }
+}
+
+if ($builderText.Contains('trusted network', [StringComparison]::OrdinalIgnoreCase)) {
+    throw 'Package builder must use plain Wi-Fi wording instead of trusted-network language.'
 }
 
 $releaseProvenanceText = [System.IO.File]::ReadAllText($releaseProvenancePath)

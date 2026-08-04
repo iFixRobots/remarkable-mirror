@@ -76,6 +76,10 @@ Every push to `main` builds two Windows downloads in GitHub Actions:
   `ReMarkableMirror.exe`. Use it only after the installer has already prepared
   the tablet and Windows account.
 
+These private Actions downloads are build candidates until they are installed
+and owner-tested. The portable EXE is not Authenticode-signed, so Windows may
+warn before opening it. Use the complete installer for first-time setup.
+
 Open **Actions > Build Windows downloads**, choose a successful run, and find
 both files under **Artifacts**. [Getting started](docs/GETTING_STARTED.md) walks
 through the complete installer path.

@@ -6,8 +6,9 @@ the root `global.json`, Go module, CI workflow, and package builder enforce thos
 exact versions.
 
 Every push to `main` also creates private GitHub Actions downloads for owner
-review. Those artifacts are installer and portable build candidates until the
-workflow completes and they are downloaded and checked. They are not a public
+review. Those artifacts remain installer and portable build candidates after a
+successful workflow. Downloading and inspecting them proves the files, but only
+installation and owner testing can promote a candidate. They are not a public
 release. A public release still follows the signing, source, and publishing
 steps below.
 
