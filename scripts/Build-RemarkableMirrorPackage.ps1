@@ -515,11 +515,12 @@ try {
     Copy-Item -LiteralPath $xoviArchivePath -Destination $releaseXoviPath
 
     $releaseNoticeDirectory = Join-Path $releaseDirectory 'ThirdParty\XOVI'
-    New-Item -ItemType Directory -Path $releaseNoticeDirectory -Force | Out-Null
+    $releaseMicrosoftNoticesDirectory = Join-Path $releaseDirectory 'ThirdParty\Microsoft'
+    New-Item -ItemType Directory -Path $releaseNoticeDirectory, $releaseMicrosoftNoticesDirectory -Force | Out-Null
     Copy-Item -LiteralPath $xoviNoticePath -Destination $releaseNoticeDirectory
     Copy-Item -LiteralPath $xoviLicensePath -Destination $releaseNoticeDirectory
-    Copy-Item -LiteralPath $microsoftNoticesDirectoryPath `
-        -Destination (Join-Path $releaseDirectory 'ThirdParty') `
+    Copy-Item -Path (Join-Path $microsoftNoticesDirectoryPath '*') `
+        -Destination $releaseMicrosoftNoticesDirectory `
         -Recurse
 
     & $signTool sign /fd SHA256 /sha1 $certificate.Thumbprint /s My $packagePath
