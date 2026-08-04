@@ -1,120 +1,74 @@
-# Device setup
+# Device setup reference
 
-First setup requires a direct USB-C connection. Mirror can use Wi-Fi afterward.
+For a first installation, use [Getting started](GETTING_STARTED.md). It is the
+canonical end-to-end guide and includes the Windows tools, exact commands,
+screenshots, install path, and success checklist.
 
-## 1. Back up before Developer Mode
+This page is the shorter tablet-side reference for people who already know the
+project.
 
-Developer Mode factory-resets the Paper Pro Move. Save the tablet content you
-care about before enabling it. Use reMarkable's supported sync/export paths or
-the stock USB web interface while it is still available.
+## Required tablet state
 
-The official starting point is reMarkable's
+- reMarkable Paper Pro Move in Developer Mode
+- first passcode unlock after the current boot completed
+- direct USB address `10.11.99.1`
+- Windows direct USB address `10.11.99.11/27`
+- dedicated key at `%USERPROFILE%\.ssh\remarkable_chiappa_ed25519`
+- pinned host key at `%USERPROFILE%\.ssh\remarkable_known_hosts`
+- **Settings > General > Storage > USB web interface** enabled
+- tablet rejoined to Wi-Fi after the Developer Mode reset
+
+Developer Mode setup, SSH trust, and public-key installation are documented in
+[Pair one dedicated SSH key](GETTING_STARTED.md#7-pair-one-dedicated-ssh-key).
+
+## Developer Mode facts that matter here
+
+- Enabling it factory-resets the tablet.
+- The reset deletes saved Wi-Fi networks.
+- The root username and generated password are under **Settings > General >
+  Help > About > Copyrights and Licenses**.
+- SSH over Wi-Fi is off by default.
+- Mirror's installer enables reMarkable's `rm-ssh-over-wlan on` setting.
+- Full Linux suspend disconnects Wi-Fi and cannot be woken by a packet that
+  cannot reach the radio.
+
+For the tablet's own Developer Mode steps, follow reMarkable's
 [Developer Mode documentation](https://developer.remarkable.com/documentation/developer-mode).
 
-## 2. Enable Developer Mode
+## Install the tablet pieces
 
-Follow the instructions shown by reMarkable for your tablet and software
-version. Let the reset and first boot finish, then enter the tablet passcode once.
+The first setup must use the direct USB route. Keep the tablet connected and
+unlocked while `Install.cmd` installs the matching probe, Xovi
+runtime and extensions, Files loopback, and transport wake component.
 
-The reset removes saved Wi-Fi networks. Reconnect the tablet to Wi-Fi from the
-tablet UI before wireless Mirror use.
+Touch, pen, and keyboard input are session-only. Mirror starts them when a
+connection is ready. They are not persistent tablet boot hooks.
 
-For the Files drawer, enable **General settings > Storage > USB web interface**
-on the tablet after setup.
+## Use Wi-Fi
 
-## 3. Prepare Windows
+Mirror never needs the Wi-Fi password. Enter it only on the tablet. Wireless
+Mirror requires:
 
-Install PowerShell 7.5 or newer and confirm the Windows OpenSSH client exists:
+- the tablet connected to the paired trusted network;
+- root SSH-over-WLAN enabled by the installer;
+- the dedicated SSH key and pinned host identity; and
+- a tablet state where the Wi-Fi radio is awake.
 
-```powershell
-pwsh --version
-Get-Command ssh.exe, ssh-keygen.exe, ssh-keyscan.exe
-```
-
-Connect the unlocked tablet directly over USB-C. The Developer Mode USB address
-is `10.11.99.1`.
-
-## 4. Create a dedicated SSH key
-
-Mirror defaults to a dedicated Ed25519 key and known-hosts file:
-
-```powershell
-$key = Join-Path $env:USERPROFILE '.ssh\remarkable_chiappa_ed25519'
-$knownHosts = Join-Path $env:USERPROFILE '.ssh\remarkable_known_hosts'
-
-New-Item -ItemType Directory -Path (Split-Path $key) -Force | Out-Null
-ssh-keygen.exe -t ed25519 -f $key -C 'remarkable-mirror' -N ''
-ssh-keyscan.exe -t ed25519 10.11.99.1 | Set-Content -LiteralPath $knownHosts -Encoding ascii
-```
-
-The empty `-N` value deliberately creates this dedicated key without a
-passphrase. Mirror starts OpenSSH with `BatchMode=yes`, so it cannot stop to ask
-for a key passphrase. Do not reuse this key. Anyone who obtains it can
-authenticate as root to the paired Developer Mode tablet, so protect the
-Windows account and its `.ssh` directory.
-
-The host-key scan is intentionally performed only across the direct physical
-USB link. Review the scanned fingerprint before trusting it:
-
-```powershell
-ssh-keygen.exe -lf $knownHosts
-```
-
-## 5. Install the public key
-
-Use the root password shown by the tablet's Developer Mode interface for this
-one command:
-
-```powershell
-Get-Content -LiteralPath "$key.pub" |
-    ssh.exe -F NUL `
-        -o "UserKnownHostsFile=$knownHosts" `
-        -o StrictHostKeyChecking=yes `
-        root@10.11.99.1 `
-        'umask 077; mkdir -p /home/root/.ssh; cat >> /home/root/.ssh/authorized_keys'
-```
-
-Verify key-only authentication:
-
-```powershell
-ssh.exe -F NUL `
-    -i $key `
-    -o BatchMode=yes `
-    -o IdentitiesOnly=yes `
-    -o "UserKnownHostsFile=$knownHosts" `
-    -o StrictHostKeyChecking=yes `
-    root@10.11.99.1 true
-```
-
-Keep the private key on this Windows account. Never add it to this repository.
-
-## 6. Run the installer
-
-There is no official public binary release yet. Build a development package as
-described in [Development](DEVELOPMENT.md), extract its ZIP, and run
-`Install.cmd`. Keep the tablet connected and unlocked until setup finishes.
-Setup installs matching tablet companions and records a protected local device
-profile for USB and Wi-Fi routing.
-
-The installer runs the tablet's `rm-ssh-over-wlan on` command and verifies the
-root `dropbear-wlan.socket`. This is what makes Wi-Fi Mirror possible. It means
-the tablet accepts root SSH on its trusted Wi-Fi network using the dedicated
-key above. Mirror never needs the Wi-Fi password, but the root SSH service is a
-real security boundary. Use wireless Mirror only on a network you trust. Wi-Fi
-Mirror cannot work while root SSH-over-WLAN is disabled.
-
-The installer never needs the Wi-Fi password. Enter Wi-Fi credentials only on
-the tablet.
+The stock Files service is not exposed directly on Wi-Fi. Mirror reaches the
+tablet-local listener through authenticated SSH forwarding.
 
 ## After firmware updates
 
-The tablet uses A/B root slots. A firmware update can switch to a root that does
-not contain Mirror prerequisites. If the app asks for repair after an update:
+The tablet uses A/B root slots. A firmware update can switch to a root without
+the package-matching components. If the app shows **Repair**:
 
-1. connect over USB-C;
-2. unlock the tablet;
-3. run `Install.cmd` again; and
-4. open Mirror after setup completes.
+1. confirm that the release explicitly supports the tablet's new software
+   version;
+2. if it does not, stop and report the new version;
+3. if it does, connect over USB-C;
+4. complete the first post-boot unlock;
+5. run `Install.cmd` from that supported release again; and
+6. reopen Mirror after setup finishes.
 
-Manual re-provisioning is supported. Fully automatic repair after a root-slot
-switch is not yet a shipped capability.
+Running the installer again is supported. Automatic repair after every future
+root-slot change is not ready yet.

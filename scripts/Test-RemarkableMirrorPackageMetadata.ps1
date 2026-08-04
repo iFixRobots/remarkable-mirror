@@ -14,6 +14,7 @@ $filesLoopbackBuilderPath = Join-Path $repositoryRoot 'scripts\Build-RemarkableF
 $manifestPath = Join-Path $repositoryRoot 'mirror\windows\ReMarkableMirror\Package.appxmanifest'
 $globalJsonPath = Join-Path $repositoryRoot 'global.json'
 $goModPath = Join-Path $repositoryRoot 'mirror\agent\go.mod'
+$packageOnboardingPath = Join-Path $repositoryRoot 'docs\PACKAGE_ONBOARDING.md'
 
 . $releaseProvenancePath
 
@@ -27,6 +28,27 @@ $goMod = [System.IO.File]::ReadAllText($goModPath)
 if ($goMod -notmatch '(?m)^go 1\.26\.5\s*$' -or
     $goMod -match '(?m)^toolchain\s+') {
     throw 'mirror/agent/go.mod must require Go 1.26.5 without a redundant toolchain directive.'
+}
+
+if (-not (Test-Path -LiteralPath $packageOnboardingPath -PathType Leaf)) {
+    throw 'The self-contained package onboarding guide is missing.'
+}
+$packageOnboardingText = [System.IO.File]::ReadAllText($packageOnboardingPath)
+foreach ($requiredMarker in @(
+        'You already have a reMarkable Mirror release package.',
+        'beta `3.28.0.164`, OS build `5.8.199`',
+        'this exact packaged path',
+        'images/remarkable-mirror-live-wifi.png',
+        'images/remarkable-mirror-files.png',
+        'images/remarkable-mirror-preparing.png',
+        '[Troubleshooting guide](TROUBLESHOOTING.md)',
+        'double-click `Install.cmd`.',
+        'Live over USB',
+        'Live over Wi-Fi'
+    )) {
+    if (-not $packageOnboardingText.Contains($requiredMarker, [StringComparison]::Ordinal)) {
+        throw "Package onboarding is missing a first-run marker: $requiredMarker"
+    }
 }
 
 $tokens = $null
@@ -62,6 +84,10 @@ foreach ($requiredMarker in @(
         "`$releaseProvenancePath = Join-Path `$PSScriptRoot 'lib\RemarkableReleaseProvenance.ps1'",
         'Get-RemarkableReleaseProvenance',
         "`$expectedDotnetSdkVersion = '10.0.302'",
+        "`$publicOnboardingGuidePath = Join-Path `$repositoryRoot 'docs\PACKAGE_ONBOARDING.md'",
+        "`$publicGettingStartedGuidePath = Join-Path `$repositoryRoot 'docs\GETTING_STARTED.md'",
+        "`$publicTroubleshootingGuidePath = Join-Path `$repositoryRoot 'docs\TROUBLESHOOTING.md'",
+        "`$publicOnboardingImagesDirectory = Join-Path `$repositoryRoot 'docs\images'",
         "'--locked-mode'",
         "'--no-restore'",
         "`$buildManifest.Package.Identity.Name = `$identityName",
@@ -69,6 +95,9 @@ foreach ($requiredMarker in @(
         "`$buildManifest.Package.PhoneIdentity.PhoneProductId = `$identityName",
         "`$buildManifest.Package.Properties.PublisherDisplayName = `$PublisherDisplayName",
         'Copy-Item -LiteralPath $installerScriptPath -Destination $releaseDirectory',
+        "Copy-Item -LiteralPath `$publicGettingStartedGuidePath -Destination (Join-Path `$releaseDirectory 'GETTING_STARTED.md')",
+        "Copy-Item -LiteralPath `$publicTroubleshootingGuidePath -Destination (Join-Path `$releaseDirectory 'TROUBLESHOOTING.md')",
+        "`$releaseImagesDirectory = Join-Path `$releaseDirectory 'images'",
         "Copy-Item -LiteralPath `$projectLicensePath -Destination (Join-Path `$releaseDirectory 'LICENSE')",
         "Copy-Item -LiteralPath `$projectNoticePath -Destination (Join-Path `$releaseDirectory 'NOTICE')",
         "Copy-Item -LiteralPath `$projectThirdPartyNoticesPath -Destination (Join-Path `$releaseDirectory 'THIRD_PARTY_NOTICES.md')",

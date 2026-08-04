@@ -1,123 +1,144 @@
 # reMarkable Mirror
 
-Mirror and control a reMarkable Paper Pro Move from Windows over USB or Wi-Fi.
+**Your reMarkable, right on your Windows desktop.**
 
-reMarkable Mirror shows the tablet's real interface in a compact native Windows
-app. Click and type naturally, use the mouse as a pen, take screenshots, and
-move supported documents without reaching for a second tool.
+<p align="center">
+  <img src="docs/images/remarkable-mirror-live-wifi.png" width="558" alt="reMarkable Mirror connected to a Paper Pro Move over Wi-Fi">
+</p>
+
+I built reMarkable Mirror because I wanted the tablet on my desk to feel like
+part of my computer. I wanted to click it, type into it, use my mouse as a pen,
+take a screenshot, and move a document without reaching for a second utility.
+
+That is what this app does. It shows the tablet's real interface inside a compact
+native Windows app and connects directly over USB-C or your local Wi-Fi. There is
+no cloud relay and no iFixRobots account.
 
 > [!IMPORTANT]
 > This is independent community software. It is not affiliated with, endorsed
 > by, or supported by reMarkable AS.
 
-## What works
+## Start here
 
-- Live `954x1696` Paper Pro Move display over USB and Wi-Fi
-- Automatic mouse touch and hardware-keyboard input
-- Separate mouse-as-pen mode
-- Clipboard screenshots and **Save As** PNG screenshots
-- PDF/EPUB drop target and tablet file browser
-- Stock Files service over an authenticated SSH tunnel on USB or Wi-Fi
-- USB-first routing with automatic Wi-Fi fallback
-- Automatic short-sleep recovery without publishing false **Live** controls
-- Compact fixed-shape Windows UI with a smooth reversible Files drawer
+The full setup is in [Getting started](docs/GETTING_STARTED.md). Read it once
+from the top before enabling Developer Mode. It covers the reset, backup,
+Windows prerequisites, SSH pairing, installation, first connection, and Wi-Fi
+proof in one path.
 
-The current source targets reMarkable Paper Pro Move. Other models and firmware
-versions are not yet supported claims. Features listed here describe the source
-tree; each future binary release will state its own exercised behavior and known
-limits.
+> [!WARNING]
+> Enabling Developer Mode factory-resets the tablet. Back up first. The reset
+> also forgets Wi-Fi, so you must reconnect it from the tablet afterward.
 
-Still being proved: Pen over Wi-Fi, every import/export format over the Wi-Fi
-Files route, automatic USB/Wi-Fi handoffs in both directions, full-suspend
-wireless wake, and automatic prerequisite repair after an A/B root-slot update.
+## What it does
+
+- Mirrors the live `954x1696` Paper Pro Move display over USB or Wi-Fi
+- Treats mouse clicks and keyboard input as one natural **Touch + Type** mode
+- Provides a separate mouse-as-pen mode
+- Copies screenshots to the clipboard or saves them as PNG files
+- Sends PDFs with drag and drop; EPUB support is present but still needs a full
+  device test
+- Browses and exports documents through the tablet's stock Files service
+- Recovers from ordinary lock and short-sleep states without pretending it is
+  **Live** before display and input are both ready
+- Keeps the window shaped like the tablet, with a smooth reversible Files drawer
+
+<p align="center">
+  <img src="docs/images/remarkable-mirror-files.png" width="878" alt="reMarkable Mirror with the Files drawer open while the tablet is passcode locked">
+</p>
+
+The screenshot above shows what happens while the tablet is locked: display and
+input stay live, while Files waits for the passcode.
+
+## Current compatibility
+
+This is the configuration I actually use and have exercised:
+
+| Part | Exercised configuration |
+| --- | --- |
+| Tablet | reMarkable Paper Pro Move, code name `chiappa` |
+| Tablet software | Beta `3.28.0.164`, OS build `5.8.199` |
+| Installed app | Windows 11 x64, minimum build `22621` |
+| Current source build path | Windows 11 x64 `23H2` or newer |
+| Connections | Direct USB-C and trusted local Wi-Fi |
+
+I have not tested other reMarkable models or firmware versions yet. The installer
+depends on Paper Pro Move input and system details. If your configuration differs,
+stop before running tablet setup and open an issue with the exact model and
+software version.
 
 ## Availability
 
-This initial project is source-only. There is not yet an official public binary
-release. Until the first release appears on this repository's GitHub Releases
-page, build a development package from source and use your own package identity
-as described in [Development](docs/DEVELOPMENT.md).
+Right now, this repository is source-only. There is no official public binary
+release yet. The current path is to build a development package from source,
+then install that package normally. [Getting started](docs/GETTING_STARTED.md)
+walks through the whole thing.
 
-## Requirements
+The repository is intentionally private while I finish the owner review. Until
+that changes, the clone URL and GitHub links work only for people I have added
+as collaborators and who are signed into GitHub.
 
-- Windows 11 version 22H2 or newer, x64
-- PowerShell 7.5 or newer for tablet setup
-- Windows OpenSSH client
-- reMarkable Paper Pro Move in Developer Mode
-- The tablet's first post-boot unlock completed
-- A USB-C connection for first setup
-- Wi-Fi on the same trusted personal network for wireless use
+When an official ZIP appears on this repository's GitHub Releases page, its
+included `ONBOARDING.md` will begin after the build step and use the same device
+setup and verification path.
 
-Developer Mode factory-resets affected reMarkable devices. Back up anything you
-need before enabling it. The reset also removes saved Wi-Fi networks, so reconnect
-the tablet from its own UI before expecting wireless Mirror access.
+## What is still open
 
-## Install from a future release
+- I still need to finish testing Pen input over Wi-Fi
+- I still need to test EPUB import and every transfer format over Wi-Fi
+- Native RMDOC export works; native RMDOC import is not in the UI yet
+- A live USB-to-Wi-Fi or Wi-Fi-to-USB handoff can reconnect automatically, but I
+  have not yet tested every direction as an interruption-free mid-session switch
+- A fully suspended tablet turns off Wi-Fi, so a network packet cannot wake it
+- A firmware A/B root-slot switch can require running a supported release's
+  `Install.cmd` again
+- The new Getting started guide still needs one complete run from a blank
+  Windows setup and freshly reset tablet before the first public binary release
 
-1. Follow [Device setup](docs/DEVICE_SETUP.md) once.
-2. Download and extract an official release ZIP from this repository's GitHub
-   Releases page.
-3. Connect and unlock the tablet over USB-C.
-4. Run `Install.cmd`.
-5. Complete the Windows administrator prompt and let the installer finish.
+## Privacy and security
 
-These steps describe the workflow that will begin with the first public binary.
-They are not a claim that a public binary is available today.
+Mirror is local-first. Documents, screenshots, credentials, and usage data are
+not uploaded to an iFixRobots service. Device profiles and credentials stay on
+the current Windows account.
 
-The installer installs the signed Windows app and provisions the matching tablet
-components. If a firmware update changes the active A/B root slot, reconnect and
-unlock over USB-C, then run `Install.cmd` again.
+Wireless control uses Developer Mode root SSH over WLAN with a dedicated local
+key. Use it only on a network you trust. The Files service is not published on
+Wi-Fi: the app reaches tablet loopback through the authenticated SSH connection.
 
-Official release packages use the iFixRobots package identity. Contributors can
-build with their own publisher and package identity; see
-[Development](docs/DEVELOPMENT.md).
+Developer Mode weakens the tablet's normal secure-boot protections. reMarkable
+documents that tradeoff directly in its
+[Developer Mode guide](https://developer.remarkable.com/documentation/developer-mode).
+Read [Privacy](docs/PRIVACY.md) and the [Security policy](SECURITY.md) before
+sharing logs or diagnostics.
 
 ## How it works
 
 The Windows app owns one connection generation at a time. It authenticates the
 tablet's SSH identity, captures the framebuffer through Xovi, and starts
-session-only virtual input after the connection is ready. Files stays separate:
-the packaged GPL-3.0-only loopback extension makes Xochitl's stock Files service
-available on tablet loopback, and Windows reaches it only through authenticated
-SSH forwarding. Port 80 is never opened directly on Wi-Fi.
+session-only virtual input only after the connection is ready. Nothing is added
+to tablet startup for touch, pen, or keyboard input.
 
-The transport wake service's bearer-authenticated HTTP endpoint binds only to
+Files stays separate. A packaged GPL-3.0-only loopback extension makes
+Xochitl's stock Files service available on tablet loopback, and Windows reaches
+it only through SSH forwarding. The transport wake endpoint also stays on
 tablet loopback and the direct USB interface. It does not listen on the tablet's
-Wi-Fi address. Mirror uses the verified USB route before SSH is available;
-loopback remains reachable only locally or through authenticated SSH forwarding.
-
-Xochitl closes Files while the tablet is passcode-locked. Mirror display and
-input can remain Live; Files becomes available automatically after unlock.
+Wi-Fi address.
 
 Read [Architecture](docs/ARCHITECTURE.md) for the component and lifecycle map.
 
-## Privacy and security
-
-Mirror is local-first. The app connects directly to the tablet over USB or your
-local network. It does not upload documents, screenshots, credentials, or usage
-data to an iFixRobots service. Device profiles and credentials remain local to
-the current Windows user.
-
-Wireless control requires Developer Mode root SSH over WLAN. Setup enables that
-tablet feature and uses a dedicated passphrase-free key so non-interactive
-`BatchMode` connections can work. Protect the Windows account and its `.ssh`
-directory accordingly; do not reuse that key for another device or service.
-
-Use Wi-Fi only on a trusted network. See [Privacy](docs/PRIVACY.md) and
-[Security policy](SECURITY.md).
-
 ## Build and contribute
 
-Start with [Development](docs/DEVELOPMENT.md) and [Contributing](CONTRIBUTING.md).
-The repository includes the WinUI host, ARM64 Go companions, the Xovi Files
-extension source, install/build scripts, and focused policy checks.
+Start with [Development](docs/DEVELOPMENT.md) and
+[Contributing](CONTRIBUTING.md). The repository includes the WinUI host, ARM64
+Go companions, the Xovi Files extension source, packaging and install scripts,
+and focused policy checks.
 
 ## Documentation
 
-- [Device setup](docs/DEVICE_SETUP.md)
+- [Getting started](docs/GETTING_STARTED.md)
+- [Device setup reference](docs/DEVICE_SETUP.md)
+- [Troubleshooting](docs/TROUBLESHOOTING.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Development](docs/DEVELOPMENT.md)
-- [Troubleshooting](docs/TROUBLESHOOTING.md)
 - [Privacy](docs/PRIVACY.md)
 - [Release process](docs/RELEASING.md)
 - [Support](SUPPORT.md)
@@ -127,5 +148,5 @@ extension source, install/build scripts, and focused policy checks.
 
 reMarkable Mirror is licensed under `GPL-3.0-only`. See [LICENSE](LICENSE).
 
-`reMarkable` is a trademark of reMarkable AS. Use of the name describes device
-compatibility only.
+`reMarkable` is a trademark of reMarkable AS. The name is used only to describe
+device compatibility.

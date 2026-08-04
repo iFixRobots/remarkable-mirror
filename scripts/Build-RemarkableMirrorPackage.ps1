@@ -30,7 +30,10 @@ $filesLoopbackBuildScriptPath = Join-Path $PSScriptRoot 'Build-RemarkableFilesLo
 $transportUnitPath = Join-Path $repositoryRoot 'mirror\agent\deploy\rmmirror-transport-wake.service'
 $transportInstallPath = Join-Path $repositoryRoot 'mirror\agent\deploy\install-transport-wake.sh'
 $transportSleepGuardPath = Join-Path $repositoryRoot 'mirror\agent\deploy\rmmirror-usb-sleep-guard.conf'
-$publicOnboardingGuidePath = Join-Path $repositoryRoot 'docs\DEVICE_SETUP.md'
+$publicOnboardingGuidePath = Join-Path $repositoryRoot 'docs\PACKAGE_ONBOARDING.md'
+$publicGettingStartedGuidePath = Join-Path $repositoryRoot 'docs\GETTING_STARTED.md'
+$publicTroubleshootingGuidePath = Join-Path $repositoryRoot 'docs\TROUBLESHOOTING.md'
+$publicOnboardingImagesDirectory = Join-Path $repositoryRoot 'docs\images'
 $workspaceOnboardingGuidePath = Join-Path $repositoryRoot 'docs\development\mirror-onboarding.md'
 $onboardingGuidePath = if (Test-Path -LiteralPath $publicOnboardingGuidePath -PathType Leaf) {
     $publicOnboardingGuidePath
@@ -112,6 +115,11 @@ foreach ($requiredPath in @(
         $transportInstallPath,
         $transportSleepGuardPath,
         $onboardingGuidePath,
+        $publicGettingStartedGuidePath,
+        $publicTroubleshootingGuidePath,
+        (Join-Path $publicOnboardingImagesDirectory 'remarkable-mirror-live-wifi.png'),
+        (Join-Path $publicOnboardingImagesDirectory 'remarkable-mirror-files.png'),
+        (Join-Path $publicOnboardingImagesDirectory 'remarkable-mirror-preparing.png'),
         $projectLicensePath,
         $projectNoticePath,
         $projectThirdPartyNoticesPath,
@@ -453,6 +461,19 @@ try {
     Copy-Item -LiteralPath $installerLauncherPath -Destination (Join-Path $releaseDirectory 'Install.cmd')
     Copy-Item -LiteralPath $prerequisiteScriptPath -Destination $releaseDirectory
     Copy-Item -LiteralPath $onboardingGuidePath -Destination (Join-Path $releaseDirectory 'ONBOARDING.md')
+    Copy-Item -LiteralPath $publicGettingStartedGuidePath -Destination (Join-Path $releaseDirectory 'GETTING_STARTED.md')
+    Copy-Item -LiteralPath $publicTroubleshootingGuidePath -Destination (Join-Path $releaseDirectory 'TROUBLESHOOTING.md')
+    $releaseImagesDirectory = Join-Path $releaseDirectory 'images'
+    New-Item -ItemType Directory -Path $releaseImagesDirectory | Out-Null
+    Copy-Item `
+        -LiteralPath (Join-Path $publicOnboardingImagesDirectory 'remarkable-mirror-live-wifi.png') `
+        -Destination $releaseImagesDirectory
+    Copy-Item `
+        -LiteralPath (Join-Path $publicOnboardingImagesDirectory 'remarkable-mirror-files.png') `
+        -Destination $releaseImagesDirectory
+    Copy-Item `
+        -LiteralPath (Join-Path $publicOnboardingImagesDirectory 'remarkable-mirror-preparing.png') `
+        -Destination $releaseImagesDirectory
     Copy-Item -LiteralPath $projectLicensePath -Destination (Join-Path $releaseDirectory 'LICENSE')
     Copy-Item -LiteralPath $projectNoticePath -Destination (Join-Path $releaseDirectory 'NOTICE')
     Copy-Item -LiteralPath $projectThirdPartyNoticesPath -Destination (Join-Path $releaseDirectory 'THIRD_PARTY_NOTICES.md')

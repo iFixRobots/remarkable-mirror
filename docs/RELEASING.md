@@ -16,6 +16,8 @@ exact versions.
 6. Confirm `git status --short` is empty.
 7. Prepare a corresponding-source archive for every GPL-covered binary that the
    release will distribute.
+8. Complete the published Getting started path on a fresh Windows account and a
+   freshly reset supported tablet configuration.
 
 ## Build
 
@@ -45,6 +47,10 @@ Official builds refuse a dirty tree. `release.json` must contain:
 - The MSIX and ZIP contain the project legal files and the exact restored
   Microsoft license/notice payload under `ThirdParty/Microsoft`.
 - The ZIP contains one coherent release tree and no private keys or captures.
+- The ZIP's `ONBOARDING.md` starts from an already downloaded package and never
+  tells the user to build that same package.
+- README and Getting started screenshots contain no personal notebooks,
+  handwritten content, credentials, network details, or background windows.
 - The package is non-development after installation.
 - The changed path is exercised on a real tablet.
 - Previously accepted window shape, Files motion, input, and screenshot behavior

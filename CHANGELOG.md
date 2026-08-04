@@ -10,5 +10,7 @@ Notable user-visible changes are recorded here.
 - Restricted the bearer-authenticated wake endpoint to tablet loopback and the
   direct USB interface.
 - Documented the root SSH-over-WLAN and dedicated key security boundary.
+- Replaced the fragmented first-run notes with an illustrated end-to-end Getting
+  started guide and a self-contained package onboarding guide.
 
 No public binary version has been released yet.

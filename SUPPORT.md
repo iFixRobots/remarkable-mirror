@@ -5,7 +5,7 @@ reproducible bugs and focused feature requests.
 
 Before filing:
 
-1. read [Device setup](docs/DEVICE_SETUP.md) and
+1. read [Getting started](docs/GETTING_STARTED.md) and
    [Troubleshooting](docs/TROUBLESHOOTING.md);
 2. verify the issue on current `main`, or on the latest release once one exists;
 3. include the Windows version, Mirror version, tablet model, and tablet software
