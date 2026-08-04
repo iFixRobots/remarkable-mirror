@@ -93,7 +93,9 @@ foreach ($marker in @(
         '-p:PublishReadyToRun=false',
         '-p:PublishProfile=win-x64-portable.pubxml',
         'Portable EXE is unexpectedly large:',
+        '$env:DOTNET_ROOT_X64 = $blockedDotnetRoot',
         'Start-Process -FilePath $portableExe -PassThru -WindowStyle Hidden',
+        'Portable clean-runner launch smoke: passed with shared .NET lookup blocked.',
         "path: `${{ runner.temp }}/remarkable-mirror-package/ReMarkableMirror-*-x64.zip",
         'name: remarkable-mirror-portable-windows-x64',
         'name: remarkable-mirror-windows-installer'
@@ -101,6 +103,12 @@ foreach ($marker in @(
     if (-not $packageWorkflowText.Contains($marker, [StringComparison]::Ordinal)) {
         throw "GitHub Actions package workflow is missing marker: $marker"
     }
+}
+if ($packageWorkflowText.Contains(
+        'Portable launch did not extract its required runtime file:',
+        [StringComparison]::Ordinal
+    )) {
+    throw 'The portable launch smoke still mistakes in-bundle loading for file extraction.'
 }
 $unpinnedAction = [regex]::Match(
     $packageWorkflowText,
