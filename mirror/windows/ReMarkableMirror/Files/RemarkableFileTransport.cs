@@ -180,8 +180,7 @@ public sealed class RemarkableFileTransport : IAsyncDisposable
         using var fileContent = new StreamContent(source);
         fileContent.Headers.ContentType = new MediaTypeHeaderValue(upload.ContentType);
         multipart.Add(fileContent, "file", upload.FileName);
-        fileContent.Headers.ContentDisposition!.Name = "\"file\"";
-        fileContent.Headers.ContentDisposition.FileNameStar = null;
+        StockUploadMultipartHeaders.Normalize(fileContent);
         using var request = CreateRequest(HttpMethod.Post, "upload");
         request.Content = multipart;
 

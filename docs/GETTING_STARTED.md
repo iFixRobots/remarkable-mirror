@@ -13,9 +13,10 @@ troubleshooting section before continuing.
 > **Windows Developer Mode** lets Windows build and run development packages.
 
 > [!IMPORTANT]
-> I have tested each part on my own tablet, but I have not yet followed this
-> guide from start to finish on a newly set up Windows PC and freshly reset
-> tablet. If a step does not match what you see, stop there and report it.
+> I have tested the core app behavior on my own tablet. I tested the corrected
+> uploader over Wi-Fi; its USB repetition, a fresh Wi-Fi export, and one
+> complete run on a newly set up Windows PC and freshly reset tablet are still
+> open. If a step does not match what you see, stop there and report it.
 
 ## What you will end up with
 
@@ -26,6 +27,7 @@ At the end of this guide, you should have:
 - live display, touch, keyboard, and Pen input over Wi-Fi
 - screenshots copied or saved from the app
 - the Files drawer available whenever the tablet is unlocked
+- PDF and DRM-free EPUB import from Windows
 - a dedicated SSH key used only for this tablet
 
 ![reMarkable Mirror connected over Wi-Fi](images/remarkable-mirror-live-wifi.png)
@@ -563,8 +565,10 @@ Check each item:
    click copies the image. Right-click the button and choose **Save screenshot
    as...** to open **Save As**.
 6. Open **Files** while the tablet is unlocked. Confirm the library loads.
-7. Drop a small disposable PDF onto the send area and confirm it appears on the
-   tablet. EPUB import has not been fully tested yet.
+7. Drop a small disposable PDF and a DRM-free EPUB onto the send area, one at a
+   time, and confirm both appear on the tablet. I tested the corrected uploader
+   over Wi-Fi; this USB repetition is still part of release
+   signoff.
 8. Click a document to open **Save As** for its PDF, then save it to a normal
    Windows folder.
 9. Right-click a document and confirm you can choose **Save as PDF...** or
@@ -587,8 +591,10 @@ With Mirror already working over USB:
 3. Wait for the app to reconnect.
 4. Confirm the status reads **Live over Wi-Fi**.
 5. Repeat touch, keyboard, Pen, and screenshot checks.
-6. Open **Files** and confirm that the library loads over Wi-Fi. I have not
-   tested every file-transfer format over Wi-Fi yet.
+6. Open **Files** and confirm that the library loads over Wi-Fi. Drop one small
+   PDF and one DRM-free EPUB, then save one document to Windows. I tested PDF
+   and DRM-free EPUB import here; the fresh Wi-Fi export repetition is still
+   part of release signoff.
 7. Close Files and stop interacting with the tablet.
 8. Reconnect USB-C.
 9. Wait for **Live over USB**.
@@ -610,7 +616,8 @@ not accept an arbitrary SSH host just because one appears on the network.
 - [ ] **Pen** accepts mouse-as-stylus input
 - [ ] screenshot copy and Save As both work
 - [ ] Files loads when the tablet is unlocked
-- [ ] a PDF can be dropped into the tablet
+- [ ] a PDF and DRM-free EPUB can be dropped into the tablet over Wi-Fi
+- [ ] the corrected upload also works over USB
 - [ ] a document can be saved as PDF and native RMDOC to a Windows folder
 - [ ] unplugging USB reaches **Live over Wi-Fi**
 - [ ] Wi-Fi touch and keyboard input work

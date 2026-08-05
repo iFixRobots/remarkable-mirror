@@ -27,6 +27,8 @@ public sealed partial class MainWindow : Window
     private readonly double _expandedClientWidth;
     private readonly IntPtr _hwnd;
     private int _lastFilesPaneNativeWidth;
+    private bool _closeAfterShutdown;
+    private bool _shutdownInProgress;
 
     public MainWindow()
     {
@@ -90,6 +92,7 @@ public sealed partial class MainWindow : Window
         _lastFilesPaneNativeWidth = _compactWidth;
 
         Activated += MainWindow_Activated;
+        AppWindow.Closing += AppWindow_Closing;
         Closed += MainWindow_Closed;
 
         // Navigate the root frame to the main page on startup.
@@ -102,6 +105,34 @@ public sealed partial class MainWindow : Window
             RootFrame.Content is MainPage page)
         {
             await page.ResetRemoteInputStateAsync();
+        }
+    }
+
+    private async void AppWindow_Closing(AppWindow sender, AppWindowClosingEventArgs args)
+    {
+        if (_closeAfterShutdown)
+        {
+            return;
+        }
+
+        args.Cancel = true;
+        if (_shutdownInProgress)
+        {
+            return;
+        }
+
+        _shutdownInProgress = true;
+        try
+        {
+            if (RootFrame.Content is MainPage page)
+            {
+                await page.ShutdownAsync();
+            }
+        }
+        finally
+        {
+            _closeAfterShutdown = true;
+            Close();
         }
     }
 

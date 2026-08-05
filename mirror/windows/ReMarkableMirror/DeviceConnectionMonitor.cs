@@ -661,26 +661,46 @@ public sealed class DeviceConnectionMonitor
             return DeviceConnectionStatus.Disconnected;
         }
 
-        using var bannerTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        bannerTimeout.CancelAfter(BannerTimeout);
         try
         {
-            return await HasValidSshBannerAsync(client.GetStream(), bannerTimeout.Token)
-                    .ConfigureAwait(false)
-                ? DeviceConnectionStatus.SshReady
-                : DeviceConnectionStatus.PortOpenWithoutSshBanner;
+            using var bannerTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            bannerTimeout.CancelAfter(BannerTimeout);
+            try
+            {
+                return await HasValidSshBannerAsync(client.GetStream(), bannerTimeout.Token)
+                        .ConfigureAwait(false)
+                    ? DeviceConnectionStatus.SshReady
+                    : DeviceConnectionStatus.PortOpenWithoutSshBanner;
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                return DeviceConnectionStatus.PortOpenWithoutSshBanner;
+            }
+            catch (IOException)
+            {
+                return DeviceConnectionStatus.PortOpenWithoutSshBanner;
+            }
+            catch (SocketException)
+            {
+                return DeviceConnectionStatus.PortOpenWithoutSshBanner;
+            }
         }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        finally
         {
-            return DeviceConnectionStatus.PortOpenWithoutSshBanner;
+            UseAbortiveClose(client);
         }
-        catch (IOException)
+    }
+
+    private static void UseAbortiveClose(TcpClient client)
+    {
+        try
         {
-            return DeviceConnectionStatus.PortOpenWithoutSshBanner;
+            var socket = client.Client;
+            socket.LingerState = new LingerOption(enable: true, seconds: 0);
+            socket.Close(timeout: 0);
         }
-        catch (SocketException)
+        catch (Exception exception) when (exception is SocketException or ObjectDisposedException)
         {
-            return DeviceConnectionStatus.PortOpenWithoutSshBanner;
         }
     }
 

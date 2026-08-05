@@ -29,7 +29,7 @@ $wakeTokenFile = Join-Path $env:USERPROFILE '.ssh\remarkable_chiappa_wake_token'
 $sshHostKeyAlias = '10.11.99.1'
 $xoviRelease = 'v19-23052026'
 $xoviArchiveHashExpected = '32d64d1262ddc984e3235c7d0340a398fe6d5b3efa6a979865f5977b32630d27'
-$mirrorProbeVersion = '0.4.6'
+$mirrorProbeVersion = '0.4.8'
 
 function Get-DirectUsbTabletRoute {
     [CmdletBinding()]

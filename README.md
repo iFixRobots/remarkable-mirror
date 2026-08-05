@@ -35,8 +35,7 @@ check in one path.
 - Treats mouse clicks and keyboard input as one natural **Touch + Type** mode
 - Provides a separate mouse-as-pen mode
 - Copies screenshots to the clipboard or saves them as PNG files
-- Sends PDFs with drag and drop; EPUB support is present but still needs a full
-  device test
+- Sends PDFs and DRM-free EPUBs with drag and drop
 - Browses and exports documents through the tablet's stock Files service
 - Switches automatically from USB-C to paired Wi-Fi when the cable is removed,
   and back to USB-C when it is reconnected
@@ -95,8 +94,11 @@ is no public GitHub Release yet.
 
 ## What is still open
 
-- I still need to test EPUB import and every transfer format over Wi-Fi
-- Native RMDOC export works; native RMDOC import is not in the UI yet
+- I tested PDF and DRM-free EPUB import over Wi-Fi; the corrected upload path
+  still needs the same check over USB
+- PDF and native RMDOC export work; a fresh Wi-Fi export check is still open,
+  native RMDOC import is not in the UI, and Explorer drag-out is not implemented
+- DRM-protected or malformed EPUB files still need clearer in-app guidance
 - Both connection-change directions are owner-tested. In one USB-to-Wi-Fi run,
   Mirror reached Live, later spent 38 seconds disconnected before reselecting
   Wi-Fi, and returned to Live automatically; I still want to shorten that

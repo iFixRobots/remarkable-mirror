@@ -4,7 +4,7 @@ Notable user-visible changes are recorded here.
 
 ## Unreleased
 
-- Created the standalone public GPL-3.0-only product repository.
+- Created the standalone GPL-3.0-only product repository.
 - Added repeatable builds, contributor guidance, installation instructions,
   security reporting, and complete third-party attribution.
 - Restricted the bearer-authenticated wake endpoint to tablet loopback and the
@@ -29,5 +29,13 @@ Notable user-visible changes are recorded here.
   38-second host-side Disconnected interval, and then returned to Live
   automatically. The tablet journal showed no suspend, Wi-Fi loss, Xochitl
   sleep, reboot, or transport-wake event during that interval.
+- Made retired frame streams stop promptly when a connection changes, the probe
+  is cancelled, or the app closes normally.
+- Made normal window close await connection shutdown while retaining the
+  Windows Job Object as a crash fallback.
+- Fixed PDF and DRM-free EPUB drag-in by matching the stock tablet importer's
+  multipart header format. Upload diagnostics report the failure category and
+  HTTP status without recording the document filename. Confirmed the corrected
+  path over Wi-Fi; its USB repetition remains open.
 
 No public binary version has been released yet.

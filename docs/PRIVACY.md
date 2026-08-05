@@ -29,10 +29,11 @@ old Mirror PNGs from the Windows temporary directory.
 
 ## Logs
 
-Application logs are designed to omit document contents, tokens, private keys,
-and Wi-Fi passwords. A diagnostic report can still reveal software versions,
-route state, timestamps, and local network characteristics. Review diagnostics
-before posting them publicly.
+Application logs are designed to omit document contents, document filenames,
+tokens, private keys, and Wi-Fi passwords. Upload failures record a result
+category and numeric HTTP status instead of the local filename. A diagnostic
+report can still reveal software versions, route state, timestamps, and local
+network characteristics. Review diagnostics before posting them publicly.
 
 ## Network boundary
 

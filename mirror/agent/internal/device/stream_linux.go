@@ -5,6 +5,7 @@ package device
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/binary"
 	"io"
 	"time"
@@ -19,7 +20,7 @@ type changedRegion struct {
 	height int
 }
 
-func StreamFrames(writer io.Writer, interval time.Duration) error {
+func StreamFrames(ctx context.Context, writer io.Writer, interval time.Duration) error {
 	if interval < 16*time.Millisecond || interval > time.Second {
 		return codedError{code: "invalid_interval"}
 	}
@@ -35,11 +36,19 @@ func StreamFrames(writer io.Writer, interval time.Duration) error {
 	sequence := uint64(0)
 	first := true
 	for {
+		if ctx.Err() != nil {
+			return nil
+		}
+
 		started := time.Now()
 		current, captureErr := reader.Capture()
 		if captureErr != nil {
 			return captureErr
 		}
+		if ctx.Err() != nil {
+			return nil
+		}
+
 		region, changed := findChangedRegion(current, previous, first)
 		if changed {
 			sequence++
@@ -58,7 +67,9 @@ func StreamFrames(writer io.Writer, interval time.Duration) error {
 			first = false
 		}
 		if remaining := interval - time.Since(started); remaining > 0 {
-			time.Sleep(remaining)
+			if !waitForStreamInterval(ctx, remaining) {
+				return nil
+			}
 		}
 	}
 }

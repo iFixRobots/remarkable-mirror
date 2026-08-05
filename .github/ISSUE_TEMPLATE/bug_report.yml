@@ -6,7 +6,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Do not post passwords, keys, tokens, document contents, or unreviewed diagnostics. Report security problems privately through the Security tab.
+        Do not post passwords, keys, tokens, document contents, document filenames, or unreviewed diagnostics. Report security problems privately through the Security tab.
 
   - type: input
     id: mirror-version
@@ -63,5 +63,5 @@ body:
     attributes:
       label: Privacy check
       options:
-        - label: I removed credentials, document contents, and personal network details.
+        - label: I removed credentials, document contents, document filenames, and personal network details.
           required: true

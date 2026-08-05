@@ -15,12 +15,25 @@ import (
 	"github.com/iFixRobots/remarkable-mirror/agent/internal/device"
 )
 
-const version = "0.4.6"
+const version = "0.4.8"
 
 func main() {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGHUP, syscall.SIGTERM)
+	signalContext, stopSignals := signal.NotifyContext(
+		context.Background(),
+		os.Interrupt,
+		syscall.SIGHUP,
+		syscall.SIGTERM,
+	)
+	ctx, cancel := context.WithCancel(signalContext)
+	if len(os.Args) > 1 && os.Args[1] == "stream" {
+		go func() {
+			_, _ = io.Copy(io.Discard, os.Stdin)
+			cancel()
+		}()
+	}
 	exitCode := run(ctx, os.Args[1:], os.Stdout, os.Stderr)
-	stop()
+	cancel()
+	stopSignals()
 	os.Exit(exitCode)
 }
 
@@ -108,7 +121,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 			writeUsage(stderr)
 			return 2
 		}
-		if err := device.StreamFrames(stdout, *streamInterval); err != nil {
+		if err := device.StreamFrames(ctx, stdout, *streamInterval); err != nil {
 			fmt.Fprintf(stderr, "rmmirror-probe: stream_%s\n", device.ErrorCode(err))
 			return 1
 		}

@@ -16,7 +16,7 @@ internal sealed class PassiveRouteProbe
     private const int MaximumBannerLines = 16;
     private const int PrerequisiteMismatchExitCode = 42;
 
-    private const string ExpectedProbeVersion = "0.4.6";
+    private const string ExpectedProbeVersion = "0.4.8";
     private const string ExpectedTransportVersion = "0.6.0";
     private const string ExpectedTransportSchema = "rmmirror.transport-wake/v1";
     private const string ExpectedXoviVersion = "v19-23052026";
@@ -66,7 +66,7 @@ internal sealed class PassiveRouteProbe
         test -n "$os_version" || mismatch=1
         test -n "$os_build" || mismatch=1
         test -n "$kernel_release" || mismatch=1
-        test "$probe_version" = '0.4.6' || mismatch=1
+        test "$probe_version" = '0.4.8' || mismatch=1
         test "$transport_version" = '0.6.0' || mismatch=1
         test "$transport_schema" = 'rmmirror.transport-wake/v1' || mismatch=1
         test "$transport_active" = 'active' || mismatch=1
@@ -135,31 +135,51 @@ internal sealed class PassiveRouteProbe
             }
         }
 
-        using var bannerCancellation =
-            CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        bannerCancellation.CancelAfter(BannerTimeout);
         try
         {
-            return await ContainsRealSshBannerAsync(
-                    client.GetStream(),
-                    bannerCancellation.Token)
-                .ConfigureAwait(false)
-                ? null
-                : Result(
+            using var bannerCancellation =
+                CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            bannerCancellation.CancelAfter(BannerTimeout);
+            try
+            {
+                return await ContainsRealSshBannerAsync(
+                        client.GetStream(),
+                        bannerCancellation.Token)
+                    .ConfigureAwait(false)
+                    ? null
+                    : Result(
+                        PassiveRouteProbeState.PortOpenNoBanner,
+                        PassiveRouteProbeDetail.SshBannerMissing);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                return Result(
+                    PassiveRouteProbeState.PortOpenNoBanner,
+                    PassiveRouteProbeDetail.SshBannerTimedOut);
+            }
+            catch (Exception exception) when (exception is SocketException or IOException)
+            {
+                return Result(
                     PassiveRouteProbeState.PortOpenNoBanner,
                     PassiveRouteProbeDetail.SshBannerMissing);
+            }
         }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        finally
         {
-            return Result(
-                PassiveRouteProbeState.PortOpenNoBanner,
-                PassiveRouteProbeDetail.SshBannerTimedOut);
+            UseAbortiveClose(client);
         }
-        catch (Exception exception) when (exception is SocketException or IOException)
+    }
+
+    private static void UseAbortiveClose(TcpClient client)
+    {
+        try
         {
-            return Result(
-                PassiveRouteProbeState.PortOpenNoBanner,
-                PassiveRouteProbeDetail.SshBannerMissing);
+            var socket = client.Client;
+            socket.LingerState = new LingerOption(enable: true, seconds: 0);
+            socket.Close(timeout: 0);
+        }
+        catch (Exception exception) when (exception is SocketException or ObjectDisposedException)
+        {
         }
     }
 

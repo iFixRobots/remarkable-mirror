@@ -1,6 +1,6 @@
 # Start here
 
-You already have a reMarkable Mirror release package. This guide takes you from
+You already have a reMarkable Mirror installer package. This guide takes you from
 that folder to a working USB and Wi-Fi connection. Keep the whole extracted
 folder together while you install it.
 
@@ -13,9 +13,10 @@ folder together while you install it.
 The installed app needs Windows 11 x64 build `22621` or newer.
 
 > [!NOTE]
-> I have tested each part on my own tablet, but this package still needs one
-> complete run on a freshly reset tablet and a clean Windows account. If a step
-> does not match what you see, stop there and report it.
+> I have tested the core app behavior on my own tablet. I tested the corrected
+> uploader over Wi-Fi; its USB repetition, a fresh Wi-Fi export, and one
+> complete run on a freshly reset tablet and clean Windows account are still
+> open. If a step does not match what you see, stop there and report it.
 
 ![reMarkable Mirror connected over Wi-Fi](images/remarkable-mirror-live-wifi.png)
 
@@ -300,8 +301,9 @@ it from Start. Wait for **Live over USB**.
 - Left-click the camera button to copy a screenshot. Right-click it and choose
   **Save screenshot as...** to open **Save As**.
 - Open **Files** while the tablet is unlocked.
-- Drop a small disposable PDF into the tablet. EPUB import has not been fully
-  tested yet.
+- Drop a small disposable PDF and a DRM-free EPUB into the tablet, one at a
+  time. I tested the corrected uploader over Wi-Fi; this USB
+  repetition is still part of release signoff.
 - Click a document to open **Save As** for PDF. Right-click it to choose
   **Save as PDF...** or **Save native RMDOC...**. Explorer drag-out is not
   implemented yet.
@@ -315,8 +317,9 @@ Unlocking starts the stock Files listener again.
 
 Confirm the tablet says Wi-Fi is connected. Unplug USB-C, leave the tablet awake,
 and wait for **Live over Wi-Fi**. Repeat touch, keyboard, Pen, and screenshot
-checks, then confirm that the Files library loads. I have not tested every
-file-transfer format over Wi-Fi yet.
+checks, then confirm that the Files library loads. Drop one small PDF and one
+DRM-free EPUB, then save one document to Windows. I tested PDF and DRM-free EPUB
+import here; the fresh Wi-Fi export repetition is still part of release signoff.
 
 Close Files and stop interacting with the tablet. Reconnect USB-C, wait for
 **Live over USB**, then confirm that **Touch + Type** and Files still work.

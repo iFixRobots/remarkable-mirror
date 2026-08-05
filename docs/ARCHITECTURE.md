@@ -40,6 +40,11 @@ ARM64 probe reads the Paper Pro Move framebuffer stream, crops each 960-pixel
 source row to the visible `954x1696` viewport, and streams BGRA frames over SSH.
 Xovi is activated on demand; Mirror does not add a tablet boot hook for it.
 
+The probe treats session signals and standard-input closure as cancellation.
+The Windows host closes retired SSH streams and waits for connection shutdown
+on normal app exit. Its Job Object remains the fallback for a crash or forced
+termination.
+
 ## Input
 
 Input is session-only. After SSH and display prerequisites are ready, the probe
@@ -61,6 +66,12 @@ service directly on the Wi-Fi network.
 Files is an independent capability. Xochitl closes its web service while
 `userLocked` is true. Display and input can remain Live; the Files probe retries
 and publishes readiness automatically after the owner unlocks the tablet.
+
+Imports use the stock browser-style multipart form: an unquoted boundary and a
+quoted `name="file"` and `filename="..."` without .NET's `filename*` extension.
+Mirror accepts PDFs and DRM-free EPUBs up to the stock service's size limit.
+Upload logs record the result category and numeric HTTP status, not the local
+document filename.
 
 ## Sleep and wake
 

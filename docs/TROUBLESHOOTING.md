@@ -97,6 +97,18 @@ Files is independent from display and input.
 The tablet turns off Files while it is passcode-locked. Unlock it and Mirror
 will reconnect Files automatically.
 
+## Files says "Couldn't send"
+
+1. Unlock the tablet and wait for the Files library to load.
+2. Use a PDF or DRM-free EPUB no larger than 100 MB.
+3. Choose **Retry** once after Files is ready.
+
+If the same file still fails, copy the diagnostic details and include them in a
+bug report after reviewing them. Mirror omits the local document filename from
+upload diagnostics, but the report can still contain software versions,
+timestamps, and local network details. DRM-protected EPUB files are not
+supported by the tablet.
+
 ## Frames update but controls do not
 
 Mirror tries to reconnect the controls once. If it shows **Retry**, select it.

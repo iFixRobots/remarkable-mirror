@@ -78,6 +78,7 @@ jobs:
               'Test-RemarkableMirrorFilesLoopbackPackaging.ps1',
               'Test-RemarkableMirrorInputRecoveryPolicy.ps1',
               'Test-RemarkableMirrorInputSessionRoutePolicy.ps1',
+              'Test-RemarkableMirrorMultipartUpload.ps1',
               'Test-RemarkableMirrorPassiveRouteProbe.ps1',
               'Test-RemarkableMirrorPrerequisiteUsbBoundary.ps1',
               'Test-RemarkableMirrorWindowsNetworkIdentityMatcher.ps1',

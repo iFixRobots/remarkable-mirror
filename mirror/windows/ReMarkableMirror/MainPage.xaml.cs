@@ -293,6 +293,11 @@ public sealed partial class MainPage : Page
 
     private async void Page_Unloaded(object sender, RoutedEventArgs e)
     {
+        await ShutdownAsync();
+    }
+
+    internal async Task ShutdownAsync()
+    {
         _pageIsLoaded = false;
         _toastTimer.Stop();
         DisposeFilesPaneAnimation();
@@ -3413,6 +3418,12 @@ public sealed partial class MainPage : Page
                     transfer.State = exception.Failure is FileTransferFailure.AmbiguousResult
                         ? "Check tablet, then refresh"
                         : "Couldn’t send";
+                    var status = exception.StatusCode is { } statusCode
+                        ? $" http={(int)statusCode}"
+                        : string.Empty;
+                    _diagnostics.Record(
+                        "files upload failure",
+                        $"failure={exception.Failure}{status}");
                     ShowInfo(exception.Message, InfoBarSeverity.Error);
                 }
             }

@@ -472,7 +472,8 @@ public sealed class SshFrameSource
         using var process = new Process
         {
             StartInfo = CreateStartInfo(
-                "/home/root/.local/bin/rmmirror-probe stream --interval 40ms"),
+                "/home/root/.local/bin/rmmirror-probe stream --interval 40ms",
+                redirectStandardInput: true),
         };
         var started = false;
         Task<string>? errorDrain = null;
@@ -597,11 +598,14 @@ public sealed class SshFrameSource
         }
     }
 
-    private ProcessStartInfo CreateStartInfo(string remoteCommand)
+    private ProcessStartInfo CreateStartInfo(
+        string remoteCommand,
+        bool redirectStandardInput = false)
     {
         return _route.CreateProcessStartInfo(
             remoteCommand: remoteCommand,
             enableCompression: true,
+            redirectStandardInput: redirectStandardInput,
             redirectStandardOutput: true,
             redirectStandardError: true);
     }
@@ -618,6 +622,28 @@ public sealed class SshFrameSource
 
         try
         {
+            if (!process.HasExited && process.StartInfo.RedirectStandardInput)
+            {
+                try
+                {
+                    process.StandardInput.Close();
+                }
+                catch (Exception exception) when (
+                    exception is IOException or InvalidOperationException or ObjectDisposedException)
+                {
+                }
+
+                try
+                {
+                    using var gracefulTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+                    await process.WaitForExitAsync(gracefulTimeout.Token).ConfigureAwait(false);
+                }
+                catch (Exception exception) when (
+                    exception is InvalidOperationException or OperationCanceledException or Win32Exception)
+                {
+                }
+            }
+
             if (!process.HasExited)
             {
                 process.Kill(entireProcessTree: true);
