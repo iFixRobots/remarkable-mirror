@@ -38,6 +38,8 @@ check in one path.
 - Sends PDFs with drag and drop; EPUB support is present but still needs a full
   device test
 - Browses and exports documents through the tablet's stock Files service
+- Switches automatically from USB-C to paired Wi-Fi when the cable is removed,
+  and back to USB-C when it is reconnected
 - Recovers from ordinary lock and short-sleep states, and only shows **Live**
   when the display and controls are both ready
 - Keeps the window shaped like the tablet, with a smooth reversible Files drawer
@@ -95,8 +97,10 @@ is no public GitHub Release yet.
 
 - I still need to test EPUB import and every transfer format over Wi-Fi
 - Native RMDOC export works; native RMDOC import is not in the UI yet
-- The app can reconnect when the connection changes between USB and Wi-Fi, but I
-  have not fully tested both directions while the app is open
+- Both connection-change directions are owner-tested. In one USB-to-Wi-Fi run,
+  Mirror reached Live, later spent 38 seconds disconnected before reselecting
+  Wi-Fi, and returned to Live automatically; I still want to shorten that
+  recovery
 - A fully suspended tablet turns off Wi-Fi, so a network packet cannot wake it
 - A firmware A/B root-slot switch can require running a supported release's
   `Install.cmd` again

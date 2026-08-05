@@ -29,6 +29,10 @@ One route generation owns all of its child processes. Switching routes cancels
 the old generation before publishing the replacement. **Live** requires both a
 fresh frame and a running input session from that same generation.
 
+USB is preferred and paired Wi-Fi is the fallback. Promotion back to USB waits
+for sustained passive health and until pointer input and Files operations are
+idle.
+
 ## Frame capture
 
 Xovi loads `framebuffer-spy` and `xovi-message-broker` for the connection. The

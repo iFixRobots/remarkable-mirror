@@ -575,7 +575,7 @@ Files waits. That is expected:
 
 ![Files waits for unlock while the mirror stays live](images/remarkable-mirror-files.png)
 
-## 10. Check Wi-Fi
+## 10. Check Wi-Fi and return to USB
 
 Confirm that the tablet and PC are connected to the same Wi-Fi network. Remember
 that Developer Mode's reset removed the old Wi-Fi profile.
@@ -589,6 +589,10 @@ With Mirror already working over USB:
 5. Repeat touch, keyboard, Pen, and screenshot checks.
 6. Open **Files** and confirm that the library loads over Wi-Fi. I have not
    tested every file-transfer format over Wi-Fi yet.
+7. Close Files and stop interacting with the tablet.
+8. Reconnect USB-C.
+9. Wait for **Live over USB**.
+10. Confirm that **Touch + Type** and Files still work.
 
 The app pins the tablet identity learned over the direct USB connection. It does
 not accept an arbitrary SSH host just because one appears on the network.
@@ -612,6 +616,8 @@ not accept an arbitrary SSH host just because one appears on the network.
 - [ ] Wi-Fi touch and keyboard input work
 - [ ] Wi-Fi Pen input works
 - [ ] Wi-Fi Files loads when the tablet is unlocked
+- [ ] reconnecting USB returns to **Live over USB**
+- [ ] **Touch + Type** and Files work after returning to USB
 
 If one box fails, do not call the setup finished. Start with
 [Troubleshooting](TROUBLESHOOTING.md) and include the exact visible app status in

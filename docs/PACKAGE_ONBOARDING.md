@@ -311,12 +311,15 @@ Unlocking starts the stock Files listener again.
 
 ![Files waits for unlock while the mirror stays live](images/remarkable-mirror-files.png)
 
-## Then check Wi-Fi
+## Then check Wi-Fi and return to USB
 
 Confirm the tablet says Wi-Fi is connected. Unplug USB-C, leave the tablet awake,
 and wait for **Live over Wi-Fi**. Repeat touch, keyboard, Pen, and screenshot
 checks, then confirm that the Files library loads. I have not tested every
 file-transfer format over Wi-Fi yet.
+
+Close Files and stop interacting with the tablet. Reconnect USB-C, wait for
+**Live over USB**, then confirm that **Touch + Type** and Files still work.
 
 Full Linux suspend turns off Wi-Fi, so a network packet cannot wake a disconnected
 radio. Press the power button or connect USB-C and Mirror will reconnect when the

@@ -22,5 +22,12 @@ Notable user-visible changes are recorded here.
   ZIP.
 - Recorded owner-tested Pen input over Wi-Fi in installed Gold
   `1.2608.416.5801`.
+- Tested automatic USB-to-Wi-Fi fallback and Wi-Fi-to-USB promotion on my tablet
+  with Mirror left open. Touch + Type and Files worked after each connection
+  settled.
+- On the first USB-to-Wi-Fi handoff, Mirror reached Live, later entered a
+  38-second host-side Disconnected interval, and then returned to Live
+  automatically. The tablet journal showed no suspend, Wi-Fi loss, Xochitl
+  sleep, reboot, or transport-wake event during that interval.
 
 No public binary version has been released yet.
