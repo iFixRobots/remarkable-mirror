@@ -418,7 +418,8 @@ try {
         '--configfile', $buildNugetConfigPath,
         '--locked-mode',
         '-p:Platform=x64',
-        '-p:SelfContained=true'
+        '-p:SelfContained=true',
+        '-p:PublishReadyToRun=true'
     )
     $publishArguments = @(
         'publish',
@@ -429,6 +430,7 @@ try {
         '--configfile', $buildNugetConfigPath,
         '--no-restore',
         '-p:Platform=x64',
+        '-p:PublishReadyToRun=true',
         '-p:GenerateAppxPackageOnBuild=true',
         '-p:AppxPackageSigningEnabled=false',
         '-p:AppxBundle=Never',

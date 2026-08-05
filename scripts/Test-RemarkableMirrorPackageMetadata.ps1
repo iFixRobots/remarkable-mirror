@@ -92,6 +92,7 @@ foreach ($requiredMarker in @(
         "`$expectedDotnetSdkVersion = '10.0.302'",
         "'-p:SelfContained=true'",
         "'--self-contained', 'true'",
+        "'-p:PublishReadyToRun=true'",
         "`$publicOnboardingGuidePath = Join-Path `$repositoryRoot 'docs\PACKAGE_ONBOARDING.md'",
         "`$publicGettingStartedGuidePath = Join-Path `$repositoryRoot 'docs\GETTING_STARTED.md'",
         "`$publicTroubleshootingGuidePath = Join-Path `$repositoryRoot 'docs\TROUBLESHOOTING.md'",
@@ -133,6 +134,14 @@ foreach ($requiredMarker in @(
     if (-not $builderText.Contains($requiredMarker, [StringComparison]::Ordinal)) {
         throw "Package builder is missing source metadata/identity marker: $requiredMarker"
     }
+}
+
+$readyToRunPropertyCount = [regex]::Matches(
+    $builderText,
+    [regex]::Escape("'-p:PublishReadyToRun=true'")
+).Count
+if ($readyToRunPropertyCount -ne 2) {
+    throw 'Package restore and publish must both set PublishReadyToRun=true.'
 }
 
 if ($builderText.Contains('trusted network', [StringComparison]::OrdinalIgnoreCase)) {
