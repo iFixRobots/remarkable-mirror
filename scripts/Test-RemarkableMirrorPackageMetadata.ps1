@@ -36,9 +36,9 @@ if (-not (Test-Path -LiteralPath $packageOnboardingPath -PathType Leaf)) {
 }
 $packageOnboardingText = [System.IO.File]::ReadAllText($packageOnboardingPath)
 foreach ($requiredMarker in @(
-        'You already have a reMarkable Mirror release package.',
+        'You already have a reMarkable Mirror installer package.',
         'beta `3.28.0.164`, OS build `5.8.199`',
-        'this package still needs one',
+        'its USB repetition, a fresh Wi-Fi export',
         'images/remarkable-mirror-live-wifi.png',
         'images/remarkable-mirror-files.png',
         'images/remarkable-mirror-preparing.png',
