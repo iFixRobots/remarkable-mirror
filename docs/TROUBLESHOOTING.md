@@ -74,8 +74,8 @@ Mirror cannot reach your tablet right now.
 - Complete the first post-boot passcode unlock.
 - For Wi-Fi, confirm the tablet and PC are on the same Wi-Fi network.
 
-Deep suspend disconnects Wi-Fi. A network packet cannot reach a disconnected
-radio; physical power or USB is the expected recovery path.
+Full Linux suspend disconnects Wi-Fi. A network packet cannot reach a
+disconnected radio; physical power or USB is the expected recovery path.
 
 ## Repair tablet setup
 
