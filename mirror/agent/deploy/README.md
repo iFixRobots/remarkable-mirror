@@ -178,5 +178,8 @@ at an explicit `Retry` instead of another hidden handoff.
 
 The current source supports USB and Wi-Fi display, `Touch + Type`, Pen,
 short-sleep recovery, Files through SSH, Files recovery after unlock, and normal
-sleep after USB detach. Full-suspend wireless wake, automatic A/B slot repair,
-and recovery from every possible live connection failure are not supported.
+sleep after USB detach. On the tested tablet, a direct network connection and a
+standard wake packet did not wake full Linux suspend. Press the physical power
+button once; Mirror reconnects automatically when the tablet returns. Automatic
+A/B slot repair and recovery from every possible live connection failure are
+not supported.

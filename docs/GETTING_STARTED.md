@@ -615,9 +615,11 @@ The app pins the tablet identity learned over the direct USB connection. It does
 not accept an arbitrary SSH host just because one appears on the network.
 
 > [!NOTE]
-> Full Linux suspend turns off the tablet's Wi-Fi radio. No network packet can
-> reach a disconnected radio. Press the tablet power button or connect USB-C,
-> then Mirror reconnects when the device is reachable again.
+> A fully sleeping tablet drops off Wi-Fi. On the tested Paper Pro Move,
+> neither a direct network connection nor a standard wake packet brought it
+> back. Press the tablet's power button once. Mirror reconnects automatically
+> over Wi-Fi when it wakes. If Wi-Fi does not return after it wakes, connect
+> USB-C.
 
 ## You are done when
 
@@ -668,7 +670,7 @@ repair after every future root-slot switch is not ready yet.
 | **Preparing your reMarkable** | Display and input for this connection are starting | Wait; unlock if this is the first post-boot unlock |
 | **Live over USB** | Display and input are ready through the cable | Nothing |
 | **Live over Wi-Fi** | Display, touch, keyboard, and Pen are ready over Wi-Fi | Nothing |
-| **Connect or wake your reMarkable** | Mirror cannot reach the tablet | Wake it or connect USB-C |
+| **Connect or wake your reMarkable** | Mirror cannot reach the tablet | Press its power button once; if Wi-Fi does not return after it wakes, connect USB-C |
 | **Repair** | The active tablet root is missing matching components | Confirm firmware support, then run the supported release's `Install.cmd` over unlocked USB |
 | Files says connect while Mirror is live | The tablet is locked or the stock Files listener is unavailable | Unlock and confirm USB web interface is enabled |
 

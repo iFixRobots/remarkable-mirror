@@ -69,13 +69,15 @@ setup.
 
 Mirror cannot reach your tablet right now.
 
-- Connect USB-C for the most direct recovery path.
-- Wake the tablet physically if it entered full Linux suspend.
+- If the tablet entered full Linux suspend, press its power button once.
+- Mirror reconnects automatically over Wi-Fi when the tablet wakes.
+- If Wi-Fi does not return, connect USB-C after waking the tablet.
 - Complete the first post-boot passcode unlock.
 - For Wi-Fi, confirm the tablet and PC are on the same Wi-Fi network.
 
-Full Linux suspend disconnects Wi-Fi. A network packet cannot reach a
-disconnected radio; physical power or USB is the expected recovery path.
+On the tested Paper Pro Move, a direct network connection and a standard wake
+packet both failed during full sleep. USB-C is a fallback connection after
+wake; it did not wake the tablet.
 
 ## Repair tablet setup
 

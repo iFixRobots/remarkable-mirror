@@ -1315,8 +1315,8 @@ public sealed partial class MainPage : Page
                 false),
             MirrorConnectionState.Sleeping => (
                 "Sleeping",
-                "Your reMarkable is sleeping",
-                "Mirror will wake it automatically and connect when it is ready.",
+                "Waking the display",
+                "The tablet is still reachable. Mirror will wake its display and connect automatically.",
                 Windows.UI.Color.FromArgb(255, 112, 118, 128),
                 false,
                 false,
@@ -1324,8 +1324,8 @@ public sealed partial class MainPage : Page
                 false),
             MirrorConnectionState.Waking => (
                 "Waking",
-                "Waking your reMarkable",
-                "Mirror will connect automatically.",
+                "Waking the display",
+                "The tablet is still reachable. Mirror will connect automatically.",
                 Windows.UI.Color.FromArgb(255, 226, 163, 58),
                 true,
                 false,
@@ -1352,7 +1352,7 @@ public sealed partial class MainPage : Page
             _ => (
                 "Offline",
                 "Connect or wake your reMarkable",
-                "Wake your reMarkable to reconnect over Wi-Fi, or connect it with USB-C. Mirror will reconnect automatically.",
+                "Press the power button once. Mirror reconnects over Wi-Fi when the tablet wakes. If Wi-Fi does not return, connect USB-C.",
                 Windows.UI.Color.FromArgb(255, 137, 145, 158),
                 false,
                 false,
@@ -2848,7 +2848,7 @@ public sealed partial class MainPage : Page
             if (routeGeneration is null)
             {
                 ShowLibraryDocumentDragError(
-                    "Wake or connect your reMarkable, then drag again.");
+                    "Wake the tablet first. If Wi-Fi does not return, connect USB-C, then drag again.");
                 return null;
             }
 

@@ -130,9 +130,11 @@ tablet's `/etc` overlay is volatile across reboot. It verifies both the exact
 link and the dependency loaded by systemd. A firmware update can activate a
 different root slot, which may need the matching components installed again.
 
-Deep Linux suspend removes Wi-Fi reachability. Mirror cannot send a network
-request to a radio that is no longer associated. The current product gives clear
-physical-wake/USB guidance and reconnects automatically when the tablet returns.
+On the tested tablet's current root, firmware, driver, and paired network, one
+bounded TCP attempt and one standard magic packet each failed to wake deep
+Linux suspend. The current product asks for one physical power-button press,
+reconnects automatically over Wi-Fi when the tablet returns, and suggests
+USB-C only as a fallback route after wake.
 
 ## Release package
 

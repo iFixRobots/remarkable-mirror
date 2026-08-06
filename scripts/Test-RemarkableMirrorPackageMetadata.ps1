@@ -76,7 +76,8 @@ foreach ($requiredMarker in @(
         'human-named PDF appears there',
         'The drag should begin immediately',
         '**Save native RMDOC...**',
-        'Full Linux suspend turns off Wi-Fi',
+        'Mirror reconnects automatically over Wi-Fi',
+        'If Wi-Fi does not return after it wakes, connect USB-C.',
         'grep -qxF "$key" /home/root/.ssh/authorized_keys ||',
         'Live over USB',
         'Live over Wi-Fi'
@@ -103,7 +104,8 @@ foreach ($requiredMarker in @(
         'human-named PDF appears there',
         'dragging a tablet document into Explorer starts immediately',
         'normal PDF; canceling and immediately retrying does not freeze Mirror',
-        'Full Linux suspend turns off the tablet''s Wi-Fi radio',
+        'Mirror reconnects automatically',
+        'If Wi-Fi does not return after it wakes, connect',
         'Live over USB',
         'Live over Wi-Fi'
     )) {

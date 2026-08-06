@@ -331,9 +331,10 @@ native RMDOC to Windows.
 Close Files and stop interacting with the tablet. Reconnect USB-C, wait for
 **Live over USB**, then confirm that **Touch + Type** and Files still work.
 
-Full Linux suspend turns off Wi-Fi, so a network packet cannot wake a disconnected
-radio. Press the power button or connect USB-C and Mirror will reconnect when the
-tablet is reachable.
+A fully sleeping tablet drops off Wi-Fi. On the tested Paper Pro Move, neither
+a direct network connection nor a standard wake packet brought it back. Press
+the tablet's power button once. Mirror reconnects automatically over Wi-Fi when
+it wakes. If Wi-Fi does not return after it wakes, connect USB-C.
 
 ## If something fails
 

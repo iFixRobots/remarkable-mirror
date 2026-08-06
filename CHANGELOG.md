@@ -18,6 +18,10 @@ Notable user-visible changes are recorded here.
   portable EXE is available for accounts that are already set up.
 - Connection cleanup, wake handling, and stale-frame recovery have been
   tightened without installing persistent input hooks on the tablet.
+- After full sleep, press the tablet's power button once and Mirror reconnects
+  automatically over Wi-Fi. If Wi-Fi does not return, USB-C is the fallback
+  route after wake. A bounded TCP attempt and a standard magic packet did not
+  wake the tested tablet from deep suspend.
 - The first-run guides, package checks, privacy boundaries, and release-source
   requirements are now part of the build itself.
 

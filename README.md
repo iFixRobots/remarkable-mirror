@@ -107,8 +107,9 @@ guide once on a clean Windows account and a freshly reset supported tablet.
   is still open before the first public release.
 - Mirror accepts PDFs and DRM-free EPUBs. DRM-protected and malformed EPUBs may
   fail without enough explanation in the app.
-- A fully suspended tablet turns off Wi-Fi, so it must be woken with its power
-  button or connected over USB-C before Mirror can reconnect.
+- A fully sleeping tablet drops off Wi-Fi. Press its power button once; Mirror
+  reconnects automatically over Wi-Fi. If Wi-Fi does not return after it wakes,
+  connect USB-C. Network wake did not work on the tested Paper Pro Move.
 - A firmware update can switch the tablet to a root slot without Mirror's
   components. Run `Install.cmd` again over unlocked USB when the app shows
   **Repair** and the release supports the new tablet software.

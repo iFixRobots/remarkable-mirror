@@ -368,7 +368,7 @@
                             FontSize="13"
                             Foreground="{StaticResource MutedBrush}"
                             LineHeight="19"
-                            Text="Wake your reMarkable to reconnect over Wi-Fi, or connect it with USB-C. Mirror will reconnect automatically."
+                            Text="Press the power button once. Mirror reconnects over Wi-Fi when the tablet wakes. If Wi-Fi does not return, connect USB-C."
                             TextWrapping="Wrap" />
 
                         <StackPanel
