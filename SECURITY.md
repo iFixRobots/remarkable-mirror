@@ -26,8 +26,8 @@ coordinate publication after a fix is available.
 
 - Mirror assumes Developer Mode is already enabled by the device owner.
 - First trust is established over the direct physical USB link.
-- Use Wi-Fi control only on a private network you control, not public or guest
-  Wi-Fi.
+- Use Wi-Fi Mirror on your home Wi-Fi, not on public or guest Wi-Fi. If you do
+  not control who can join the network, use USB-C instead.
 - Setup enables the tablet's root SSH-over-WLAN feature. Mirror uses a dedicated
   passphrase-free key because its SSH processes run with `BatchMode=yes`. Anyone
   who obtains that private key can authenticate as root to the paired tablet.

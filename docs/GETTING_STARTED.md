@@ -13,10 +13,15 @@ troubleshooting section before continuing.
 > **Windows Developer Mode** lets Windows build and run development packages.
 
 > [!IMPORTANT]
-> I have tested the core app behavior on my own tablet. I tested the corrected
-> uploader over Wi-Fi; its USB repetition, a fresh Wi-Fi export, and one
-> complete run on a newly set up Windows PC and freshly reset tablet are still
-> open. If a step does not match what you see, stop there and report it.
+> I use Mirror on my own tablet and have tested its USB and Wi-Fi connections,
+> input modes, screenshots, PDF and EPUB import, and PDF export. One complete
+> run on a newly set up Windows account and freshly reset tablet is still open
+> before the first public binary release. If a step does not match what you see,
+> stop there and report it.
+
+The screenshots below show the current Mirror app. reMarkable may change its
+settings screens between tablet updates, so use the linked official Developer
+Mode guide as the authority for those menus.
 
 ## What you will end up with
 
@@ -113,8 +118,8 @@ artifact extracts to one `ReMarkableMirror.exe` for a tablet and Windows account
 that have already completed `Install.cmd`. It does not install the tablet
 components, SSH key, device profile, or Windows package, so it is not the
 first-time setup. The portable EXE is not Authenticode-signed, so Windows may
-warn before opening it. Actions downloads remain build candidates until they
-are installed and owner-tested.
+warn before opening it. Actions downloads are private previews, not public
+releases.
 
 The downloaded installer carries the .NET runtime Mirror needs. You do not need
 the .NET SDK, Visual Studio, Go, Docker, or the source tree unless you choose to
@@ -489,8 +494,11 @@ Get-Content -LiteralPath "$key.pub" |
         -o "UserKnownHostsFile=$knownHosts" `
         -o StrictHostKeyChecking=yes `
         root@10.11.99.1 `
-        'umask 077; mkdir -p /home/root/.ssh; cat >> /home/root/.ssh/authorized_keys'
+        'umask 077; mkdir -p /home/root/.ssh; chmod 700 /home/root/.ssh; touch /home/root/.ssh/authorized_keys; chmod 600 /home/root/.ssh/authorized_keys; key=$(cat); grep -qxF "$key" /home/root/.ssh/authorized_keys || printf "%s\n" "$key" >> /home/root/.ssh/authorized_keys'
 ```
+
+You can safely run this command again. It keeps the existing key when it is
+already present instead of adding another copy.
 
 Verify that the dedicated key works without a password prompt:
 
@@ -510,7 +518,8 @@ Never add it to the repository or attach it to a bug report.
 ## 8. Install Mirror and its tablet components
 
 Open the complete release folder printed by the build, or the complete folder
-you extracted from the official ZIP. Double-click:
+you extracted from the private Actions installer ZIP or a future official
+release ZIP. Double-click:
 
 ```text
 Install.cmd
@@ -566,9 +575,7 @@ Check each item:
    as...** to open **Save As**.
 6. Open **Files** while the tablet is unlocked. Confirm the library loads.
 7. Drop a small disposable PDF and a DRM-free EPUB onto the send area, one at a
-   time, and confirm both appear on the tablet. I tested the corrected uploader
-   over Wi-Fi; this USB repetition is still part of release
-   signoff.
+   time, and confirm both appear on the tablet.
 8. Click a document to open **Save As** for its PDF, then save it to a normal
    Windows folder.
 9. Right-click a document and confirm you can choose **Save as PDF...** or
@@ -592,9 +599,8 @@ With Mirror already working over USB:
 4. Confirm the status reads **Live over Wi-Fi**.
 5. Repeat touch, keyboard, Pen, and screenshot checks.
 6. Open **Files** and confirm that the library loads over Wi-Fi. Drop one small
-   PDF and one DRM-free EPUB, then save one document to Windows. I tested PDF
-   and DRM-free EPUB import here; the fresh Wi-Fi export repetition is still
-   part of release signoff.
+   PDF and one DRM-free EPUB, then save one document as PDF and native RMDOC to
+   Windows.
 7. Close Files and stop interacting with the tablet.
 8. Reconnect USB-C.
 9. Wait for **Live over USB**.

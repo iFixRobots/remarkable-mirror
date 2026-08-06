@@ -13,10 +13,11 @@ folder together while you install it.
 The installed app needs Windows 11 x64 build `22621` or newer.
 
 > [!NOTE]
-> I have tested the core app behavior on my own tablet. I tested the corrected
-> uploader over Wi-Fi; its USB repetition, a fresh Wi-Fi export, and one
-> complete run on a freshly reset tablet and clean Windows account are still
-> open. If a step does not match what you see, stop there and report it.
+> I use Mirror on my own tablet and have tested its USB and Wi-Fi connections,
+> input modes, screenshots, PDF and EPUB import, and PDF export. One complete
+> run on a freshly reset tablet and clean Windows account is still open before
+> the first public binary release. If a step does not match what you see, stop
+> there and report it.
 
 ![reMarkable Mirror connected over Wi-Fi](images/remarkable-mirror-live-wifi.png)
 
@@ -251,8 +252,11 @@ Get-Content -LiteralPath "$key.pub" |
         -o "UserKnownHostsFile=$knownHosts" `
         -o StrictHostKeyChecking=yes `
         root@10.11.99.1 `
-        'umask 077; mkdir -p /home/root/.ssh; cat >> /home/root/.ssh/authorized_keys'
+        'umask 077; mkdir -p /home/root/.ssh; chmod 700 /home/root/.ssh; touch /home/root/.ssh/authorized_keys; chmod 600 /home/root/.ssh/authorized_keys; key=$(cat); grep -qxF "$key" /home/root/.ssh/authorized_keys || printf "%s\n" "$key" >> /home/root/.ssh/authorized_keys'
 ```
+
+You can safely run this command again. It keeps the existing key when it is
+already present instead of adding another copy.
 
 Verify key-only access:
 
@@ -302,8 +306,7 @@ it from Start. Wait for **Live over USB**.
   **Save screenshot as...** to open **Save As**.
 - Open **Files** while the tablet is unlocked.
 - Drop a small disposable PDF and a DRM-free EPUB into the tablet, one at a
-  time. I tested the corrected uploader over Wi-Fi; this USB
-  repetition is still part of release signoff.
+  time.
 - Click a document to open **Save As** for PDF. Right-click it to choose
   **Save as PDF...** or **Save native RMDOC...**. Explorer drag-out is not
   implemented yet.
@@ -318,8 +321,7 @@ Unlocking starts the stock Files listener again.
 Confirm the tablet says Wi-Fi is connected. Unplug USB-C, leave the tablet awake,
 and wait for **Live over Wi-Fi**. Repeat touch, keyboard, Pen, and screenshot
 checks, then confirm that the Files library loads. Drop one small PDF and one
-DRM-free EPUB, then save one document to Windows. I tested PDF and DRM-free EPUB
-import here; the fresh Wi-Fi export repetition is still part of release signoff.
+DRM-free EPUB, then save one document as PDF and native RMDOC to Windows.
 
 Close Files and stop interacting with the tablet. Reconnect USB-C, wait for
 **Live over USB**, then confirm that **Touch + Type** and Files still work.

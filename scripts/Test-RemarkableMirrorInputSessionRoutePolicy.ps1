@@ -57,11 +57,27 @@ internal static class Program
             new SshRoute("192.0.2.53", filesTargetHost: "127.0.0.1")
                 .CreateFilesForwardArgument(43123) ==
             "127.0.0.1:43123:127.0.0.1:80");
+        var sshPolicy = new SshRoute("192.0.2.53").CreateProcessStartInfo();
+        Require(HasSshOption(sshPolicy, "ServerAliveInterval=3"));
+        Require(HasSshOption(sshPolicy, "ServerAliveCountMax=3"));
         Console.WriteLine("Result: PASS");
         Console.WriteLine("USB command unchanged: PASS");
         Console.WriteLine("Legacy Files fallback command remains parseable: PASS");
         Console.WriteLine("Files tunnel targets tablet loopback: PASS");
+        Console.WriteLine("Persistent SSH sessions tolerate two missed keepalives: PASS");
         return 0;
+    }
+
+    private static bool HasSshOption(System.Diagnostics.ProcessStartInfo info, string expected)
+    {
+        for (var index = 0; index + 1 < info.ArgumentList.Count; index++)
+        {
+            if (info.ArgumentList[index] == "-o" && info.ArgumentList[index + 1] == expected)
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static void Require(bool condition)

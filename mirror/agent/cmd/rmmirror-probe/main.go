@@ -15,7 +15,7 @@ import (
 	"github.com/iFixRobots/remarkable-mirror/agent/internal/device"
 )
 
-const version = "0.4.8"
+const version = "0.4.9"
 
 func main() {
 	signalContext, stopSignals := signal.NotifyContext(
@@ -25,12 +25,6 @@ func main() {
 		syscall.SIGTERM,
 	)
 	ctx, cancel := context.WithCancel(signalContext)
-	if len(os.Args) > 1 && os.Args[1] == "stream" {
-		go func() {
-			_, _ = io.Copy(io.Discard, os.Stdin)
-			cancel()
-		}()
-	}
 	exitCode := run(ctx, os.Args[1:], os.Stdout, os.Stderr)
 	cancel()
 	stopSignals()
@@ -96,7 +90,15 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	streamInterval := flags.Duration("interval", 40*time.Millisecond, "stream polling interval")
 	markerPath := flags.String("marker", device.DefaultMarkerPath, "physical marker event device")
 	inputLock := flags.String("lock", device.DefaultInputLockPath, "input session lock")
-	heartbeatTimeout := flags.Duration("heartbeat-timeout", device.DefaultInputHeartbeatTimeout, "input heartbeat timeout")
+	heartbeatTimeoutDefault := time.Duration(0)
+	if command == "input" {
+		heartbeatTimeoutDefault = device.DefaultInputHeartbeatTimeout
+	}
+	heartbeatTimeout := flags.Duration(
+		"heartbeat-timeout",
+		heartbeatTimeoutDefault,
+		"input or stream heartbeat timeout; zero disables the stream lease",
+	)
 	restoreTimeout := flags.Duration("restore-timeout", 50*time.Second, "physical input restoration timeout")
 	filesFallback := flags.Bool("files-fallback", false, "enable the session-owned stock Files fallback")
 	filesFallbackOwned := flags.Bool("files-fallback-owned", false, "clean a fallback address owned by the parent input session")
@@ -121,7 +123,13 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 			writeUsage(stderr)
 			return 2
 		}
-		if err := device.StreamFrames(ctx, stdout, *streamInterval); err != nil {
+		if err := device.StreamFramesWithLease(
+			ctx,
+			os.Stdin,
+			stdout,
+			*streamInterval,
+			*heartbeatTimeout,
+		); err != nil {
 			fmt.Fprintf(stderr, "rmmirror-probe: stream_%s\n", device.ErrorCode(err))
 			return 1
 		}
@@ -195,7 +203,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 func writeUsage(writer io.Writer) {
 	fmt.Fprintln(writer, "usage: rmmirror-probe [snapshot] [--pretty]")
 	fmt.Fprintln(writer, "       rmmirror-probe frame [--format bgra|png]")
-	fmt.Fprintln(writer, "       rmmirror-probe stream [--interval 40ms]")
+	fmt.Fprintln(writer, "       rmmirror-probe stream [--interval 40ms] [--heartbeat-timeout 15s]")
 	fmt.Fprintln(writer, "       rmmirror-probe input [--marker /dev/input/event2] [--heartbeat-timeout 15s] [--files-fallback]")
 	fmt.Fprintln(writer, "       rmmirror-probe input-ready [--marker /dev/input/event2] [--restore-timeout 50s]")
 	fmt.Fprintln(writer, "       rmmirror-probe xovi-activate --attempt <32hex>")

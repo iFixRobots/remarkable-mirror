@@ -11,6 +11,8 @@ $installerPath = Join-Path $repositoryRoot 'scripts\Install-RemarkableMirrorPrer
 $installerText = [System.IO.File]::ReadAllText($installerPath)
 $wakeServicePath = Join-Path $repositoryRoot 'mirror\agent\deploy\rmmirror-transport-wake.service'
 $wakeServiceText = [System.IO.File]::ReadAllText($wakeServicePath)
+$transportInstallerPath = Join-Path $repositoryRoot 'mirror\agent\deploy\install-transport-wake.sh'
+$transportInstallerText = [System.IO.File]::ReadAllText($transportInstallerPath)
 $tokens = $null
 $errors = $null
 $installerAst = [System.Management.Automation.Language.Parser]::ParseFile(
@@ -205,6 +207,91 @@ foreach ($requiredMarker in @(
 }
 if ($wakeServiceText.Contains('--wake-listen 0.0.0.0:51337', [StringComparison]::Ordinal)) {
     throw 'The wake service still exposes its endpoint on every tablet interface.'
+}
+
+if ($wakeServiceText -match '(?m)^\[Install\]$' -or
+    $wakeServiceText -match '(?m)^WantedBy=multi-user\.target$') {
+    throw 'The wake service still delegates boot persistence to volatile systemctl enable state.'
+}
+
+foreach ($requiredMarker in @(
+        'persistent_wants_directory=/usr/lib/systemd/system/multi-user.target.wants',
+        'persistent_enable_anchor=$persistent_wants_directory/rmmirror-transport-wake.service',
+        'persistent_enable_target=../rmmirror-transport-wake.service',
+        'validate_persistent_enablement_path',
+        'publish_persistent_enablement',
+        'remove_persistent_enablement',
+        'multi_user_wants=$(systemctl show --property=Wants --value -- multi-user.target)',
+        '*" rmmirror-transport-wake.service "*) ;;',
+        'test "$(systemctl is-enabled rmmirror-transport-wake.service)" = static'
+    )) {
+    if (-not $transportInstallerText.Contains($requiredMarker, [StringComparison]::Ordinal)) {
+        throw "The transport installer is missing persistent boot marker: $requiredMarker"
+    }
+}
+
+$mainInstallIndex = $transportInstallerText.IndexOf(
+    "make_root_writable`ninstall_mutation_started=1",
+    [StringComparison]::Ordinal
+)
+if ($mainInstallIndex -lt 0) {
+    throw 'The transport installer main mutation block was not found.'
+}
+if ($transportInstallerText.IndexOf(
+        'systemctl enable rmmirror-transport-wake.service',
+        $mainInstallIndex,
+        [StringComparison]::Ordinal
+    ) -ge 0) {
+    throw 'The transport installer still enables the service through volatile /etc state.'
+}
+
+$removeModeIndex = $transportInstallerText.IndexOf(
+    'if test "$mode" = remove; then',
+    [StringComparison]::Ordinal
+)
+$removeValidationIndex = $transportInstallerText.IndexOf(
+    'validate_persistent_enablement_path',
+    $removeModeIndex,
+    [StringComparison]::Ordinal
+)
+$removeMutationIndex = $transportInstallerText.IndexOf(
+    'acquire_installer_wake_lock',
+    $removeModeIndex,
+    [StringComparison]::Ordinal
+)
+if ($removeModeIndex -lt 0 -or
+    $removeValidationIndex -lt $removeModeIndex -or
+    $removeMutationIndex -lt 0 -or
+    $removeValidationIndex -gt $removeMutationIndex) {
+    throw 'Remove mode does not validate persistent enablement before its first mutation.'
+}
+
+$mainPublishIndex = $transportInstallerText.IndexOf(
+    'publish_persistent_enablement',
+    $mainInstallIndex,
+    [StringComparison]::Ordinal
+)
+$mainReloadIndex = $transportInstallerText.IndexOf(
+    'systemctl daemon-reload',
+    $mainInstallIndex,
+    [StringComparison]::Ordinal
+)
+if ($mainPublishIndex -lt $mainInstallIndex -or
+    $mainReloadIndex -lt 0 -or
+    $mainPublishIndex -gt $mainReloadIndex) {
+    throw 'The persistent enablement link is not published before the install reload.'
+}
+
+foreach ($requiredMarker in @(
+        'test -L /usr/lib/systemd/system/multi-user.target.wants/rmmirror-transport-wake.service',
+        'readlink /usr/lib/systemd/system/multi-user.target.wants/rmmirror-transport-wake.service',
+        'systemctl is-enabled rmmirror-transport-wake.service)" = ''static''',
+        'systemctl show --property=Wants --value -- multi-user.target',
+        '*" rmmirror-transport-wake.service "*) ;;'
+    )) {
+    if (-not $installerText.Contains($requiredMarker, [StringComparison]::Ordinal)) {
+        throw "The host installer is missing persistent boot verification: $requiredMarker"
+    }
 }
 
 Write-Host 'PASS: prerequisite installer and wake endpoint are pinned to USB and tablet loopback.'

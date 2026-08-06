@@ -86,6 +86,10 @@ software version. If it does not, stop and report the version. If it does,
 connect and unlock over USB-C, then run that supported release's `Install.cmd`
 again. Do not use **Retry** until setup finishes.
 
+The installer publishes the transport service's ordinary-boot dependency under
+`/usr/lib/systemd/system` instead of the tablet's volatile `/etc` overlay.
+Automatic repair after a future root-slot switch is not implemented.
+
 ## Mirror is Live but Files says connect
 
 Files is independent from display and input.
@@ -111,9 +115,9 @@ supported by the tablet.
 
 ## Frames update but controls do not
 
-Mirror tries to reconnect the controls once. If it shows **Retry**, select it.
-If the controls still do not work, close Mirror, confirm touch works on the
-tablet, and reopen it.
+Mirror should discard the stale connection and reconnect automatically. If it
+shows **Retry**, select it once. If the controls still do not work, close
+Mirror, confirm touch works on the tablet, and reopen it.
 
 Do not repeatedly launch multiple Mirror instances. Include the app's copied
 diagnostic details in a bug report after checking them for local network details.
@@ -131,6 +135,12 @@ tablet UI. If the tablet can scan networks but has no saved profile, no Windows
 repair command can supply the missing Wi-Fi password.
 
 ## Package installation fails
+
+Current source sends the gated launcher payload through standard input rather
+than embedding the long tablet setup script in the Windows command line. If an
+older package reports a command-line length or launcher-start failure, use a
+newer package built from current source instead of retrying the same extracted
+files.
 
 - For the current private build, download
   **remarkable-mirror-windows-installer** from a successful

@@ -3,6 +3,22 @@
 These assets install the small tablet-side runtime used by reMarkable Mirror.
 They do not install persistent virtual input.
 
+## Frame-session lease
+
+The Windows frame worker starts:
+
+```sh
+/home/root/.local/bin/rmmirror-probe stream --interval 40ms --heartbeat-timeout 15s
+```
+
+Windows writes one pulse to that SSH session immediately and another every
+three seconds. Probe v0.4.9 monitors the lease independently from frame
+capture. If no pulse arrives for 15 seconds, it reports
+`stream_heartbeat_timeout` and returns to process exit without joining a frame
+writer that may be blocked on a dead connection. Standard-input EOF and parent
+cancellation remain clean exits. A zero timeout keeps the unleased command-line
+behavior, but the Windows product always supplies 15 seconds.
+
 ## Session-only input
 
 After Windows establishes SSH, it starts:
@@ -91,13 +107,22 @@ slot switch, connect by USB, complete the first post-boot unlock, and rerun
 `Install.cmd`. Automatic installation on a newly active root slot is not
 implemented.
 
+The unit is static: it has no `[Install]` section. The
+installer publishes an exact package-owned
+`/usr/lib/systemd/system/multi-user.target.wants/rmmirror-transport-wake.service`
+link instead of relying on `systemctl enable` under the tablet's volatile
+`/etc`. It reloads systemd and verifies that `multi-user.target` consumed the
+dependency.
+
 Install, rollback, and removal are transactional. The script snapshots the
 prior files and enablement, acquires a distinct timed kernel wake lock, and
 stops pending `suspend-then-hibernate` work before mutation. It verifies the
 published asset hashes, loaded drop-in, service health, endpoint health, and
 read-only active root before success. A failed install restores the prior files
-and service state. Removal preserves `/data/rmmirror/wake-token` so reinstalling
-does not silently invalidate the paired Windows host.
+and service state, including the exact prior package-owned boot link. Removal
+validates that link before its first mutation and preserves
+`/data/rmmirror/wake-token` so reinstalling does not silently invalidate the
+paired Windows host.
 
 The host-side entry point is
 `scripts/Install-RemarkableMirrorPrerequisites.ps1`. It stages and verifies the
@@ -107,8 +132,24 @@ without printing it. For Wi-Fi Mirror it also runs `rm-ssh-over-wlan on`, checks
 the root `dropbear-wlan.socket`, and confirms that Wi-Fi reaches the same tablet
 identity first saved over USB. This enables root SSH on the tablet's Wi-Fi
 interface. The dedicated SSH key is passphrase-free because every product
-connection uses `BatchMode=yes`; protect it as a root credential and use Wi-Fi
-Mirror only on a private network you control.
+connection uses `BatchMode=yes`; protect it as a root credential. Use Wi-Fi
+Mirror on your home Wi-Fi, not on public or guest Wi-Fi. If you do not control
+who can join the network, use USB-C instead.
+
+The Windows capture helper starts external tools under a gated Job Object. It
+writes the serialized launcher payload over standard input after job assignment
+and gate release instead of embedding that payload in `-EncodedCommand`. This
+keeps the launcher command fixed-size for long remote setup scripts and avoids
+the Windows command-length limit. A payload-transfer failure terminates and
+verifies the owned process tree.
+
+When the package upgrades the probe, the installer publishes and verifies the
+new binary before retiring an old frame generation. It matches only the exact
+`/home/root/.local/bin/rmmirror-probe` executable, including its deleted inode
+after replacement, with `stream` as its next argument. It sends TERM, waits up
+to two seconds, sends KILL only to surviving matches, and performs another
+bounded absence check. Input and its detached watchdog do not match. Setup stops
+with `frame_stream_retirement_failed` if absence cannot be verified.
 
 ## Packaged tablet components
 
@@ -137,6 +178,5 @@ at an explicit `Retry` instead of another hidden handoff.
 
 The current source supports USB and Wi-Fi display, `Touch + Type`, Pen,
 short-sleep recovery, Files through SSH, Files recovery after unlock, and normal
-sleep after USB detach. Pen over Wi-Fi is owner-tested in installed Gold
-`1.2608.416.5801`. Full-suspend wireless wake, automatic A/B slot repair, and
-recovery from every live connection failure remain separate work.
+sleep after USB detach. Full-suspend wireless wake, automatic A/B slot repair,
+and recovery from every possible live connection failure are not supported.

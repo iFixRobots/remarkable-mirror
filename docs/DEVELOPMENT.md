@@ -193,9 +193,9 @@ dotnet publish $project `
     -o artifacts\remarkable-mirror-portable
 ```
 
-The normal package remains on the same Windows App SDK used by the accepted
-Gold build. The portable profile uses only the Base, DWrite, Foundation,
-Interactive Experiences, and WinUI parts of that same runtime line. It leaves
+The normal package and portable build use the same Windows App SDK line. The
+portable profile includes only Base, DWrite, Foundation, Interactive
+Experiences, and WinUI. It leaves
 out AI, machine learning, Widgets, and the shared-runtime package, compresses
 the single-file payload, and does not build a ReadyToRun composite image.
 
@@ -236,6 +236,17 @@ The application MSIX includes its matching .NET runtime. The Windows App SDK
 `Install.cmd` can set up a new Windows account without a preinstalled .NET SDK
 or runtime.
 
+Release builds disable Mirror-owned PDB/CodeView output. Before signing, the
+builder inspects `ReMarkableMirror.dll` and `ReMarkableMirror.exe` and stops if
+either contains a rooted application CodeView path or the current repository or
+user-profile root. The SDK-provided native apphost may retain its own framework
+build provenance. Debug builds keep their symbols.
+
+Package builds also require the complete public `PACKAGE_ONBOARDING.md`,
+`GETTING_STARTED.md`, and `TROUBLESHOOTING.md` files plus all three images under
+`docs\images`. A missing file stops the build. There is no fallback to a shorter
+workspace-only guide.
+
 Official iFixRobots packages refuse a dirty source tree. The explicit dirty-tree
 override exists for a maintainer's local development artifact. Do not publish
 an artifact created with that override as an official release.
@@ -254,6 +265,15 @@ Build the package first, then follow these sections of Getting started:
 The package flow is the supported way to install the tablet components.
 The repository does not include a second launcher that stages arbitrary tablet
 state outside that package.
+
+The packaged prerequisite installer uses
+`scripts\lib\RemarkableRmctlCapture.ps1` to start SSH and SCP inside a gated
+Windows Job Object. Keep the generated launcher command fixed-size. The target
+file path and arguments are serialized once and written through the launcher's
+standard input after job assignment and gate release. Do not put that payload
+back into `-EncodedCommand`; long remote setup scripts can exceed the Windows
+command-length limit. `Test-RemarkableMirrorPackageMetadata.ps1` checks the
+standard-input transport markers and the packaged helper copy.
 
 ## Tablet development rules
 

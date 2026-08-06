@@ -6,15 +6,15 @@ the root `global.json`, Go module, CI workflow, and package builder enforce thos
 exact versions.
 
 Every push to `main` also creates private GitHub Actions downloads for owner
-review. Those artifacts remain installer and portable build candidates after a
-successful workflow. Downloading and inspecting them proves the files, but only
-installation and owner testing can promote a candidate. They are not a public
-release. A public release still follows the signing, source, and publishing
-steps below.
+review. A successful workflow proves that the installer and portable download
+were built; it does not make either one a public release. Public releases still
+follow the signing, source, and publishing steps below.
 
 The installer Actions artifact contains only the versioned distribution ZIP;
 the expanded staging directory is not uploaded beside it. The portable artifact
 contains only its self-contained EXE.
+
+No public binary version has been released yet.
 
 ## Before building
 
@@ -27,7 +27,10 @@ contains only its self-contained EXE.
 6. Confirm `git status --short` is empty.
 7. Prepare a corresponding-source archive for every GPL-covered binary that the
    release will distribute.
-8. Complete the published Getting started path on a fresh Windows account and a
+8. Confirm the complete public onboarding, Getting started, and Troubleshooting
+   guides plus all three app screenshots are present. The builder must not
+   fall back to a shorter guide.
+9. Complete the published Getting started path on a fresh Windows account and a
    freshly reset supported tablet configuration.
 
 ## Build
@@ -55,14 +58,23 @@ Official builds refuse a dirty tree. `release.json` must contain:
 
 - Authenticode signature is valid.
 - The MSIX manifest identity matches `release.json`.
+- The packaged process helper reads its gated launcher payload from standard
+  input and does not interpolate the payload into the outer `-EncodedCommand`.
+- A long-argument round trip verifies that the process helper does not regress
+  to a Windows command-length failure.
+- The Release app DLL and EXE contain no rooted application CodeView path and
+  no current repository or user-profile root. Debug builds retain symbols but
+  are not release artifacts.
 - The application MSIX contains its declared self-contained .NET runtime, while
   the release folder contains exactly one matching Windows App Runtime
   dependency.
 - The MSIX and ZIP contain the project legal files and the exact restored
   Microsoft license/notice payload under `ThirdParty/Microsoft`.
 - The ZIP contains one coherent release tree and no private keys or captures.
-- The ZIP's `ONBOARDING.md` starts from an already downloaded package and never
-  tells the user to build that same package.
+- The ZIP contains `ONBOARDING.md`, `GETTING_STARTED.md`,
+  `TROUBLESHOOTING.md`, and the three referenced app screenshots.
+  `ONBOARDING.md` starts from an already downloaded package and never tells the
+  user to build that same package.
 - README and Getting started screenshots contain no personal notebooks,
   handwritten content, credentials, network details, or background windows.
 - The package is non-development after installation.

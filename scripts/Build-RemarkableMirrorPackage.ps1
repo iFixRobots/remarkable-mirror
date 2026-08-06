@@ -37,13 +37,6 @@ $publicOnboardingGuidePath = Join-Path $repositoryRoot 'docs\PACKAGE_ONBOARDING.
 $publicGettingStartedGuidePath = Join-Path $repositoryRoot 'docs\GETTING_STARTED.md'
 $publicTroubleshootingGuidePath = Join-Path $repositoryRoot 'docs\TROUBLESHOOTING.md'
 $publicOnboardingImagesDirectory = Join-Path $repositoryRoot 'docs\images'
-$workspaceOnboardingGuidePath = Join-Path $repositoryRoot 'docs\development\mirror-onboarding.md'
-$onboardingGuidePath = if (Test-Path -LiteralPath $publicOnboardingGuidePath -PathType Leaf) {
-    $publicOnboardingGuidePath
-}
-else {
-    $workspaceOnboardingGuidePath
-}
 $xoviNoticePath = Join-Path $repositoryRoot 'mirror\third-party\xovi\NOTICE.txt'
 $xoviLicensePath = Join-Path $repositoryRoot 'mirror\third-party\xovi\LICENSE-GPL-3.0.txt'
 $microsoftNoticesDirectoryPath = Join-Path $repositoryRoot 'mirror\third-party\microsoft'
@@ -118,7 +111,7 @@ foreach ($requiredPath in @(
         $transportUnitPath,
         $transportInstallPath,
         $transportSleepGuardPath,
-        $onboardingGuidePath,
+        $publicOnboardingGuidePath,
         $publicGettingStartedGuidePath,
         $publicTroubleshootingGuidePath,
         (Join-Path $publicOnboardingImagesDirectory 'remarkable-mirror-live-wifi.png'),
@@ -311,6 +304,91 @@ function Get-AppxArchiveIdentity {
     }
 }
 
+function Assert-AppOwnedPackageBinaryPrivacy {
+    param(
+        [Parameter(Mandatory)][string]$UnpackDirectory,
+        [Parameter(Mandatory)][string[]]$SensitiveRoots
+    )
+
+    $normalizedSensitiveRoots = @(
+        $SensitiveRoots |
+            Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+            ForEach-Object { [System.IO.Path]::GetFullPath($_).TrimEnd('\', '/') } |
+            Sort-Object -Unique
+    )
+
+    foreach ($binaryName in @('ReMarkableMirror.dll', 'ReMarkableMirror.exe')) {
+        $binaryPath = Join-Path $UnpackDirectory $binaryName
+        if (-not (Test-Path -LiteralPath $binaryPath -PathType Leaf)) {
+            throw "Finished MSIX is missing app-owned binary: $binaryName"
+        }
+
+        $stream = [System.IO.File]::OpenRead($binaryPath)
+        try {
+            $peReader = [System.Reflection.PortableExecutable.PEReader]::new($stream)
+            try {
+                foreach ($entry in $peReader.ReadDebugDirectory()) {
+                    if ($entry.Type -ne [System.Reflection.PortableExecutable.DebugDirectoryEntryType]::CodeView) {
+                        continue
+                    }
+                    $codeViewPath = $peReader.ReadCodeViewDebugDirectoryData($entry).Path
+                    if (-not [System.IO.Path]::IsPathRooted($codeViewPath)) {
+                        continue
+                    }
+
+                    # The SDK-provided native apphost carries the .NET runtime build's
+                    # own apphost.pdb provenance. It is not produced from this checkout.
+                    $normalizedCodeViewPath = $codeViewPath.Replace('/', '\')
+                    $isFrameworkAppHost =
+                        $binaryName -ceq 'ReMarkableMirror.exe' -and
+                        [System.IO.Path]::GetFileName($normalizedCodeViewPath) -ieq 'apphost.pdb' -and
+                        $normalizedCodeViewPath -match '(?i)\\src\\runtime\\artifacts\\obj\\.+\\corehost\\apphost\\standalone\\apphost\.pdb$'
+                    if (-not $isFrameworkAppHost) {
+                        throw "Finished MSIX contains a rooted application CodeView PDB path in $binaryName."
+                    }
+                }
+            }
+            finally {
+                $peReader.Dispose()
+            }
+        }
+        finally {
+            $stream.Dispose()
+        }
+
+        $binaryBytes = [System.IO.File]::ReadAllBytes($binaryPath)
+        $binaryTextViews = [System.Collections.Generic.List[string]]::new()
+        $binaryTextViews.Add([System.Text.Encoding]::ASCII.GetString($binaryBytes))
+        $binaryTextViews.Add([System.Text.Encoding]::UTF8.GetString($binaryBytes))
+        $binaryTextViews.Add([System.Text.Encoding]::Unicode.GetString($binaryBytes))
+        if ($binaryBytes.Length -gt 1) {
+            $binaryTextViews.Add(
+                [System.Text.Encoding]::Unicode.GetString(
+                    $binaryBytes,
+                    1,
+                    $binaryBytes.Length - 1
+                )
+            )
+        }
+
+        foreach ($sensitiveRoot in $normalizedSensitiveRoots) {
+            foreach ($sensitiveVariant in @(
+                    $sensitiveRoot,
+                    $sensitiveRoot.Replace('\', '/')
+                ) | Sort-Object -Unique) {
+                foreach ($binaryText in $binaryTextViews) {
+                    if ($binaryText.IndexOf(
+                            $sensitiveVariant,
+                            [StringComparison]::OrdinalIgnoreCase
+                        ) -ge 0) {
+                        throw "Finished MSIX embeds the package build's repository or user-profile path in $binaryName."
+                    }
+                }
+            }
+        }
+    }
+}
+
 function Get-OrCreateSigningCertificate {
     $codeSigningOid = '1.3.6.1.5.5.7.3.3'
     $minimumExpiry = (Get-Date).AddDays(30)
@@ -436,6 +514,8 @@ try {
         '-p:AppxBundle=Never',
         '-p:UapAppxPackageBuildMode=SideloadOnly',
         '-p:PublishTrimmed=false',
+        '-p:DebugType=None',
+        '-p:DebugSymbols=false',
         "-p:AppxPackageDir=$packageBuildDirectory"
     )
     Push-Location $repositoryRoot
@@ -479,7 +559,7 @@ try {
     Copy-Item -LiteralPath $installerScriptPath -Destination $releaseDirectory
     Copy-Item -LiteralPath $installerLauncherPath -Destination (Join-Path $releaseDirectory 'Install.cmd')
     Copy-Item -LiteralPath $prerequisiteScriptPath -Destination $releaseDirectory
-    Copy-Item -LiteralPath $onboardingGuidePath -Destination (Join-Path $releaseDirectory 'ONBOARDING.md')
+    Copy-Item -LiteralPath $publicOnboardingGuidePath -Destination (Join-Path $releaseDirectory 'ONBOARDING.md')
     Copy-Item -LiteralPath $publicGettingStartedGuidePath -Destination (Join-Path $releaseDirectory 'GETTING_STARTED.md')
     Copy-Item -LiteralPath $publicTroubleshootingGuidePath -Destination (Join-Path $releaseDirectory 'TROUBLESHOOTING.md')
     $releaseImagesDirectory = Join-Path $releaseDirectory 'images'
@@ -601,6 +681,12 @@ try {
         $manifestIdentity.ProcessorArchitecture -ne 'x64') {
         throw "Finished MSIX identity does not match the requested name, publisher, version, and architecture."
     }
+    Assert-AppOwnedPackageBinaryPrivacy `
+        -UnpackDirectory $unpackDirectory `
+        -SensitiveRoots @(
+            $repositoryRoot,
+            [Environment]::GetFolderPath([Environment+SpecialFolder]::UserProfile)
+        )
 
     $requiredDotnetRuntimeFiles = @(
         'coreclr.dll',

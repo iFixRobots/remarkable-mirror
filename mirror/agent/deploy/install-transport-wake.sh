@@ -14,6 +14,9 @@ unit_source="$asset_root/rmmirror-transport-wake.service"
 sleep_guard_source="$asset_root/rmmirror-usb-sleep-guard.conf"
 binary_anchor=/usr/libexec/rmmirror-transport-wake
 unit_anchor=/usr/lib/systemd/system/rmmirror-transport-wake.service
+persistent_wants_directory=/usr/lib/systemd/system/multi-user.target.wants
+persistent_enable_anchor=$persistent_wants_directory/rmmirror-transport-wake.service
+persistent_enable_target=../rmmirror-transport-wake.service
 sleep_guard_directory=/usr/lib/systemd/system/systemd-suspend-then-hibernate.service.d
 sleep_guard_anchor=$sleep_guard_directory/50-rmmirror-usb-carrier.conf
 status_path=/run/rmmirror-transport-wake.json
@@ -38,6 +41,7 @@ install_rollback_sleep_guard=
 prior_binary_present=0
 prior_unit_present=0
 prior_sleep_guard_present=0
+prior_persistent_enable_present=0
 prior_service_enabled=0
 prior_service_enabled_runtime=0
 prior_service_active=0
@@ -173,6 +177,51 @@ publish_anchor() {
     mv -f "$target_path.new" "$target_path"
 }
 
+persistent_enablement_is_exact() {
+    test -L "$persistent_enable_anchor" &&
+        test "$(readlink "$persistent_enable_anchor")" = "$persistent_enable_target"
+}
+
+validate_persistent_enablement_path() {
+    if test -L "$persistent_enable_anchor"; then
+        if ! persistent_enablement_is_exact; then
+            printf '%s\n' "rmmirror-transport-wake: refusing unexpected enablement link $persistent_enable_anchor" >&2
+            return 1
+        fi
+        return
+    fi
+    if test -e "$persistent_enable_anchor"; then
+        printf '%s\n' "rmmirror-transport-wake: refusing unexpected enablement path $persistent_enable_anchor" >&2
+        return 1
+    fi
+}
+
+publish_persistent_enablement() {
+    mkdir -p "$persistent_wants_directory"
+    if test -L "$persistent_enable_anchor"; then
+        persistent_enablement_is_exact
+        return
+    fi
+    if test -e "$persistent_enable_anchor"; then
+        printf '%s\n' "rmmirror-transport-wake: refusing unexpected enablement path $persistent_enable_anchor" >&2
+        return 1
+    fi
+    rm -f "$persistent_enable_anchor.new"
+    ln -s "$persistent_enable_target" "$persistent_enable_anchor.new"
+    test -L "$persistent_enable_anchor.new"
+    test "$(readlink "$persistent_enable_anchor.new")" = "$persistent_enable_target"
+    mv -f "$persistent_enable_anchor.new" "$persistent_enable_anchor"
+    persistent_enablement_is_exact
+}
+
+remove_persistent_enablement() {
+    rm -f "$persistent_enable_anchor.new"
+    validate_persistent_enablement_path
+    if test -L "$persistent_enable_anchor"; then
+        rm -f "$persistent_enable_anchor"
+    fi
+}
+
 snapshot_anchor() {
     current_path=$1
     snapshot_path=$2
@@ -237,6 +286,11 @@ begin_install_transaction() {
         2) ;;
         *) return 1 ;;
     esac
+
+    validate_persistent_enablement_path
+    if test -L "$persistent_enable_anchor"; then
+        prior_persistent_enable_present=1
+    fi
 
     prior_enable_state=$(systemctl is-enabled rmmirror-transport-wake.service 2>/dev/null || true)
     case "$prior_enable_state" in
@@ -348,11 +402,15 @@ rollback_install_transaction() {
             # Remove any enablement created by this attempt while the candidate
             # unit is still loaded. Restore the exact prior anchors and state.
             systemctl disable rmmirror-transport-wake.service >/dev/null 2>&1 || true
+            remove_persistent_enablement || rollback_failed=1
             restore_anchor "$install_rollback_binary" "$binary_anchor" "$prior_binary_present" || rollback_failed=1
             restore_anchor "$install_rollback_unit" "$unit_anchor" "$prior_unit_present" || rollback_failed=1
             if test "$prior_sleep_guard_present" -eq 1; then
                 mkdir -p "$sleep_guard_directory" || rollback_failed=1
                 restore_anchor "$install_rollback_sleep_guard" "$sleep_guard_anchor" 1 || rollback_failed=1
+            fi
+            if test "$prior_persistent_enable_present" -eq 1; then
+                publish_persistent_enablement || rollback_failed=1
             fi
             systemctl daemon-reload >/dev/null 2>&1 || rollback_failed=1
 
@@ -424,11 +482,13 @@ ensure_wake_token() {
         token_temporary=$token_path.new.$$
         token_entropy=$token_temporary.random
         rm -f "$token_temporary" "$token_entropy"
-        umask 077
-        dd if=/dev/urandom of="$token_entropy" bs=32 count=1 2>/dev/null
-        test "$(wc -c < "$token_entropy" | tr -d ' ')" -eq 32
-        token_value=$(sha256sum "$token_entropy" | cut -d' ' -f1)
-        printf '%s' "$token_value" > "$token_temporary"
+        (
+            umask 077
+            dd if=/dev/urandom of="$token_entropy" bs=32 count=1 2>/dev/null
+            test "$(wc -c < "$token_entropy" | tr -d ' ')" -eq 32
+            token_value=$(sha256sum "$token_entropy" | cut -d' ' -f1)
+            printf '%s' "$token_value" > "$token_temporary"
+        )
         rm -f "$token_entropy"
         token_entropy=
         test "$(wc -c < "$token_temporary" | tr -d ' ')" -eq 64
@@ -504,6 +564,7 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 
 if test "$mode" = remove; then
+    validate_persistent_enablement_path
     test -r "$wake_lock_path"
     test -w "$wake_lock_path"
     test -w "$wake_unlock_path"
@@ -513,6 +574,7 @@ if test "$mode" = remove; then
     cleanup_legacy_sleep_masks
     make_root_writable
     systemctl disable rmmirror-transport-wake.service 2>/dev/null || true
+    remove_persistent_enablement
     rm -f "$sleep_guard_anchor"
     rmdir "$sleep_guard_directory" 2>/dev/null || true
     systemctl daemon-reload
@@ -546,10 +608,21 @@ stop_pending_system_sleep
 make_root_writable
 install_mutation_started=1
 mkdir -p /usr/libexec /usr/lib/systemd/system "$sleep_guard_directory"
+systemctl disable rmmirror-transport-wake.service >/dev/null 2>&1 || true
+remove_persistent_enablement
 publish_anchor "$binary_source" "$binary_anchor" 0755
 publish_anchor "$unit_source" "$unit_anchor" 0644
 publish_anchor "$sleep_guard_source" "$sleep_guard_anchor" 0644
+publish_persistent_enablement
 systemctl daemon-reload
+multi_user_wants=$(systemctl show --property=Wants --value -- multi-user.target)
+case " $multi_user_wants " in
+    *" rmmirror-transport-wake.service "*) ;;
+    *)
+        printf '%s\n' 'rmmirror-transport-wake: multi-user.target did not load the persistent dependency' >&2
+        exit 1
+        ;;
+esac
 loaded_sleep_guard=$(systemctl show --property=DropInPaths --value -- systemd-suspend-then-hibernate.service)
 case " $loaded_sleep_guard " in
     *" $sleep_guard_anchor "*) ;;
@@ -574,7 +647,8 @@ test "$sleep_condition_exit" -eq "$expected_sleep_condition_exit"
 sleep_hold_probe_exit=0
 "$binary_anchor" hold-system-sleep --carrier "$install_rollback_directory/missing-carrier" >/dev/null 2>&1 || sleep_hold_probe_exit=$?
 test "$sleep_hold_probe_exit" -eq 0
-systemctl enable rmmirror-transport-wake.service
+test "$(systemctl is-enabled rmmirror-transport-wake.service)" = static
+persistent_enablement_is_exact
 sync
 
 # Atomic publication leaves the running prior process attached to its old,

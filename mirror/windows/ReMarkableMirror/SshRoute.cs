@@ -93,7 +93,10 @@ public sealed class SshRoute
             "-o", "UpdateHostKeys=no",
             "-o", "ConnectTimeout=3",
             "-o", "ServerAliveInterval=3",
-            "-o", "ServerAliveCountMax=1",
+            // One late reply is normal on Wi-Fi. Three unanswered probes still
+            // fail within the tablet companion's 15-second input lease while
+            // avoiding a full Mirror recovery for a single 3-second pause.
+            "-o", "ServerAliveCountMax=3",
         })
         {
             info.ArgumentList.Add(argument);

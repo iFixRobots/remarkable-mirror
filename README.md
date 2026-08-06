@@ -73,14 +73,16 @@ Every push to `main` builds two Windows downloads in GitHub Actions:
 
 - **remarkable-mirror-windows-installer** contains one versioned installer ZIP.
   Inside are the Windows package, its matching .NET and Windows App runtimes,
-  the tablet components, and the setup guide. Use this for a new setup.
+  the tablet components, the complete onboarding, Getting started, and
+  Troubleshooting guides, and the three app screenshots they reference. Use
+  this for a new setup.
 - **remarkable-mirror-portable-windows-x64** extracts to one self-contained
   `ReMarkableMirror.exe`. Use it only after the installer has already prepared
   the tablet and Windows account.
 
-These private Actions downloads are build candidates until they are installed
-and owner-tested. The portable EXE is not Authenticode-signed, so Windows may
-warn before opening it. Use the complete installer for first-time setup.
+These private Actions downloads are previews, not public releases. The portable
+EXE is not Authenticode-signed, so Windows may warn before opening it. Use the
+complete installer for first-time setup.
 
 Open **Actions > Build Windows downloads**, choose a successful run, and find
 both files under **Artifacts**. [Getting started](docs/GETTING_STARTED.md) walks
@@ -92,22 +94,26 @@ The repository is intentionally private while I finish the owner review. The
 downloads are therefore available only to signed-in GitHub collaborators. There
 is no public GitHub Release yet.
 
-## What is still open
+Before the first public binary release, I still need to complete this entire
+guide once on a clean Windows account and a freshly reset supported tablet.
 
-- I tested PDF and DRM-free EPUB import over Wi-Fi; the corrected upload path
-  still needs the same check over USB
-- PDF and native RMDOC export work; a fresh Wi-Fi export check is still open,
-  native RMDOC import is not in the UI, and Explorer drag-out is not implemented
-- DRM-protected or malformed EPUB files still need clearer in-app guidance
-- Both connection-change directions are owner-tested. In one USB-to-Wi-Fi run,
-  Mirror reached Live, later spent 38 seconds disconnected before reselecting
-  Wi-Fi, and returned to Live automatically; I still want to shorten that
-  recovery
-- A fully suspended tablet turns off Wi-Fi, so a network packet cannot wake it
-- A firmware A/B root-slot switch can require running a supported release's
-  `Install.cmd` again
-- The new Getting started guide still needs one complete run from a blank
-  Windows setup and freshly reset tablet before the first public binary release
+The next development priority is Explorer-native drag-out from the Files panel:
+drag a tablet document out of Mirror and drop a normal exported file directly
+into a Windows Explorer folder.
+
+## Known limits
+
+- Files can export PDF and native RMDOC, but native RMDOC import and Explorer
+  drag-out are not implemented.
+- Native RMDOC export has produced a valid file, but its normal hands-on review
+  is still open before the first public release.
+- Mirror accepts PDFs and DRM-free EPUBs. DRM-protected and malformed EPUBs may
+  fail without enough explanation in the app.
+- A fully suspended tablet turns off Wi-Fi, so it must be woken with its power
+  button or connected over USB-C before Mirror can reconnect.
+- A firmware update can switch the tablet to a root slot without Mirror's
+  components. Run `Install.cmd` again over unlocked USB when the app shows
+  **Repair** and the release supports the new tablet software.
 
 ## Privacy and security
 
@@ -116,9 +122,9 @@ usage data are not uploaded to an iFixRobots service. Device profiles and
 credentials stay on the current Windows account.
 
 Wireless control uses Developer Mode root SSH over WLAN with a dedicated local
-key. Use it only on a private network you control, such as your home network.
-Avoid public and guest Wi-Fi. The Files service is not published on Wi-Fi: the
-app reaches tablet loopback through the SSH connection.
+key. Use Wi-Fi Mirror at home. On any shared network, use USB-C instead. Do not
+use Mirror on public or guest Wi-Fi. The Files service is not published on
+Wi-Fi: the app reaches tablet loopback through SSH.
 
 Developer Mode weakens the tablet's normal secure-boot protections. reMarkable
 documents that tradeoff directly in its
@@ -148,9 +154,15 @@ Start with [Development](docs/DEVELOPMENT.md) and
 Go companions, the Xovi Files extension source, packaging and install scripts,
 and focused policy checks.
 
+Release packaging omits Mirror-owned PDB/CodeView output and stops if the app
+DLL or EXE embeds a rooted application build path or the current repository or
+user-profile root. It also stops if the complete public guide and screenshot
+set is missing; there is no shorter private-guide fallback.
+
 ## Documentation
 
 - [Getting started](docs/GETTING_STARTED.md)
+- [Package onboarding](docs/PACKAGE_ONBOARDING.md)
 - [Device setup reference](docs/DEVICE_SETUP.md)
 - [Troubleshooting](docs/TROUBLESHOOTING.md)
 - [Architecture](docs/ARCHITECTURE.md)

@@ -76,6 +76,7 @@ jobs:
           $checks = @(
               'Test-RemarkableMirrorDeviceProfileStore.ps1',
               'Test-RemarkableMirrorFilesLoopbackPackaging.ps1',
+              'Test-RemarkableMirrorFrameStreamLease.ps1',
               'Test-RemarkableMirrorInputRecoveryPolicy.ps1',
               'Test-RemarkableMirrorInputSessionRoutePolicy.ps1',
               'Test-RemarkableMirrorMultipartUpload.ps1',

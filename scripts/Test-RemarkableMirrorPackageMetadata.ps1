@@ -10,12 +10,15 @@ $repositoryRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $packageBuilderPath = Join-Path $repositoryRoot 'scripts\Build-RemarkableMirrorPackage.ps1'
 $packageInstallerPath = Join-Path $repositoryRoot 'scripts\Install-RemarkableMirror.ps1'
 $releaseProvenancePath = Join-Path $repositoryRoot 'scripts\lib\RemarkableReleaseProvenance.ps1'
+$captureHelperPath = Join-Path $repositoryRoot 'scripts\lib\RemarkableRmctlCapture.ps1'
 $filesLoopbackBuilderPath = Join-Path $repositoryRoot 'scripts\Build-RemarkableFilesLoopback.ps1'
 $filesLoopbackArtifactHelperPath = Join-Path $repositoryRoot 'scripts\lib\RemarkableFilesLoopbackArtifact.ps1'
+$projectPath = Join-Path $repositoryRoot 'mirror\windows\ReMarkableMirror\ReMarkableMirror.csproj'
 $manifestPath = Join-Path $repositoryRoot 'mirror\windows\ReMarkableMirror\Package.appxmanifest'
 $globalJsonPath = Join-Path $repositoryRoot 'global.json'
 $goModPath = Join-Path $repositoryRoot 'mirror\agent\go.mod'
 $packageOnboardingPath = Join-Path $repositoryRoot 'docs\PACKAGE_ONBOARDING.md'
+$gettingStartedPath = Join-Path $repositoryRoot 'docs\GETTING_STARTED.md'
 
 . $releaseProvenancePath
 
@@ -31,24 +34,115 @@ if ($goMod -notmatch '(?m)^go 1\.26\.5\s*$' -or
     throw 'mirror/agent/go.mod must require Go 1.26.5 without a redundant toolchain directive.'
 }
 
+[xml]$project = Get-Content -LiteralPath $projectPath -Raw
+$releasePrivacyGroups = @(
+    $project.Project.PropertyGroup |
+        Where-Object {
+            $debugTypeNode = $_.SelectSingleNode('DebugType')
+            $debugSymbolsNode = $_.SelectSingleNode('DebugSymbols')
+            $_.GetAttribute('Condition') -ceq "'`$(Configuration)' == 'Release'" -and
+            $null -ne $debugTypeNode -and
+            $debugTypeNode.InnerText -ceq 'None' -and
+            $null -ne $debugSymbolsNode -and
+            $debugSymbolsNode.InnerText -ceq 'false'
+        }
+)
+$allDebugTypeGroups = @(
+    $project.Project.PropertyGroup |
+        Where-Object { $null -ne $_.SelectSingleNode('DebugType') }
+)
+if ($releasePrivacyGroups.Count -ne 1 -or $allDebugTypeGroups.Count -ne 1) {
+    throw 'Release must disable CodeView/PDB output without changing Debug build symbols.'
+}
+
 if (-not (Test-Path -LiteralPath $packageOnboardingPath -PathType Leaf)) {
     throw 'The self-contained package onboarding guide is missing.'
+}
+if (-not (Test-Path -LiteralPath $gettingStartedPath -PathType Leaf)) {
+    throw 'The complete Getting started guide is missing.'
 }
 $packageOnboardingText = [System.IO.File]::ReadAllText($packageOnboardingPath)
 foreach ($requiredMarker in @(
         'You already have a reMarkable Mirror installer package.',
         'beta `3.28.0.164`, OS build `5.8.199`',
-        'its USB repetition, a fresh Wi-Fi export',
+        'freshly reset tablet and clean Windows account is still open before',
         'images/remarkable-mirror-live-wifi.png',
         'images/remarkable-mirror-files.png',
         'images/remarkable-mirror-preparing.png',
         '[Troubleshooting guide](TROUBLESHOOTING.md)',
         'double-click `Install.cmd`.',
+        'PDF and a DRM-free EPUB',
+        '**Save native RMDOC...**',
+        'Full Linux suspend turns off Wi-Fi',
+        'grep -qxF "$key" /home/root/.ssh/authorized_keys ||',
         'Live over USB',
         'Live over Wi-Fi'
     )) {
     if (-not $packageOnboardingText.Contains($requiredMarker, [StringComparison]::Ordinal)) {
         throw "Package onboarding is missing a first-run marker: $requiredMarker"
+    }
+}
+
+$gettingStartedText = [System.IO.File]::ReadAllText($gettingStartedPath)
+foreach ($requiredMarker in @(
+        'This is the full path from a normal Paper Pro Move',
+        'Enabling Developer Mode factory-resets the tablet.',
+        'newly set up Windows account and freshly reset tablet is still open',
+        'images/remarkable-mirror-live-wifi.png',
+        'images/remarkable-mirror-files.png',
+        'images/remarkable-mirror-preparing.png',
+        'remarkable-mirror-windows-installer',
+        'remarkable-mirror-portable-windows-x64',
+        'grep -qxF "$key" /home/root/.ssh/authorized_keys ||',
+        '**Save native RMDOC...**',
+        'Explorer drag-out is not implemented yet.',
+        'Full Linux suspend turns off the tablet''s Wi-Fi radio',
+        'Live over USB',
+        'Live over Wi-Fi'
+    )) {
+    if (-not $gettingStartedText.Contains($requiredMarker, [StringComparison]::Ordinal)) {
+        throw "Getting started is missing a durable first-run marker: $requiredMarker"
+    }
+}
+
+$publicNarrativeFiles = @(
+    'README.md',
+    'SECURITY.md',
+    'docs\ARCHITECTURE.md',
+    'docs\DEVELOPMENT.md',
+    'docs\DEVICE_SETUP.md',
+    'docs\GETTING_STARTED.md',
+    'docs\PACKAGE_ONBOARDING.md',
+    'docs\PRIVACY.md',
+    'docs\RELEASING.md',
+    'docs\TROUBLESHOOTING.md',
+    'mirror\agent\INPUT_PROTOCOL.md',
+    'mirror\agent\deploy\README.md'
+)
+foreach ($relativeNarrativePath in $publicNarrativeFiles) {
+    $narrativePath = Join-Path $repositoryRoot $relativeNarrativePath
+    if (-not (Test-Path -LiteralPath $narrativePath -PathType Leaf)) {
+        throw "A public product document is missing: $relativeNarrativePath"
+    }
+    $narrativeText = [System.IO.File]::ReadAllText($narrativePath)
+    foreach ($internalLedgerMarker in @(
+            'installed local candidate',
+            'private candidate',
+            'owner acceptance',
+            'Gold remains',
+            'installed Gold',
+            'technical proof',
+            'technical validation',
+            'accepted baseline',
+            '16.3 seconds',
+            '12m02.7s',
+            '1.2608.',
+            'trusted network',
+            'private network you control'
+        )) {
+        if ($narrativeText.Contains($internalLedgerMarker, [StringComparison]::OrdinalIgnoreCase)) {
+            throw "$relativeNarrativePath contains private validation history or deprecated network wording: $internalLedgerMarker"
+        }
     }
 }
 
@@ -99,17 +193,29 @@ foreach ($requiredMarker in @(
         "`$publicOnboardingImagesDirectory = Join-Path `$repositoryRoot 'docs\images'",
         "'--locked-mode'",
         "'--no-restore'",
+        "'-p:DebugType=None'",
+        "'-p:DebugSymbols=false'",
+        'function Assert-AppOwnedPackageBinaryPrivacy',
+        'ReadCodeViewDebugDirectoryData',
+        'Finished MSIX contains a rooted application CodeView PDB path',
+        "[Environment]::GetFolderPath([Environment+SpecialFolder]::UserProfile)",
+        "Finished MSIX embeds the package build's repository or user-profile path",
         "`$buildManifest.Package.Identity.Name = `$identityName",
         "`$buildManifest.Package.Identity.Publisher = `$publisher",
         "`$buildManifest.Package.PhoneIdentity.PhoneProductId = `$identityName",
         "`$buildManifest.Package.Properties.PublisherDisplayName = `$PublisherDisplayName",
         'Copy-Item -LiteralPath $installerScriptPath -Destination $releaseDirectory',
+        "Copy-Item -LiteralPath `$publicOnboardingGuidePath -Destination (Join-Path `$releaseDirectory 'ONBOARDING.md')",
         "Copy-Item -LiteralPath `$publicGettingStartedGuidePath -Destination (Join-Path `$releaseDirectory 'GETTING_STARTED.md')",
         "Copy-Item -LiteralPath `$publicTroubleshootingGuidePath -Destination (Join-Path `$releaseDirectory 'TROUBLESHOOTING.md')",
         "`$releaseImagesDirectory = Join-Path `$releaseDirectory 'images'",
+        "-LiteralPath (Join-Path `$publicOnboardingImagesDirectory 'remarkable-mirror-live-wifi.png')",
+        "-LiteralPath (Join-Path `$publicOnboardingImagesDirectory 'remarkable-mirror-files.png')",
+        "-LiteralPath (Join-Path `$publicOnboardingImagesDirectory 'remarkable-mirror-preparing.png')",
         "Copy-Item -LiteralPath `$projectLicensePath -Destination (Join-Path `$releaseDirectory 'LICENSE')",
         "Copy-Item -LiteralPath `$projectNoticePath -Destination (Join-Path `$releaseDirectory 'NOTICE')",
         "Copy-Item -LiteralPath `$projectThirdPartyNoticesPath -Destination (Join-Path `$releaseDirectory 'THIRD_PARTY_NOTICES.md')",
+        'Copy-Item -LiteralPath $captureHelperPath -Destination $releaseLibraryDirectory',
         "`$buildLegalDirectory = Join-Path `$buildProjectDirectory 'Legal'",
         "`$buildMicrosoftNoticesDirectory = Join-Path `$buildProjectDirectory 'ThirdParty\Microsoft'",
         "`$releaseMicrosoftNoticesDirectory = Join-Path `$releaseDirectory 'ThirdParty\Microsoft'",
@@ -134,6 +240,27 @@ foreach ($requiredMarker in @(
     if (-not $builderText.Contains($requiredMarker, [StringComparison]::Ordinal)) {
         throw "Package builder is missing source metadata/identity marker: $requiredMarker"
     }
+}
+if ($builderText.Contains('$workspaceOnboardingGuidePath', [StringComparison]::Ordinal) -or
+    $builderText.Contains('$onboardingGuidePath', [StringComparison]::Ordinal)) {
+    throw 'Package builder must not fall back from the complete public onboarding guide.'
+}
+
+$captureHelperText = [System.IO.File]::ReadAllText($captureHelperPath)
+foreach ($requiredMarker in @(
+        '[Console]::In.ReadToEnd()',
+        '$startInfo.RedirectStandardInput = $true',
+        '$process.StandardInput.Write($payloadBase64)',
+        '$process.StandardInput.Close()'
+    )) {
+    if (-not $captureHelperText.Contains($requiredMarker, [StringComparison]::Ordinal)) {
+        throw "Process capture helper is missing bounded launcher-payload transport: $requiredMarker"
+    }
+}
+if ($captureHelperText.Contains(
+        "FromBase64String('`$payloadBase64')",
+        [StringComparison]::Ordinal)) {
+    throw 'Process capture helper must not interpolate launcher payload into the outer encoded command.'
 }
 
 $readyToRunPropertyCount = [regex]::Matches(
@@ -414,4 +541,4 @@ finally {
     }
 }
 
-Write-Host 'PASS: package source metadata, official dirty gate, and metadata-driven development identities are consistent.'
+Write-Host 'PASS: package source metadata, Release binary privacy, official dirty gate, and metadata-driven development identities are consistent.'

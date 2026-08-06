@@ -40,6 +40,22 @@ The first setup must use the direct USB route. Keep the tablet connected and
 unlocked while `Install.cmd` installs the included probe, Xovi
 runtime and extensions, Files loopback, and transport wake component.
 
+The installer places the transport service's static boot dependency under
+`/usr/lib/systemd/system`, where it is intended to survive an ordinary reboot
+of the same active root slot; `/etc` is volatile on this tablet. A firmware
+update can activate the other root slot, which may need setup again.
+
+The same setup installed probe v0.4.9. After publishing and verifying that
+binary, an upgrade retires only exact running
+`rmmirror-probe stream` processes: TERM, a bounded wait, KILL only for
+survivors, then a second absence check. Input and its watchdog are not matched.
+If exact frame retirement cannot be verified, setup stops instead of claiming
+success.
+
+The Windows installer sends its gated launcher payload over standard input
+rather than placing the long remote script in the command line, avoiding the
+Windows command-length limit.
+
 Touch, pen, and keyboard input are session-only. Mirror starts them when a
 connection is ready. They are not persistent tablet boot hooks.
 

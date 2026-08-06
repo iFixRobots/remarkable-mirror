@@ -618,6 +618,14 @@ public sealed class SshInputSession : IAsyncDisposable
         {
             return new InputStopDescription("Tablet input timed out and will reconnect.", IsPersistent: false);
         }
+        if (
+            stop.Stderr.Contains("Timeout, server", StringComparison.OrdinalIgnoreCase) &&
+            stop.Stderr.Contains("not responding", StringComparison.OrdinalIgnoreCase))
+        {
+            return new InputStopDescription(
+                "The tablet input connection missed its network keepalive and will reconnect.",
+                IsPersistent: false);
+        }
         if (stop.Stderr.Contains("REMOTE HOST IDENTIFICATION HAS CHANGED", StringComparison.OrdinalIgnoreCase) ||
             stop.Stderr.Contains("Host key verification failed", StringComparison.OrdinalIgnoreCase))
         {

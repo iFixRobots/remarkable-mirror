@@ -29,7 +29,7 @@ $wakeTokenFile = Join-Path $env:USERPROFILE '.ssh\remarkable_chiappa_wake_token'
 $sshHostKeyAlias = '10.11.99.1'
 $xoviRelease = 'v19-23052026'
 $xoviArchiveHashExpected = '32d64d1262ddc984e3235c7d0340a398fe6d5b3efa6a979865f5977b32630d27'
-$mirrorProbeVersion = '0.4.8'
+$mirrorProbeVersion = '0.4.9'
 
 function Get-DirectUsbTabletRoute {
     [CmdletBinding()]
@@ -828,10 +828,78 @@ mv -f /home/root/.local/bin/rmmirror-probe.new /home/root/.local/bin/rmmirror-pr
 test "`$(sha256sum /home/root/.local/bin/rmmirror-probe | cut -d' ' -f1)" = '$($assetHashes['rmmirror-probe'])'
 test "`$(/home/root/.local/bin/rmmirror-probe version)" = '$mirrorProbeVersion'
 
+frame_stream_probe_path=/home/root/.local/bin/rmmirror-probe
+is_exact_frame_stream_process() {
+  frame_stream_proc_dir="`$1"
+  test -r "`$frame_stream_proc_dir/cmdline" || return 1
+
+  frame_stream_executable=`$(readlink "`$frame_stream_proc_dir/exe" 2>/dev/null || true)
+  if test "`$frame_stream_executable" != "`$frame_stream_probe_path" &&
+      test "`$frame_stream_executable" != "`$frame_stream_probe_path (deleted)"; then
+    return 1
+  fi
+
+  frame_stream_arguments=`$(tr '\000' '\n' < "`$frame_stream_proc_dir/cmdline" 2>/dev/null) || return 1
+  frame_stream_argv0=`$(printf '%s\n' "`$frame_stream_arguments" | sed -n '1p')
+  frame_stream_argv1=`$(printf '%s\n' "`$frame_stream_arguments" | sed -n '2p')
+  test "`$frame_stream_argv0" = "`$frame_stream_probe_path" &&
+    test "`$frame_stream_argv1" = stream
+}
+
+list_exact_frame_stream_pids() {
+  for frame_stream_proc_dir in /proc/[0-9]*; do
+    if is_exact_frame_stream_process "`$frame_stream_proc_dir"; then
+      printf '%s\n' "`${frame_stream_proc_dir##*/}"
+    fi
+  done
+}
+
+wait_for_frame_stream_retirement() {
+  frame_stream_attempt=0
+  while test "`$frame_stream_attempt" -lt 20; do
+    frame_stream_pids=`$(list_exact_frame_stream_pids)
+    test -z "`$frame_stream_pids" && return 0
+    sleep 0.1
+    frame_stream_attempt=`$((frame_stream_attempt + 1))
+  done
+  frame_stream_pids=`$(list_exact_frame_stream_pids)
+  test -z "`$frame_stream_pids" && return 0
+  return 1
+}
+
+retire_frame_streams() {
+  frame_stream_pids=`$(list_exact_frame_stream_pids)
+  if test -n "`$frame_stream_pids"; then
+    kill -TERM `$frame_stream_pids 2>/dev/null || true
+  fi
+  if wait_for_frame_stream_retirement; then
+    return 0
+  fi
+
+  frame_stream_pids=`$(list_exact_frame_stream_pids)
+  if test -n "`$frame_stream_pids"; then
+    kill -KILL `$frame_stream_pids 2>/dev/null || true
+  fi
+  if wait_for_frame_stream_retirement; then
+    return 0
+  fi
+
+  printf '%s\n' 'rmmirror-prerequisite: frame_stream_retirement_failed' >&2
+  return 1
+}
+retire_frame_streams
+
 chmod 0700 "`$stage/install-transport-wake.sh"
 "`$stage/install-transport-wake.sh" install
 systemctl is-active --quiet rmmirror-transport-wake.service
-systemctl is-enabled --quiet rmmirror-transport-wake.service
+test -L /usr/lib/systemd/system/multi-user.target.wants/rmmirror-transport-wake.service
+test "`$(readlink /usr/lib/systemd/system/multi-user.target.wants/rmmirror-transport-wake.service)" = '../rmmirror-transport-wake.service'
+test "`$(systemctl is-enabled rmmirror-transport-wake.service)" = 'static'
+multi_user_wants=`$(systemctl show --property=Wants --value -- multi-user.target)
+case " `$multi_user_wants " in
+  *" rmmirror-transport-wake.service "*) ;;
+  *) exit 1 ;;
+esac
 grep -q '"schema":"rmmirror.transport-wake/v1"' /run/rmmirror-transport-wake.json
 grep -q '"state":"holding"' /run/rmmirror-transport-wake.json
 grep -q '"usb_carrier":true' /run/rmmirror-transport-wake.json

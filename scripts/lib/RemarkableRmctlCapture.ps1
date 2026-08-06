@@ -297,8 +297,12 @@ finally {
     `$gate.Dispose()
 }
 `$ErrorActionPreference = 'Stop'
+`$payloadBase64 = [Console]::In.ReadToEnd()
+if ([string]::IsNullOrWhiteSpace(`$payloadBase64)) {
+    throw 'Launcher payload was empty.'
+}
 `$payloadJson = [System.Text.Encoding]::UTF8.GetString(
-    [System.Convert]::FromBase64String('$payloadBase64')
+    [System.Convert]::FromBase64String(`$payloadBase64)
 )
 `$payload = ConvertFrom-Json -InputObject `$payloadJson
 `$targetStartInfo = [System.Diagnostics.ProcessStartInfo]::new()
@@ -336,6 +340,7 @@ exit `$targetExitCode
     $startInfo.FileName = $launcherPath
     $startInfo.UseShellExecute = $false
     $startInfo.CreateNoWindow = $true
+    $startInfo.RedirectStandardInput = $true
     $startInfo.RedirectStandardOutput = $true
     $startInfo.RedirectStandardError = $true
     foreach ($argument in @(
@@ -433,6 +438,26 @@ exit `$targetExitCode
             )
         }
 
+        try {
+            $process.StandardInput.Write($payloadBase64)
+            $process.StandardInput.Close()
+        }
+        catch {
+            $payloadTransferMessage = $_.Exception.Message
+            $payloadCleanupConfirmed = Stop-RemarkableWindowsJobTree `
+                -Job $job `
+                -Process $process `
+                -TimeoutMilliseconds $TerminationGraceMilliseconds
+            if (-not $payloadCleanupConfirmed) {
+                throw [System.TimeoutException]::new(
+                    "external_process_payload_transfer_termination_failed: $FilePath received its gate but its launcher did not terminate within $TerminationGraceMilliseconds ms."
+                )
+            }
+            throw [System.InvalidOperationException]::new(
+                "external_process_payload_transfer_failed: $FilePath did not start because its launcher payload could not be delivered. $payloadTransferMessage"
+            )
+        }
+
         $stdoutTask = $process.StandardOutput.ReadToEndAsync()
         $stderrTask = $process.StandardError.ReadToEndAsync()
         if (-not $process.WaitForExit($TimeoutMilliseconds)) {
@@ -515,6 +540,11 @@ exit `$targetExitCode
             $job.Dispose()
         }
         if ($null -ne $process) {
+            try {
+                $process.StandardInput.Close()
+            }
+            catch {
+            }
             $process.Dispose()
         }
         if ($null -ne $gateEvent) {

@@ -16,6 +16,9 @@ public sealed class SshFrameSource
     public const int FrameBytes = FrameWidth * FrameHeight * 4;
 
     private const int HeaderBytes = 28;
+    private const string StreamRemoteCommand =
+        "/home/root/.local/bin/rmmirror-probe stream --interval 40ms --heartbeat-timeout 15s";
+    private const string StreamHeartbeatPulse = "\n";
     private const string DisplayReadyMarker = "RMMIRROR_DISPLAY_READY=";
     private const string XoviActivationSchema = "rmmirror.xovi-activation/v1";
     private const string XoviActivationStatusUnavailable = "xovi_activation_status_unavailable";
@@ -24,6 +27,7 @@ public sealed class SshFrameSource
     private static readonly TimeSpan ActivationPollTimeout = TimeSpan.FromSeconds(120);
     private static readonly TimeSpan ActivationTransientTimeout = TimeSpan.FromSeconds(20);
     private static readonly TimeSpan FreshReadinessTimeout = TimeSpan.FromSeconds(25);
+    private static readonly TimeSpan StreamHeartbeatInterval = TimeSpan.FromSeconds(3);
     private const string EnsureDisplayReadyCommand = """
         probe=/home/root/.local/bin/rmmirror-probe
         xovi=/home/root/xovi
@@ -472,11 +476,14 @@ public sealed class SshFrameSource
         using var process = new Process
         {
             StartInfo = CreateStartInfo(
-                "/home/root/.local/bin/rmmirror-probe stream --interval 40ms",
+                StreamRemoteCommand,
                 redirectStandardInput: true),
         };
+        using var heartbeatCancellation = CancellationTokenSource.CreateLinkedTokenSource(
+            cancellationToken);
         var started = false;
         Task<string>? errorDrain = null;
+        Task? heartbeatWriter = null;
         try
         {
             try
@@ -512,6 +519,9 @@ public sealed class SshFrameSource
             }
 
             errorDrain = process.StandardError.ReadToEndAsync();
+            heartbeatWriter = WriteStreamHeartbeatsAsync(
+                process.StandardInput,
+                heartbeatCancellation.Token);
             var stream = process.StandardOutput.BaseStream;
             var header = new byte[HeaderBytes];
             var haveFullFrame = false;
@@ -583,7 +593,48 @@ public sealed class SshFrameSource
         }
         finally
         {
-            await TerminateAndDrainAsync(process, started, errorDrain).ConfigureAwait(false);
+            heartbeatCancellation.Cancel();
+            try
+            {
+                if (heartbeatWriter is not null)
+                {
+                    await heartbeatWriter.ConfigureAwait(false);
+                }
+            }
+            finally
+            {
+                await TerminateAndDrainAsync(process, started, errorDrain).ConfigureAwait(false);
+            }
+        }
+    }
+
+    private static async Task WriteStreamHeartbeatsAsync(
+        StreamWriter input,
+        CancellationToken cancellationToken)
+    {
+        using var timer = new PeriodicTimer(StreamHeartbeatInterval);
+        try
+        {
+            await input.WriteAsync(StreamHeartbeatPulse.AsMemory(), cancellationToken)
+                .ConfigureAwait(false);
+            await input.FlushAsync(cancellationToken).ConfigureAwait(false);
+
+            while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false))
+            {
+                await input.WriteAsync(StreamHeartbeatPulse.AsMemory(), cancellationToken)
+                    .ConfigureAwait(false);
+                await input.FlushAsync(cancellationToken).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+        catch (Exception exception) when (
+            exception is IOException or InvalidOperationException or ObjectDisposedException)
+        {
+            // Process exit or a broken SSH stdin pipe is observed by the frame
+            // reader and the stream lease on the tablet. Cleanup still owns the
+            // writer before it closes stdin or terminates the process tree.
         }
     }
 
@@ -967,6 +1018,12 @@ public sealed class SshFrameSource
         }
         if (ContainsAny(
                 standardError,
+                "rmmirror-probe: stream_heartbeat_timeout"))
+        {
+            return StreamInterrupted("exit=" + exitCode + "; category=stream_heartbeat_timeout");
+        }
+        if (ContainsAny(
+                standardError,
                 "rmmirror-probe: stream_broker_",
                 "rmmirror-probe: stream_not_ready",
                 "rmmirror-probe: stream_xochitl_not_running",
@@ -1039,6 +1096,10 @@ public sealed class SshFrameSource
                 "xovi_configuration_invalid",
             var value when value.Contains("rmmirror-probe:", StringComparison.OrdinalIgnoreCase) =>
                 "companion_reported_failure",
+            var value when
+                value.Contains("Timeout, server", StringComparison.OrdinalIgnoreCase) &&
+                value.Contains("not responding", StringComparison.OrdinalIgnoreCase) =>
+                "ssh_keepalive_timeout",
             var value when ContainsAny(
                 value,
                 "Connection refused",

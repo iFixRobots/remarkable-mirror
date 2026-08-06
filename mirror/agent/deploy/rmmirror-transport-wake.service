@@ -10,6 +10,3 @@ ExecStart=/usr/libexec/rmmirror-transport-wake --carrier /sys/class/net/usb0/car
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=5
-
-[Install]
-WantedBy=multi-user.target

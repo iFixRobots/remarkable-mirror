@@ -33,6 +33,18 @@ USB is preferred and paired Wi-Fi is the fallback. Promotion back to USB waits
 for sustained passive health and until pointer input and Files operations are
 idle.
 
+Mirror sends an SSH keepalive every three seconds and tolerates two unanswered
+probes before the third ends a persistent session. Frame and input paths treat
+that timeout as reconnectable instead of turning one brief Wi-Fi pause into a
+persistent failure.
+
+Package setup uses a gated PowerShell launcher assigned to a Windows Job Object
+before it may start the target process. Its JSON payload now travels through
+standard input instead of being embedded in `-EncodedCommand`. This keeps the
+launcher command fixed-size when the remote setup script grows and avoids the
+Windows command-length limit. A payload-transfer failure terminates and verifies
+the owned process tree.
+
 ## Frame capture
 
 Xovi loads `framebuffer-spy` and `xovi-message-broker` for the connection. The
@@ -44,6 +56,15 @@ The probe treats session signals and standard-input closure as cancellation.
 The Windows host closes retired SSH streams and waits for connection shutdown
 on normal app exit. Its Job Object remains the fallback for a crash or forced
 termination.
+
+Every frame SSH generation also has its own lease. Windows writes one pulse
+immediately and then every three seconds. The probe expires the generation
+after 15 seconds without a pulse and exits without waiting for a frame write
+that may be blocked on a dead connection. Windows treats that timeout as a
+reconnectable stream interruption.
+
+During an upgrade, the prerequisite installer retires only the exact probe
+processes running `stream`. Input and its watchdog are outside that match.
 
 ## Input
 
@@ -73,6 +94,9 @@ Mirror accepts PDFs and DRM-free EPUBs up to the stock service's size limit.
 Upload logs record the result category and numeric HTTP status, not the local
 document filename.
 
+Files can export documents as PDF or native RMDOC. Native RMDOC import and
+Explorer drag-out are not implemented.
+
 ## Sleep and wake
 
 When USB carrier is present, a transport service prevents the specific
@@ -86,9 +110,27 @@ The Windows pre-SSH wake path pins its socket to the direct USB adapter;
 loopback is available only on the tablet or through authenticated SSH
 forwarding.
 
+The installer defines this service as static and publishes its
+`multi-user.target` dependency under `/usr/lib/systemd/system`, because this
+tablet's `/etc` overlay is volatile across reboot. It verifies both the exact
+link and the dependency loaded by systemd. A firmware update can activate a
+different root slot, which may need the matching components installed again.
+
 Deep Linux suspend removes Wi-Fi reachability. Mirror cannot send a network
 request to a radio that is no longer associated. The current product gives clear
 physical-wake/USB guidance and reconnects automatically when the tablet returns.
+
+## Release package
+
+Release builds disable Mirror-owned PDB/CodeView output while Debug builds keep
+their symbols. Before signing, the package builder inspects the app DLL and EXE
+and stops if either embeds a rooted application CodeView path or the current
+repository or user-profile root. The SDK-provided native apphost may retain its
+own framework build provenance; it is not a path produced from this checkout.
+
+The installer package also requires the complete public onboarding, Getting
+started, and Troubleshooting guides plus all three app screenshots. A missing
+guide or image stops the build; there is no shorter guide fallback.
 
 ## Trust boundaries
 
