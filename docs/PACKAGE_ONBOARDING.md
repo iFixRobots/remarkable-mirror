@@ -14,10 +14,10 @@ The installed app needs Windows 11 x64 build `22621` or newer.
 
 > [!NOTE]
 > I use Mirror on my own tablet and have tested its USB and Wi-Fi connections,
-> input modes, screenshots, PDF and EPUB import, and PDF export. One complete
-> run on a freshly reset tablet and clean Windows account is still open before
-> the first public binary release. If a step does not match what you see, stop
-> there and report it.
+> input modes, screenshots, PDF and EPUB import, PDF export, and PDF drag-out to
+> Explorer. One complete run on a freshly reset tablet and clean Windows account
+> is still open before the first public binary release. If a step does not match
+> what you see, stop there and report it.
 
 ![reMarkable Mirror connected over Wi-Fi](images/remarkable-mirror-live-wifi.png)
 
@@ -307,9 +307,13 @@ it from Start. Wait for **Live over USB**.
 - Open **Files** while the tablet is unlocked.
 - Drop a small disposable PDF and a DRM-free EPUB into the tablet, one at a
   time.
+- Drag a document row into a normal Windows Explorer folder and confirm that a
+  human-named PDF appears there. The drag should begin immediately, with no
+  **Preparing** message in Mirror. Start another drag, cancel it, then
+  immediately drag the same document again. The retry should begin right away
+  and Mirror should stay responsive.
 - Click a document to open **Save As** for PDF. Right-click it to choose
-  **Save as PDF...** or **Save native RMDOC...**. Explorer drag-out is not
-  implemented yet.
+  **Save as PDF...** or **Save native RMDOC...**.
 
 If the Files drawer waits while the tablet is passcode-locked, that is normal.
 Unlocking starts the stock Files listener again.
@@ -321,7 +325,8 @@ Unlocking starts the stock Files listener again.
 Confirm the tablet says Wi-Fi is connected. Unplug USB-C, leave the tablet awake,
 and wait for **Live over Wi-Fi**. Repeat touch, keyboard, Pen, and screenshot
 checks, then confirm that the Files library loads. Drop one small PDF and one
-DRM-free EPUB, then save one document as PDF and native RMDOC to Windows.
+DRM-free EPUB, drag one tablet document into Explorer, then save one document as
+native RMDOC to Windows.
 
 Close Files and stop interacting with the tablet. Reconnect USB-C, wait for
 **Live over USB**, then confirm that **Touch + Type** and Files still work.

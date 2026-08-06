@@ -35,6 +35,8 @@ public sealed partial class MainPage : Page
     private static readonly TimeSpan UsbPromotionReadyTimeout = TimeSpan.FromSeconds(35);
     private static readonly TimeSpan CoupledInputRecoveryWindow = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan InputStopObservationWindow = TimeSpan.FromMilliseconds(500);
+    private static readonly TimeSpan CompletedDocumentDragRetention = TimeSpan.FromMinutes(15);
+    private static readonly TimeSpan StaleDocumentDragRetention = TimeSpan.FromDays(1);
     private const int ClipboardCannotOpenHResult = unchecked((int)0x800401D0);
     private static readonly StartupRouteConfiguration StartupRoutes = ResolveStartupRoutes();
     private readonly DeviceConnectionMonitor _connectionMonitor = new(
@@ -93,7 +95,7 @@ public sealed partial class MainPage : Page
     private string? _currentFolderId;
     private string _currentFolderName = "My files";
     private int _libraryRefreshGeneration;
-    private bool _exportInProgress;
+    private readonly SemaphoreSlim _exportGate = new(1, 1);
     private int _activeFilesOperations;
     private long _filesReadyGeneration;
     private long _filesProbeGeneration;
@@ -156,6 +158,7 @@ public sealed partial class MainPage : Page
         view.SavePdfRequested += FilesPane_SavePdfRequested;
         view.SaveNativeRequested += FilesPane_SaveNativeRequested;
         view.FilesDropped += FilesPane_FilesDropped;
+        view.BeginDocumentDrag = BeginLibraryDocumentDrag;
     }
 
     private static StartupRouteConfiguration ResolveStartupRoutes()
@@ -250,6 +253,7 @@ public sealed partial class MainPage : Page
     {
         _pageIsLoaded = true;
         _filesPaneDisposed = false;
+        _ = Task.Run(CleanupStaleDocumentDragExports);
         InitializeFilesPaneLayout();
         await _lifecycleGate.WaitAsync();
         try
@@ -2292,6 +2296,7 @@ public sealed partial class MainPage : Page
         MainFilesPane.Visibility = Visibility.Visible;
         MainFilesPane.Opacity = 1;
         MainFilesPane.IsHitTestVisible = false;
+        MainFilesPane.IsDocumentDragEnabled = false;
 
         var stageVisual = ElementCompositionPreview.GetElementVisual(StageSurface);
         var compositor = stageVisual.Compositor;
@@ -2350,6 +2355,7 @@ public sealed partial class MainPage : Page
         _filesPaneTransitionCompletion = completion;
         _filesPaneTransitioning = true;
         MainFilesPane.IsHitTestVisible = isOpen;
+        MainFilesPane.IsDocumentDragEnabled = false;
 
         // The fixed expanded tree is ready before the first width change. A
         // render-frame clock changes direction in place for immediate toggles;
@@ -2407,6 +2413,7 @@ public sealed partial class MainPage : Page
         ApplyFilesPaneProgress(endpoint);
         window.EndFilesPaneNativeResize(open);
         MainFilesPane.IsHitTestVisible = open;
+        MainFilesPane.IsDocumentDragEnabled = open;
         _filesPaneOpen = open;
         _filesPaneTransitioning = false;
         _filesPaneDirection = 0;
@@ -2470,6 +2477,7 @@ public sealed partial class MainPage : Page
             return;
         }
         _filesPaneDisposed = true;
+        MainFilesPane.IsDocumentDragEnabled = false;
         StageSurface.SizeChanged -= StageSurface_SizeChanged;
         StopFilesPaneRendering();
         _filesPaneTransitionCompletion?.TrySetResult();
@@ -2541,6 +2549,51 @@ public sealed partial class MainPage : Page
         object? sender,
         FilesPaneLibraryItemEventArgs e) =>
         await SaveLibraryDocumentAsync(e.Item, native: true);
+
+    private LibraryDocumentDragSession BeginLibraryDocumentDrag(
+        LibraryDocumentDragRequest request)
+    {
+        var displayName = SafeSuggestedName(request.DisplayName, ".pdf");
+        return new LibraryDocumentDragSession(
+            request,
+            $"{displayName}.pdf",
+            MaterializeLibraryDocumentDragAsync,
+            CompleteLibraryDocumentDrag,
+            ReportLibraryDocumentDragProviderFailure);
+    }
+
+    private void CompleteLibraryDocumentDrag(LibraryDocumentDragCompletion completion)
+    {
+        var preparedDrag = completion.PreparedDrag;
+        _diagnostics.Record(
+            "files drag-out",
+            preparedDrag is null
+                ? $"result={completion.DropResult} materialized=false"
+                : $"result={completion.DropResult} bytes={preparedDrag.BytesWritten}");
+        if (preparedDrag is null)
+        {
+            return;
+        }
+
+        if (completion.DropResult is DataPackageOperation.None)
+        {
+            _ = Task.Run(() => DeleteDocumentDragDirectory(preparedDrag.StagingDirectory));
+            return;
+        }
+
+        _ = DeleteDocumentDragDirectoryAfterDelayAsync(preparedDrag.StagingDirectory);
+    }
+
+    private void ReportLibraryDocumentDragProviderFailure(Exception exception)
+    {
+        _diagnostics.Record(
+            "files drag-out failure",
+            $"provider={exception.GetType().Name} 0x{exception.HResult:X8}");
+        DispatcherQueue.TryEnqueue(
+            () => ShowInfo(
+                "Windows couldn’t receive that PDF. Drag it out again.",
+                InfoBarSeverity.Error));
+    }
 
     private MirrorRouteGeneration? BeginFilesOperation()
     {
@@ -2668,7 +2721,7 @@ public sealed partial class MainPage : Page
         {
             return;
         }
-        if (_exportInProgress)
+        if (!_exportGate.Wait(0))
         {
             ShowInfo("Finish the current export first.");
             return;
@@ -2677,11 +2730,10 @@ public sealed partial class MainPage : Page
         var routeGeneration = BeginFilesOperation();
         if (routeGeneration is null)
         {
+            _exportGate.Release();
             ShowInfo("Connect your reMarkable before exporting.");
             return;
         }
-
-        _exportInProgress = true;
 
         var token = routeGeneration.CancellationToken;
         string? stagedPath = null;
@@ -2712,7 +2764,9 @@ public sealed partial class MainPage : Page
             var picker = new FileSavePicker
             {
                 SuggestedStartLocation = PickerLocationId.DocumentsLibrary,
-                SuggestedFileName = SafeSuggestedName(result.SuggestedFileName ?? item.Name),
+                SuggestedFileName = SafeSuggestedName(
+                    result.SuggestedFileName ?? item.Name,
+                    extension),
             };
             picker.FileTypeChoices.Add(native ? "reMarkable document" : "PDF document", [extension]);
             if (App.MainWindow is not null)
@@ -2772,24 +2826,239 @@ public sealed partial class MainPage : Page
                 {
                 }
             }
-            _exportInProgress = false;
             EndFilesOperation(routeGeneration);
+            _exportGate.Release();
         }
     }
 
-    private static string SafeSuggestedName(string name)
+    private async Task<PreparedLibraryDocumentDrag?> MaterializeLibraryDocumentDragAsync(
+        LibraryDocumentDragRequest request,
+        CancellationToken cancellationToken)
+    {
+        MirrorRouteGeneration? routeGeneration = null;
+        string? stagingDirectory = null;
+        var materialized = false;
+        var ownsExportGate = false;
+        try
+        {
+            await _exportGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            ownsExportGate = true;
+
+            routeGeneration = BeginFilesOperation();
+            if (routeGeneration is null)
+            {
+                ShowLibraryDocumentDragError(
+                    "Wake or connect your reMarkable, then drag again.");
+                return null;
+            }
+
+            using var linkedCancellation = CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken,
+                routeGeneration.CancellationToken);
+            var token = linkedCancellation.Token;
+            token.ThrowIfCancellationRequested();
+
+            var exportRoot = GetDocumentDragExportRoot();
+            stagingDirectory = Path.Combine(exportRoot, Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(stagingDirectory);
+            var displayName = SafeSuggestedName(request.DisplayName, ".pdf");
+            var stagedPath = Path.Combine(stagingDirectory, $"{displayName}.pdf");
+
+            _diagnostics.Record(
+                "files drag-out",
+                $"PDF requested over {routeGeneration.Kind}");
+            var result = await routeGeneration.FileTransport.DownloadPdfToFileAsync(
+                    request.DocumentId,
+                    stagedPath,
+                    cancellationToken: token)
+                .ConfigureAwait(false);
+            if (!IsCurrentGeneration(routeGeneration))
+            {
+                return null;
+            }
+
+            var storageFile = await StorageFile.GetFileFromPathAsync(stagedPath)
+                .AsTask(token)
+                .ConfigureAwait(false);
+            if (!IsCurrentGeneration(routeGeneration))
+            {
+                return null;
+            }
+
+            _diagnostics.Record(
+                "files drag-out",
+                $"PDF supplied bytes={result.BytesWritten} route={routeGeneration.Kind}");
+            var preparedDrag = new PreparedLibraryDocumentDrag(
+                storageFile,
+                stagingDirectory,
+                result.BytesWritten);
+            materialized = true;
+            return preparedDrag;
+        }
+        catch (OperationCanceledException)
+        {
+            return null;
+        }
+        catch (FileTransferException exception)
+        {
+            if (routeGeneration is not null &&
+                exception.Failure is FileTransferFailure.Connection)
+            {
+                MarkFilesRouteUnhealthy(routeGeneration);
+                ShowLibraryDocumentDragError(
+                    routeGeneration.Kind is DeviceRouteKind.Wifi
+                        ? "Wake or unlock your reMarkable, then drag again."
+                        : "Unlock your reMarkable, then drag again.");
+            }
+            else
+            {
+                ShowLibraryDocumentDragError(exception.Message);
+            }
+            _diagnostics.Record(
+                "files drag-out failure",
+                routeGeneration is null
+                    ? $"failure={exception.Failure} route=Unavailable"
+                    : $"failure={exception.Failure} route={routeGeneration.Kind}");
+            return null;
+        }
+        catch (Exception exception) when (
+            exception is IOException or UnauthorizedAccessException or
+            System.Runtime.InteropServices.COMException)
+        {
+            _diagnostics.Record(
+                "files drag-out failure",
+                $"{exception.GetType().Name} 0x{exception.HResult:X8}");
+            ShowLibraryDocumentDragError(
+                "Windows couldn’t provide that PDF. Drag it out again.");
+            return null;
+        }
+        finally
+        {
+            if (!materialized && stagingDirectory is not null)
+            {
+                DeleteDocumentDragDirectory(stagingDirectory);
+            }
+            if (routeGeneration is not null)
+            {
+                EndFilesOperation(routeGeneration);
+            }
+            if (ownsExportGate)
+            {
+                _exportGate.Release();
+            }
+        }
+    }
+
+    private void ShowLibraryDocumentDragError(string message) =>
+        DispatcherQueue.TryEnqueue(
+            () => ShowInfo(message, InfoBarSeverity.Error));
+
+    private static string GetDocumentDragExportRoot() =>
+        Path.Combine(MirrorApplicationData.LocalCacheFolder.Path, "drag-out");
+
+    private static void CleanupStaleDocumentDragExports()
+    {
+        try
+        {
+            var exportRoot = GetDocumentDragExportRoot();
+            if (!Directory.Exists(exportRoot))
+            {
+                return;
+            }
+
+            var oldestRetainedWrite = DateTime.UtcNow - StaleDocumentDragRetention;
+            foreach (var directory in Directory.EnumerateDirectories(exportRoot))
+            {
+                try
+                {
+                    if (Directory.GetLastWriteTimeUtc(directory) < oldestRetainedWrite)
+                    {
+                        DeleteDocumentDragDirectory(directory);
+                    }
+                }
+                catch (Exception exception) when (
+                    exception is IOException or UnauthorizedAccessException)
+                {
+                }
+            }
+        }
+        catch (Exception exception) when (
+            exception is IOException or UnauthorizedAccessException)
+        {
+        }
+    }
+
+    private static async Task DeleteDocumentDragDirectoryAfterDelayAsync(string directory)
+    {
+        await Task.Delay(CompletedDocumentDragRetention);
+        DeleteDocumentDragDirectory(directory);
+    }
+
+    private static void DeleteDocumentDragDirectory(string directory)
+    {
+        try
+        {
+            var exportRoot = Path.GetFullPath(GetDocumentDragExportRoot())
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) +
+                Path.DirectorySeparatorChar;
+            var resolvedDirectory = Path.GetFullPath(directory)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) +
+                Path.DirectorySeparatorChar;
+            if (!resolvedDirectory.StartsWith(exportRoot, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            Directory.Delete(directory, recursive: true);
+        }
+        catch (Exception exception) when (
+            exception is IOException or UnauthorizedAccessException)
+        {
+        }
+    }
+
+    private static string SafeSuggestedName(string name, string? extensionToStrip = null)
     {
         var invalid = Path.GetInvalidFileNameChars();
         var clean = new string(name
             .Select(character => invalid.Contains(character) ? '-' : character)
             .ToArray())
             .Trim(' ', '.');
-        if (string.IsNullOrWhiteSpace(clean))
+        if (!string.IsNullOrWhiteSpace(extensionToStrip) &&
+            clean.EndsWith(extensionToStrip, StringComparison.OrdinalIgnoreCase))
         {
-            return "reMarkable document";
+            clean = clean[..^extensionToStrip.Length].TrimEnd(' ', '.');
         }
 
-        return Path.GetFileNameWithoutExtension(clean);
+        if (string.IsNullOrWhiteSpace(clean))
+        {
+            clean = "reMarkable document";
+        }
+
+        var reservedBaseName = clean.Split('.', 2)[0];
+        if (reservedBaseName.Equals("CON", StringComparison.OrdinalIgnoreCase) ||
+            reservedBaseName.Equals("PRN", StringComparison.OrdinalIgnoreCase) ||
+            reservedBaseName.Equals("AUX", StringComparison.OrdinalIgnoreCase) ||
+            reservedBaseName.Equals("NUL", StringComparison.OrdinalIgnoreCase) ||
+            (reservedBaseName.Length == 4 &&
+                (reservedBaseName.StartsWith("COM", StringComparison.OrdinalIgnoreCase) ||
+                 reservedBaseName.StartsWith("LPT", StringComparison.OrdinalIgnoreCase)) &&
+                reservedBaseName[3] is >= '1' and <= '9'))
+        {
+            clean = $"{clean} document";
+        }
+
+        const int maximumBaseNameLength = 120;
+        if (clean.Length > maximumBaseNameLength)
+        {
+            clean = clean[..maximumBaseNameLength].TrimEnd(' ', '.');
+            if (clean.Length > 0 && char.IsHighSurrogate(clean[^1]))
+            {
+                clean = clean[..^1];
+            }
+        }
+
+        return string.IsNullOrWhiteSpace(clean) ? "reMarkable document" : clean;
     }
 
     private static string FormatByteCount(long bytes) => bytes switch
@@ -3334,6 +3603,10 @@ public sealed partial class MainPage : Page
 
     private async void FilesPane_FilesDropped(object? sender, DragEventArgs e)
     {
+        if (e.DataView.Contains(FilesPaneView.OutboundDocumentDragFormat))
+        {
+            return;
+        }
         if (!e.DataView.Contains(StandardDataFormats.StorageItems))
         {
             ShowInfo("Drop a PDF or EPUB file here.");

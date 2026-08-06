@@ -94,8 +94,22 @@ Mirror accepts PDFs and DRM-free EPUBs up to the stock service's size limit.
 Upload logs record the result category and numeric HTTP status, not the local
 document filename.
 
-Files can export documents as PDF or native RMDOC. Native RMDOC import and
-Explorer drag-out are not implemented.
+Files can export documents as PDF or native RMDOC. Dragging a document row out
+of Mirror starts synchronously: `DragStarting` registers a delayed Windows
+`StorageItems` provider and returns without contacting the tablet or showing a
+preparation state. Explorer asks that provider for the file when it needs the
+payload. Mirror then creates a human-named PDF in the current user's local app
+cache on a worker thread and supplies it with copy-only semantics. This avoids
+blocking the native drag transaction on tablet I/O or a brokered `StorageFile`
+handoff. A private drag marker prevents Mirror's own import target from
+accepting that same outbound file. A drag canceled before the provider is
+requested creates no file; partial or canceled work is removed immediately.
+Export requests share a cancellation-aware gate. If a canceled provider is
+still unwinding, its replacement waits under the new provider's Windows
+deadline instead of failing busy; the visible drag has already started.
+Accepted files are kept briefly so the destination can finish reading them,
+and abandoned cache entries are swept on a later launch. Native RMDOC import is
+not implemented.
 
 ## Sleep and wake
 

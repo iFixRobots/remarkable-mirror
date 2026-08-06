@@ -9,7 +9,11 @@ Notable user-visible changes are recorded here.
 - Mirror now moves naturally between USB and Wi-Fi while keeping display,
   **Touch + Type**, Pen, screenshots, and Files together in one Windows app.
 - You can send PDFs and DRM-free EPUBs to the tablet and save documents back to
-  Windows as PDF or native RMDOC.
+  Windows as PDF or native RMDOC. A document row can also be dragged straight
+  into Explorer as a normal PDF file. That drag-out flow starts immediately,
+  shows no preparation screen, can be canceled and retried right away, and
+  keeps Mirror responsive while Windows requests the PDF only when the
+  destination needs it.
 - The complete installer prepares both Windows and the tablet; an optional
   portable EXE is available for accounts that are already set up.
 - Connection cleanup, wake handling, and stale-frame recovery have been

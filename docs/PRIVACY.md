@@ -27,6 +27,13 @@ Clipboard screenshots use a temporary PNG file so they remain valid after the
 app closes. Mirror does not automatically remove those files yet. You can delete
 old Mirror PNGs from the Windows temporary directory.
 
+Dragging a tablet document into Windows stages its PDF in Mirror's local app
+cache only after Windows requests the file. Canceling before that request writes
+nothing; partial or canceled work is removed immediately. After an accepted
+drop, Mirror keeps the staged file for 15 minutes so the destination can finish
+reading it. If the app closes first, abandoned drag files are removed after they
+are a day old the next time Mirror opens.
+
 ## Logs
 
 Application logs are designed to omit document contents, document filenames,

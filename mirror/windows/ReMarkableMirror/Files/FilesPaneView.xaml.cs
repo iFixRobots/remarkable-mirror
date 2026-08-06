@@ -11,6 +11,9 @@ namespace ReMarkableMirror.Files;
 
 public sealed partial class FilesPaneView : UserControl
 {
+    internal const string OutboundDocumentDragFormat =
+        "ReMarkableMirror.OutboundDocument";
+
     private static readonly Windows.UI.Color AvailableBackground =
         Windows.UI.Color.FromArgb(255, 250, 249, 245);
     private static readonly Windows.UI.Color UnavailableBackground =
@@ -33,7 +36,11 @@ public sealed partial class FilesPaneView : UserControl
     private FilesPaneState _state = new();
     private bool _isTransitionCopy;
     private bool _isDropTargetHighlighted;
+    private bool _isDocumentDragEnabled;
+    private bool _suppressLibraryItemClick;
     private double? _pendingLibraryScrollOffset;
+    private LibraryDocumentDragSession? _activeDocumentDragSession;
+    private long _documentDragGeneration;
 
     public FilesPaneView()
     {
@@ -120,6 +127,15 @@ public sealed partial class FilesPaneView : UserControl
     public event EventHandler<FilesPaneLibraryItemEventArgs>? SaveNativeRequested;
 
     public event EventHandler<DragEventArgs>? FilesDropped;
+
+    internal Func<LibraryDocumentDragRequest, LibraryDocumentDragSession?>?
+        BeginDocumentDrag { get; set; }
+
+    internal bool IsDocumentDragEnabled
+    {
+        get => _isDocumentDragEnabled;
+        set => _isDocumentDragEnabled = value;
+    }
 
     /// <summary>
     /// Returns the current library-list scroll offset for transition handoff.
@@ -226,6 +242,11 @@ public sealed partial class FilesPaneView : UserControl
 
     private void LibraryList_ItemClick(object sender, ItemClickEventArgs e)
     {
+        if (_suppressLibraryItemClick)
+        {
+            return;
+        }
+
         if (!_isTransitionCopy &&
             _state.IsLibraryEnabled &&
             e.ClickedItem is RemarkableLibraryItem item)
@@ -233,6 +254,88 @@ public sealed partial class FilesPaneView : UserControl
             LibraryItemInvoked?.Invoke(this, new FilesPaneLibraryItemEventArgs(item));
         }
     }
+
+    private void LibraryDocument_DragStarting(
+        UIElement sender,
+        DragStartingEventArgs e)
+    {
+        var beginDocumentDrag = BeginDocumentDrag;
+        if (_isTransitionCopy ||
+            !_isDocumentDragEnabled ||
+            !_state.IsAvailable ||
+            _activeDocumentDragSession is not null ||
+            beginDocumentDrag is null ||
+            sender is not FrameworkElement { DataContext: RemarkableLibraryItem item } ||
+            !item.IsDocument)
+        {
+            e.Cancel = true;
+            return;
+        }
+
+        // ListView recycles its row visuals. Capture immutable document values
+        // now, then promise the PDF to Windows without waiting for the tablet.
+        var request = new LibraryDocumentDragRequest(
+            item.Id,
+            item.Name,
+            item.ModifiedClient);
+        var session = beginDocumentDrag(request);
+        if (session is null)
+        {
+            e.Cancel = true;
+            return;
+        }
+
+        try
+        {
+            e.AllowedOperations = DataPackageOperation.Copy;
+            e.Data.RequestedOperation = DataPackageOperation.Copy;
+            e.Data.Properties.Title = session.FileName;
+            e.Data.Properties.Description = "PDF from your reMarkable";
+            e.Data.Properties.FileTypes.Add(".pdf");
+            e.Data.SetData(OutboundDocumentDragFormat, "1");
+            e.Data.SetDataProvider(
+                StandardDataFormats.StorageItems,
+                session.ProvideData);
+            _activeDocumentDragSession = session;
+            _suppressLibraryItemClick = true;
+            _documentDragGeneration++;
+        }
+        catch (Exception)
+        {
+            e.Cancel = true;
+            session.Complete(DataPackageOperation.None);
+            _activeDocumentDragSession = null;
+        }
+    }
+
+    private void LibraryDocument_DropCompleted(
+        UIElement sender,
+        DropCompletedEventArgs e)
+    {
+        var session = _activeDocumentDragSession;
+        _activeDocumentDragSession = null;
+        if (session is not null)
+        {
+            session.Complete(e.DropResult);
+        }
+
+        // A completed drag must not fall through to the row's click-to-save
+        // behavior. Clear the suppression after routed pointer work settles so
+        // the next intentional click behaves normally.
+        ResetLibraryItemClickSuppression(_documentDragGeneration);
+    }
+
+    private void ResetLibraryItemClickSuppression(long dragGeneration) =>
+        DispatcherQueue.TryEnqueue(
+            Microsoft.UI.Dispatching.DispatcherQueuePriority.Low,
+            () =>
+            {
+                if (_documentDragGeneration == dragGeneration &&
+                    _activeDocumentDragSession is null)
+                {
+                    _suppressLibraryItemClick = false;
+                }
+            });
 
     private void SaveLibraryPdf_Click(object sender, RoutedEventArgs e)
     {
@@ -291,6 +394,7 @@ public sealed partial class FilesPaneView : UserControl
     private bool CanAcceptDrop(DragEventArgs e) =>
         !_isTransitionCopy &&
         _state.IsAvailable &&
+        !e.DataView.Contains(OutboundDocumentDragFormat) &&
         e.DataView.Contains(StandardDataFormats.StorageItems);
 
     private void FilesPaneView_Loaded(object sender, RoutedEventArgs e)
@@ -342,6 +446,7 @@ public sealed partial class FilesPaneView : UserControl
 
         return null;
     }
+
 }
 
 public sealed class FilesPaneLibraryItemEventArgs : EventArgs

@@ -36,7 +36,9 @@ check in one path.
 - Provides a separate mouse-as-pen mode
 - Copies screenshots to the clipboard or saves them as PNG files
 - Sends PDFs and DRM-free EPUBs with drag and drop
-- Browses and exports documents through the tablet's stock Files service
+- Browses and exports documents through the tablet's stock Files service;
+  document rows can be dragged straight into Explorer as normal PDFs, with no
+  preparation screen before the drag begins
 - Switches automatically from USB-C to paired Wi-Fi when the cable is removed,
   and back to USB-C when it is reconnected
 - Recovers from ordinary lock and short-sleep states, and only shows **Live**
@@ -97,14 +99,10 @@ is no public GitHub Release yet.
 Before the first public binary release, I still need to complete this entire
 guide once on a clean Windows account and a freshly reset supported tablet.
 
-The next development priority is Explorer-native drag-out from the Files panel:
-drag a tablet document out of Mirror and drop a normal exported file directly
-into a Windows Explorer folder.
-
 ## Known limits
 
-- Files can export PDF and native RMDOC, but native RMDOC import and Explorer
-  drag-out are not implemented.
+- Dragging a document out of Files creates a PDF. Native RMDOC export remains in
+  the document's right-click menu, and native RMDOC import is not implemented.
 - Native RMDOC export has produced a valid file, but its normal hands-on review
   is still open before the first public release.
 - Mirror accepts PDFs and DRM-free EPUBs. DRM-protected and malformed EPUBs may

@@ -12,6 +12,8 @@ internal static class MirrorApplicationData
 
     public static StorageFolder LocalFolder => Folders.Value.LocalFolder;
 
+    public static StorageFolder LocalCacheFolder => Folders.Value.LocalCacheFolder;
+
     public static StorageFolder TemporaryFolder => Folders.Value.TemporaryFolder;
 
     private static ApplicationDataFolders ResolveFolders()
@@ -25,20 +27,25 @@ internal static class MirrorApplicationData
             Path.GetTempPath(),
             Publisher,
             Product);
+        var localCachePath = Path.Combine(localPath, "Cache");
         Directory.CreateDirectory(localPath);
+        Directory.CreateDirectory(localCachePath);
         Directory.CreateDirectory(temporaryPath);
         return new(
             StorageFolder.GetFolderFromPathAsync(localPath).AsTask().GetAwaiter().GetResult(),
+            StorageFolder.GetFolderFromPathAsync(localCachePath).AsTask().GetAwaiter().GetResult(),
             StorageFolder.GetFolderFromPathAsync(temporaryPath).AsTask().GetAwaiter().GetResult());
 #else
         var packagedApplicationData = Windows.Storage.ApplicationData.Current;
         return new(
             packagedApplicationData.LocalFolder,
+            packagedApplicationData.LocalCacheFolder,
             packagedApplicationData.TemporaryFolder);
 #endif
     }
 
     private sealed record ApplicationDataFolders(
         StorageFolder LocalFolder,
+        StorageFolder LocalCacheFolder,
         StorageFolder TemporaryFolder);
 }

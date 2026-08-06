@@ -14,10 +14,10 @@ troubleshooting section before continuing.
 
 > [!IMPORTANT]
 > I use Mirror on my own tablet and have tested its USB and Wi-Fi connections,
-> input modes, screenshots, PDF and EPUB import, and PDF export. One complete
-> run on a newly set up Windows account and freshly reset tablet is still open
-> before the first public binary release. If a step does not match what you see,
-> stop there and report it.
+> input modes, screenshots, PDF and EPUB import, PDF export, and PDF drag-out to
+> Explorer. One complete run on a newly set up Windows account and freshly reset
+> tablet is still open before the first public binary release. If a step does
+> not match what you see, stop there and report it.
 
 The screenshots below show the current Mirror app. reMarkable may change its
 settings screens between tablet updates, so use the linked official Developer
@@ -33,6 +33,8 @@ At the end of this guide, you should have:
 - screenshots copied or saved from the app
 - the Files drawer available whenever the tablet is unlocked
 - PDF and DRM-free EPUB import from Windows
+- documents saved to Windows as PDF or native RMDOC, including PDF drag-out to
+  Explorer
 - a dedicated SSH key used only for this tablet
 
 ![reMarkable Mirror connected over Wi-Fi](images/remarkable-mirror-live-wifi.png)
@@ -576,10 +578,13 @@ Check each item:
 6. Open **Files** while the tablet is unlocked. Confirm the library loads.
 7. Drop a small disposable PDF and a DRM-free EPUB onto the send area, one at a
    time, and confirm both appear on the tablet.
-8. Click a document to open **Save As** for its PDF, then save it to a normal
-   Windows folder.
-9. Right-click a document and confirm you can choose **Save as PDF...** or
-   **Save native RMDOC...**. Explorer drag-out is not implemented yet.
+8. Drag a document row out of Mirror and release it in a normal Windows Explorer
+   folder. The drag should begin immediately, without a **Preparing** message.
+   Confirm that a human-named PDF appears there. Start another drag, cancel it,
+   then immediately drag the same document again. The retry should begin right
+   away and Mirror should stay responsive.
+9. Click a document to open **Save As** for its PDF. Right-click it and confirm
+   you can choose **Save as PDF...** or **Save native RMDOC...**.
 
 When the tablet is passcode-locked, the live mirror can remain available while
 Files waits. That is expected:
@@ -599,8 +604,8 @@ With Mirror already working over USB:
 4. Confirm the status reads **Live over Wi-Fi**.
 5. Repeat touch, keyboard, Pen, and screenshot checks.
 6. Open **Files** and confirm that the library loads over Wi-Fi. Drop one small
-   PDF and one DRM-free EPUB, then save one document as PDF and native RMDOC to
-   Windows.
+   PDF and one DRM-free EPUB, drag one tablet document into Explorer, then save
+   one document as native RMDOC to Windows.
 7. Close Files and stop interacting with the tablet.
 8. Reconnect USB-C.
 9. Wait for **Live over USB**.
@@ -624,6 +629,8 @@ not accept an arbitrary SSH host just because one appears on the network.
 - [ ] Files loads when the tablet is unlocked
 - [ ] a PDF and DRM-free EPUB can be dropped into the tablet over Wi-Fi
 - [ ] the corrected upload also works over USB
+- [ ] dragging a tablet document into Explorer starts immediately and creates a
+      normal PDF; canceling and immediately retrying does not freeze Mirror
 - [ ] a document can be saved as PDF and native RMDOC to a Windows folder
 - [ ] unplugging USB reaches **Live over Wi-Fi**
 - [ ] Wi-Fi touch and keyboard input work

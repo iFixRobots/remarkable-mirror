@@ -75,7 +75,7 @@
                     Margin="0,3,0,14"
                     FontSize="13"
                     Foreground="{StaticResource MutedBrush}"
-                    Text="Move documents in and out naturally." />
+                    Text="Drop files in. Drag documents out." />
 
                 <Border
                     x:Name="DropTarget"
@@ -206,7 +206,12 @@
                         SelectionMode="None">
                         <ListView.ItemTemplate>
                             <DataTemplate>
-                                <Grid Padding="5,7">
+                                <Grid
+                                    Padding="5,7"
+                                    Background="Transparent"
+                                    CanDrag="{Binding IsDocument}"
+                                    DragStarting="LibraryDocument_DragStarting"
+                                    DropCompleted="LibraryDocument_DropCompleted">
                                     <Grid.ContextFlyout>
                                         <MenuFlyout>
                                             <MenuFlyoutItem
