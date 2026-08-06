@@ -79,6 +79,11 @@ On the tested Paper Pro Move, a direct network connection and a standard wake
 packet both failed during full sleep. USB-C is a fallback connection after
 wake; it did not wake the tablet.
 
+Mirror does not turn one interrupted Wi-Fi identity or capability check into a
+tablet repair warning. It stays in this wake/offline flow unless the tablet
+authenticates and reports the same component mismatch again. A direct USB setup
+failure still appears immediately.
+
 ## Repair tablet setup
 
 A tablet update may have removed the components Mirror installed.

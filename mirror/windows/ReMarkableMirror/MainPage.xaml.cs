@@ -65,6 +65,7 @@ public sealed partial class MainPage : Page
     private Task? _frameDisplayTask;
     private Task? _inputSessionTask;
     private volatile DeviceConnectionStatus _deviceConnectionStatus = DeviceConnectionStatus.Disconnected;
+    private PassiveRouteProbeDetail _deviceConnectionProbeDetail = PassiveRouteProbeDetail.None;
     private int _disconnectedProbeStreak;
     private volatile bool _tabletReachable;
     private volatile SshInputSession? _inputSession;
@@ -268,6 +269,7 @@ public sealed partial class MainPage : Page
             ResetInputPreparation();
             _connectionMonitor.SetActiveRouteKind(null);
             _deviceConnectionStatus = DeviceConnectionStatus.Disconnected;
+            _deviceConnectionProbeDetail = PassiveRouteProbeDetail.None;
             _disconnectedProbeStreak = 0;
             _tabletReachable = false;
             _actionRequiredFailure = false;
@@ -683,6 +685,7 @@ public sealed partial class MainPage : Page
                 }
 
                 var previousStatus = _deviceConnectionStatus;
+                var previousProbeDetail = _deviceConnectionProbeDetail;
                 var routeChanged = false;
                 if (state.IsSshReady &&
                     state.SelectedRoute is not null &&
@@ -709,9 +712,15 @@ public sealed partial class MainPage : Page
                 }
 
                 _deviceConnectionStatus = state.Status;
+                _deviceConnectionProbeDetail = state.ProbeDetail;
                 if (previousStatus != state.Status)
                 {
                     _diagnostics.Record("connection", state.Status.ToString());
+                }
+                if (state.ProbeDetail is not PassiveRouteProbeDetail.None &&
+                    (previousStatus != state.Status || previousProbeDetail != state.ProbeDetail))
+                {
+                    _diagnostics.Record("connection detail", state.ProbeDetail.ToString());
                 }
 
                 if (_actionRequiredFailure && _mirrorState is MirrorConnectionState.Error)

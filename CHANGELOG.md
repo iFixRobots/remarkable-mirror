@@ -18,6 +18,9 @@ Notable user-visible changes are recorded here.
   portable EXE is available for accounts that are already set up.
 - Connection cleanup, wake handling, and stale-frame recovery have been
   tightened without installing persistent input hooks on the tablet.
+- One interrupted Wi-Fi identity or capability check no longer sends the app
+  to **Repair**. Wi-Fi repair now requires a repeated authenticated tablet
+  mismatch, while direct USB setup failures still appear immediately.
 - After full sleep, press the tablet's power button once and Mirror reconnects
   automatically over Wi-Fi. If Wi-Fi does not return, USB-C is the fallback
   route after wake. A bounded TCP attempt and a standard magic packet did not

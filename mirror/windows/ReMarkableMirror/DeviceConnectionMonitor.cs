@@ -28,6 +28,7 @@ public sealed class DeviceConnectionMonitor
     private const int MaximumBannerBytes = 1024;
     private readonly SemaphoreSlim _probeRequested = new(0, 1);
     private readonly object _wakeClientGate = new();
+    private readonly WifiRepairConfirmationPolicy _wifiRepairConfirmationPolicy = new();
     private readonly SshRoute _usbRoute;
     private readonly SshRoute? _wifiRoute;
     private DeviceProfile? _wifiProfile;
@@ -91,6 +92,7 @@ public sealed class DeviceConnectionMonitor
         var next = routeKind is null ? -1 : (int)routeKind.Value;
         if (Interlocked.Exchange(ref _activeRouteKind, next) != next)
         {
+            _wifiRepairConfirmationPolicy.Reset();
             ResetActiveWifiTransientFailures();
             ResetActiveUsbTransientFailures();
             ResetHealthyUsbCandidate();
@@ -267,7 +269,11 @@ public sealed class DeviceConnectionMonitor
         }
 
         var wifi = (await ProbeWifiAsync(cancellationToken).ConfigureAwait(false)).State;
-        return wifi.IsSshReady || wifi.Status is
+        var wifiHasUsefulFailureDetail =
+            usb.Status is DeviceConnectionStatus.Disconnected &&
+            wifi.Status is DeviceConnectionStatus.Disconnected &&
+            wifi.ProbeDetail is not PassiveRouteProbeDetail.None;
+        return wifi.IsSshReady || wifiHasUsefulFailureDetail || wifi.Status is
                 DeviceConnectionStatus.WakeSetupRequired or
                 DeviceConnectionStatus.WifiNetworkMismatch
             ? wifi
@@ -361,6 +367,7 @@ public sealed class DeviceConnectionMonitor
                         .ConfigureAwait(false);
             if (networkMatch is not WindowsNetworkMatchResult.Match)
             {
+                _wifiRepairConfirmationPolicy.Reset();
                 // This check is deliberately before the banner scan: a route or
                 // Windows network mismatch must produce zero tablet LAN traffic.
                 return new WifiProbeOutcome(
@@ -507,6 +514,10 @@ public sealed class DeviceConnectionMonitor
         if (result.State is PassiveRouteProbeState.Authenticated &&
             result.Capability is { IsCurrent: true } capability)
         {
+            if (kind is DeviceRouteKind.Wifi)
+            {
+                _wifiRepairConfirmationPolicy.Reset();
+            }
             var profileMatches = !requireProfileMatch || MatchesWifiProfile(capability);
             if (!profileMatches &&
                 requireProfileMatch &&
@@ -525,13 +536,43 @@ public sealed class DeviceConnectionMonitor
             }
         }
 
+        if (kind is DeviceRouteKind.Wifi &&
+            result.State is not PassiveRouteProbeState.IdentityRejected and
+                not PassiveRouteProbeState.PrerequisiteMismatch)
+        {
+            _wifiRepairConfirmationPolicy.Reset();
+        }
+
         var status = result.State is PassiveRouteProbeState.IdentityRejected or
                 PassiveRouteProbeState.PrerequisiteMismatch
-            ? DeviceConnectionStatus.WakeSetupRequired
+            ? ResolveSetupFailureStatus(kind, result)
             : result.State is PassiveRouteProbeState.PortOpenNoBanner
                 ? DeviceConnectionStatus.PortOpenWithoutSshBanner
                 : DeviceConnectionStatus.Disconnected;
-        return new DeviceConnectionState(status, route.Host, _port, null, null);
+        return new DeviceConnectionState(
+            status,
+            route.Host,
+            _port,
+            null,
+            null,
+            result.Detail);
+    }
+
+    private DeviceConnectionStatus ResolveSetupFailureStatus(
+        DeviceRouteKind kind,
+        PassiveRouteProbeResult result)
+    {
+        if (kind is DeviceRouteKind.Usb)
+        {
+            return DeviceConnectionStatus.WakeSetupRequired;
+        }
+
+        var confirmedTabletMismatch = _wifiRepairConfirmationPolicy.Record(
+            result.IdentityAuthenticated,
+            result.Detail is PassiveRouteProbeDetail.TabletPrerequisiteMismatch);
+        return confirmedTabletMismatch
+            ? DeviceConnectionStatus.WakeSetupRequired
+            : DeviceConnectionStatus.Disconnected;
     }
 
     private bool MatchesWifiProfile(PassiveRouteCapability capability)
@@ -837,7 +878,8 @@ public sealed record DeviceConnectionState(
     string Host,
     int Port,
     SshRoute? SelectedRoute = null,
-    DeviceRouteKind? RouteKind = null)
+    DeviceRouteKind? RouteKind = null,
+    PassiveRouteProbeDetail ProbeDetail = PassiveRouteProbeDetail.None)
 {
     public bool IsPortOpen => Status is DeviceConnectionStatus.PortOpenWithoutSshBanner or
         DeviceConnectionStatus.SshReady;

@@ -328,7 +328,7 @@ internal sealed class PassiveRouteProbe
         (line.Length > "SSH-2.0-"u8.Length && line.StartsWith("SSH-2.0-"u8)) ||
         (line.Length > "SSH-1.99-"u8.Length && line.StartsWith("SSH-1.99-"u8));
 
-    private static PassiveRouteProbeResult ClassifyAuthenticationResult(
+    internal static PassiveRouteProbeResult ClassifyAuthenticationResult(
         int exitCode,
         string standardOutput,
         string standardError)
@@ -369,18 +369,21 @@ internal sealed class PassiveRouteProbe
             return new PassiveRouteProbeResult(
                 PassiveRouteProbeState.Authenticated,
                 PassiveRouteProbeDetail.None,
-                capability);
+                capability,
+                IdentityAuthenticated: true);
         }
 
+        var identityAuthenticated = standardOutput.Contains(
+            "RMMIRROR_ROUTE_AUTHENTICATED=1",
+            StringComparison.Ordinal);
         if (exitCode == PrerequisiteMismatchExitCode ||
-            standardOutput.Contains(
-                "RMMIRROR_ROUTE_AUTHENTICATED=1",
-                StringComparison.Ordinal))
+            identityAuthenticated)
         {
             return new PassiveRouteProbeResult(
                 PassiveRouteProbeState.PrerequisiteMismatch,
                 PassiveRouteProbeDetail.TabletPrerequisiteMismatch,
-                capability);
+                capability,
+                identityAuthenticated);
         }
 
         return Result(
@@ -552,7 +555,7 @@ internal enum PassiveRouteProbeState
     PrerequisiteMismatch,
 }
 
-internal enum PassiveRouteProbeDetail
+public enum PassiveRouteProbeDetail
 {
     None,
     TcpUnavailable,
@@ -573,12 +576,8 @@ internal enum PassiveRouteProbeDetail
 internal sealed record PassiveRouteProbeResult(
     PassiveRouteProbeState State,
     PassiveRouteProbeDetail Detail,
-    PassiveRouteCapability? Capability)
-{
-    public bool IdentityAuthenticated =>
-        State is PassiveRouteProbeState.Authenticated ||
-        (State is PassiveRouteProbeState.PrerequisiteMismatch && Capability is not null);
-}
+    PassiveRouteCapability? Capability,
+    bool IdentityAuthenticated = false);
 
 internal sealed record PassiveRouteCapability(
     string BootId,

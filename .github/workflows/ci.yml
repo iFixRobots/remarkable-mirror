@@ -83,6 +83,7 @@ jobs:
               'Test-RemarkableMirrorMultipartUpload.ps1',
               'Test-RemarkableMirrorPassiveRouteProbe.ps1',
               'Test-RemarkableMirrorPrerequisiteUsbBoundary.ps1',
+              'Test-RemarkableMirrorWifiRepairPolicy.ps1',
               'Test-RemarkableMirrorWindowsNetworkIdentityMatcher.ps1',
               'Test-RemarkableMirrorPackageMetadata.ps1'
           )

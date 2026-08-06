@@ -33,6 +33,12 @@ USB is preferred and paired Wi-Fi is the fallback. Promotion back to USB waits
 for sustained passive health and until pointer input and Files operations are
 idle.
 
+A Wi-Fi identity rejection remains in the offline recovery path instead of
+being labeled as broken tablet wake setup. A tablet prerequisite mismatch must
+authenticate and repeat before Wi-Fi can publish **Repair**; direct USB token,
+authentication, and setup failures remain immediate. Diagnostics keep only the
+fixed probe-reason enum, never SSH output or credential data.
+
 Mirror sends an SSH keepalive every three seconds and tolerates two unanswered
 probes before the third ends a persistent session. Frame and input paths treat
 that timeout as reconnectable instead of turning one brief Wi-Fi pause into a
