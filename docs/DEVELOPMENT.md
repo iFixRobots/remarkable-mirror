@@ -248,6 +248,10 @@ auto-discover or persist an address, inspect or use USB, wake the tablet, fall
 back to another transport, use the wake HTTP endpoint, request a password, or
 require an unlock. Failure returns to both manual connection choices. Files
 remains separate and may still require an unlock.
+While Live, the route status must reuse the opposite existing action: USB-C
+opens the Wi-Fi address prompt and Wi-Fi starts **Connect USB-C**. Canceling the
+address prompt keeps the current USB-C generation. Do not add a third switch
+path, automatic route selection, or fallback.
 
 An accepted authorization password submission is not followed by background
 recovery. If its outcome is uncertain,

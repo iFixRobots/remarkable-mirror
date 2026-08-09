@@ -360,7 +360,11 @@ replace, or move a connection. A failed or retired generation returns to the
 disconnected surface and waits for another owner action. Exact binding
 revalidation still gates publication, and a fresh frame plus ready input from
 the chosen generation remain required before the connection can publish
-**Live**. Files remains independent and may still wait for an unlock.
+**Live**. Files remains independent and may still wait for an unlock. While
+Live, the route status delegates to those same manual actions. USB-C opens the
+existing Wi-Fi address prompt without retiring the USB generation; canceling
+leaves USB Live. Wi-Fi starts the existing USB-C action immediately. The status
+control adds no probing, fallback, or connection implementation.
 
 Normal continuity inside an owner-started connection comes from preventing
 suspend, not from waiting until the kernel is already asleep. While a Live USB

@@ -234,6 +234,11 @@ wake HTTP endpoint, request a password, or require an unlock. Failure returns to
 the two manual connection choices. Files is independent and may still wait for
 the tablet to be unlocked.
 
+When Mirror is Live, click the green **Live over USB-C** or
+**Live over Wi-Fi** status to switch connections. USB-C opens the same tablet
+IP prompt; canceling it keeps USB-C Live. Wi-Fi starts the existing USB-C
+connection action immediately.
+
 One **Connect USB-C** click starts a bounded session on that cable. Mirror asks
 the direct-cable wake service to recover the tablet, waits for its services, and
 then authenticates and connects without asking for another click. It never

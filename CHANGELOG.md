@@ -21,6 +21,8 @@ Notable user-visible changes are recorded here.
   does not auto-discover or save an address, inspect or use USB, wake the tablet,
   fall back to another transport, use the wake HTTP service, request a password,
   or require an unlock. Failure returns to the two manual connection choices.
+  While Live, the green connection status is also a switch: USB-C opens that
+  same Wi-Fi address prompt, while Wi-Fi starts the existing USB-C action.
   Files remains separate and may still require an unlock. The fixed
   non-resizable window is `456 x 877`
   compact and `776 x 877` with Files open. The Files animation is accepted as

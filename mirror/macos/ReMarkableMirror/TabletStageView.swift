@@ -22,7 +22,12 @@ struct TabletStageView: View {
                     .accessibilityHidden(true)
 
                 Group {
-                    if model.hasCurrentFrame,
+                    if model.wifiAddressPromptIsPresented {
+                        TabletWaitingScreen(
+                            recoveryCard: model.recoveryCard,
+                            model: model
+                        )
+                    } else if model.hasCurrentFrame,
                        let presentation = model.framePresentation {
                         ZStack {
                             TabletFrameView(presentation: presentation)

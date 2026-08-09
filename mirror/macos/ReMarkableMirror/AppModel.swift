@@ -180,7 +180,26 @@ final class AppModel {
     }
 
     var displayedConnectionState: ConnectionPresentationState {
-        wifiAddressPromptIsPresented ? .readyToConnect : connectionState
+        wifiAddressPromptIsPresented && !connectionState.isLive
+            ? .readyToConnect
+            : connectionState
+    }
+
+    var canSwitchLiveConnection: Bool {
+        connectionState.isLive &&
+            !connectionRequestInFlight &&
+            !wifiAddressPromptIsPresented
+    }
+
+    var liveConnectionSwitchHint: String {
+        switch connectionState {
+        case .live(.usb):
+            "Switch to Wi‑Fi."
+        case .live(.wifi):
+            "Switch to USB‑C."
+        default:
+            "Available when the mirror is live."
+        }
     }
 
     var recoveryCard: RecoveryCardContent? {
@@ -407,6 +426,18 @@ final class AppModel {
             guard !connectionRequestInFlight else { return }
             wifiAddressPromptIsPresented = false
             wifiAddressInput = ""
+        }
+    }
+
+    func switchLiveConnection() {
+        guard canSwitchLiveConnection else { return }
+        switch connectionState {
+        case .live(.usb):
+            performRecoveryAction(.connectWiFi)
+        case .live(.wifi):
+            performRecoveryAction(.connectUSB)
+        default:
+            break
         }
     }
 
@@ -637,17 +668,27 @@ final class AppModel {
             }
         }
 
+        let nextConnectionState = ConnectionPublicationGate.presentation(for: snapshot)
+        let preservesLiveWiFiPrompt = wifiAddressPromptIsPresented &&
+            connectionRequestID == nil &&
+            connectionState.isLive &&
+            nextConnectionState.isLive &&
+            snapshot.admission == .generationEvent
+        let preservesLiveConnectionRequest = connectionRequestID != nil &&
+            connectionState.isLive &&
+            nextConnectionState.isLive &&
+            snapshot.admission == .generationEvent
+
         latestSnapshotRevision = snapshot.revision
-        if wifiAddressPromptIsPresented {
+        if wifiAddressPromptIsPresented && !preservesLiveWiFiPrompt {
             wifiAddressPromptIsPresented = false
             wifiAddressInput = ""
         }
-        if connectionRequestID != nil {
+        if connectionRequestID != nil && !preservesLiveConnectionRequest {
             connectionRequestID = nil
             connectionRequestInFlight = false
             connectionRequestRoute = nil
         }
-        let nextConnectionState = ConnectionPublicationGate.presentation(for: snapshot)
         connectionState = nextConnectionState
         if nextConnectionState != .setupInProgress {
             tabletAuthorizationSubmissionInProgress = false
