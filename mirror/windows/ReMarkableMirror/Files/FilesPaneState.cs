@@ -6,8 +6,8 @@ using System.Runtime.CompilerServices;
 namespace ReMarkableMirror.Files;
 
 /// <summary>
-/// Presentation state shared by the settled Files pane and its compositor-only
-/// transition copy. Device access and file operations remain owned by the host.
+/// Presentation state for the Files pane. Device access and file operations
+/// remain owned by the host.
 /// </summary>
 public sealed class FilesPaneState : INotifyPropertyChanged
 {
@@ -133,18 +133,11 @@ public sealed class FilesPaneState : INotifyPropertyChanged
         IsLibraryEnabled = IsAvailable;
     }
 
-    /// <summary>
-    /// Raises the two derived transfer properties after an in-place update.
-    /// Collection additions and removals call this automatically.
-    /// </summary>
-    public void RefreshTransferSummary()
+    private void Transfers_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
         OnPropertyChanged(nameof(HasTransfers));
         OnPropertyChanged(nameof(TransferCountText));
     }
-
-    private void Transfers_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs e) =>
-        RefreshTransferSummary();
 
     private bool SetField<T>(ref T field, T value, [CallerMemberName] string? propertyName = null)
     {

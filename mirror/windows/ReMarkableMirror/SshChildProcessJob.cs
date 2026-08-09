@@ -69,7 +69,7 @@ internal static class SshChildProcessJob
         return job;
     }
 
-    private static void TerminateAndDispose(Process process)
+    internal static void TerminateAndDispose(Process process)
     {
         try
         {

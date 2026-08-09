@@ -38,18 +38,6 @@ public sealed class RemarkableFileTransport : IAsyncDisposable
     private readonly HttpClient _httpClient;
     private bool _disposed;
 
-    public RemarkableFileTransport(
-        string host,
-        string? identityFile = null,
-        string? knownHostsFile = null) :
-        this(new SshRoute(
-            host,
-            identityFile,
-            knownHostsFile,
-            filesTargetHost: host))
-    {
-    }
-
     public RemarkableFileTransport(SshRoute route)
     {
         _tunnel = new SshWebInterfaceTunnel(
@@ -100,26 +88,6 @@ public sealed class RemarkableFileTransport : IAsyncDisposable
             token => UploadCoreAsync(upload, normalizedFolderId, token),
             cancellationToken);
     }
-
-    public Task<RemarkableDownloadResult> DownloadPdfAsync(
-        string documentId,
-        Stream destination,
-        CancellationToken cancellationToken = default) =>
-        DownloadToStreamAsync(
-            documentId,
-            DownloadRepresentation.Pdf,
-            destination,
-            cancellationToken);
-
-    public Task<RemarkableDownloadResult> DownloadRmdocAsync(
-        string documentId,
-        Stream destination,
-        CancellationToken cancellationToken = default) =>
-        DownloadToStreamAsync(
-            documentId,
-            DownloadRepresentation.Rmdoc,
-            destination,
-            cancellationToken);
 
     public Task<RemarkableDownloadResult> DownloadPdfToFileAsync(
         string documentId,
@@ -484,31 +452,6 @@ public sealed class RemarkableFileTransport : IAsyncDisposable
         return result;
     }
 
-    private Task<RemarkableDownloadResult> DownloadToStreamAsync(
-        string documentId,
-        DownloadRepresentation representation,
-        Stream destination,
-        CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(destination);
-        if (!destination.CanWrite)
-        {
-            throw new FileTransferException(
-                FileTransferFailure.InvalidRequest,
-                "The download destination stream is not writable.");
-        }
-
-        var normalizedDocumentId = NormalizeRequiredId(documentId, "document");
-        return ExecuteSerializedAsync(
-            "download the reMarkable document",
-            token => DownloadCoreAsync(
-                normalizedDocumentId,
-                representation,
-                destination,
-                token),
-            cancellationToken);
-    }
-
     private Task<RemarkableDownloadResult> DownloadToFileAsync(
         string documentId,
         DownloadRepresentation representation,
@@ -643,6 +586,8 @@ public sealed class RemarkableFileTransport : IAsyncDisposable
                 cancellationToken)
             .ConfigureAwait(false);
         var buffer = ArrayPool<byte>.Shared.Rent(DownloadBufferBytes);
+        var idleCancellation =
+            CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         long bytesWritten = 0;
         try
         {
@@ -651,14 +596,31 @@ public sealed class RemarkableFileTransport : IAsyncDisposable
                 int read;
                 try
                 {
-                    read = await ReadDownloadChunkAsync(
-                            source,
+                    if (idleCancellation.IsCancellationRequested &&
+                        !cancellationToken.IsCancellationRequested)
+                    {
+                        idleCancellation.Dispose();
+                        idleCancellation = CancellationTokenSource.CreateLinkedTokenSource(
+                            cancellationToken);
+                    }
+                    idleCancellation.CancelAfter(DownloadReadIdleTimeout);
+                    read = await source.ReadAsync(
                             buffer.AsMemory(0, DownloadBufferBytes),
-                            cancellationToken)
+                            idleCancellation.Token)
                         .ConfigureAwait(false);
+                    idleCancellation.CancelAfter(Timeout.InfiniteTimeSpan);
+                }
+                catch (OperationCanceledException exception)
+                    when (!cancellationToken.IsCancellationRequested)
+                {
+                    throw new FileTransferException(
+                        FileTransferFailure.Connection,
+                        "The tablet download stopped sending data.",
+                        exception);
                 }
                 catch (OperationCanceledException)
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
                     throw;
                 }
                 catch (IOException exception)
@@ -698,6 +660,7 @@ public sealed class RemarkableFileTransport : IAsyncDisposable
         }
         finally
         {
+            idleCancellation.Dispose();
             ArrayPool<byte>.Shared.Return(buffer);
         }
 
@@ -774,35 +737,6 @@ public sealed class RemarkableFileTransport : IAsyncDisposable
             throw new FileTransferException(
                 FileTransferFailure.Connection,
                 "The tablet download stopped responding before data arrived.",
-                exception);
-        }
-        catch (OperationCanceledException)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            throw;
-        }
-    }
-
-    private static async Task<int> ReadDownloadChunkAsync(
-        Stream source,
-        Memory<byte> buffer,
-        CancellationToken cancellationToken)
-    {
-        using var idleCancellation =
-            CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        idleCancellation.CancelAfter(DownloadReadIdleTimeout);
-        try
-        {
-            return await source
-                .ReadAsync(buffer, idleCancellation.Token)
-                .ConfigureAwait(false);
-        }
-        catch (OperationCanceledException exception)
-            when (!cancellationToken.IsCancellationRequested)
-        {
-            throw new FileTransferException(
-                FileTransferFailure.Connection,
-                "The tablet download stopped sending data.",
                 exception);
         }
         catch (OperationCanceledException)
@@ -1096,7 +1030,7 @@ public sealed class RemarkableFileTransport : IAsyncDisposable
         {
             throw new FileTransferException(
                 FileTransferFailure.InvalidRequest,
-                "Choose a PDF, EPUB, or RMDOC file to send.");
+                "Choose a PDF or EPUB file to send.");
         }
 
         string fullPath;
@@ -1136,10 +1070,9 @@ public sealed class RemarkableFileTransport : IAsyncDisposable
         {
             ".pdf" => "application/pdf",
             ".epub" => "application/epub+zip",
-            ".rmdoc" => "application/octet-stream",
             _ => throw new FileTransferException(
                 FileTransferFailure.InvalidRequest,
-                "Only PDF, EPUB, and RMDOC files can be sent to the tablet."),
+                "Only PDF and EPUB files can be sent to the tablet."),
         };
 
         if (length > MaximumUploadBytes)

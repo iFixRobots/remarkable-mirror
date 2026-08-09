@@ -170,11 +170,11 @@ internal sealed class PassiveRouteProbe
         }
         finally
         {
-            UseAbortiveClose(client);
+            CloseAbortively(client);
         }
     }
 
-    private static void UseAbortiveClose(TcpClient client)
+    private static void CloseAbortively(TcpClient client)
     {
         try
         {
@@ -328,9 +328,29 @@ internal sealed class PassiveRouteProbe
         return false;
     }
 
-    private static bool IsRealSshIdentification(ReadOnlySpan<byte> line) =>
-        (line.Length > "SSH-2.0-"u8.Length && line.StartsWith("SSH-2.0-"u8)) ||
-        (line.Length > "SSH-1.99-"u8.Length && line.StartsWith("SSH-1.99-"u8));
+    internal static bool IsRealSshIdentification(ReadOnlySpan<byte> line)
+    {
+        ReadOnlySpan<byte> ssh2Prefix = "SSH-2.0-"u8;
+        ReadOnlySpan<byte> compatibilityPrefix = "SSH-1.99-"u8;
+        var prefixLength = line.StartsWith(ssh2Prefix)
+            ? ssh2Prefix.Length
+            : line.StartsWith(compatibilityPrefix)
+                ? compatibilityPrefix.Length
+                : 0;
+        if (prefixLength == 0 || line.Length == prefixLength)
+        {
+            return false;
+        }
+
+        foreach (var value in line[prefixLength..])
+        {
+            if (value is < 0x20 or > 0x7e)
+            {
+                return false;
+            }
+        }
+        return true;
+    }
 
     internal static PassiveRouteProbeResult ClassifyAuthenticationResult(
         int exitCode,

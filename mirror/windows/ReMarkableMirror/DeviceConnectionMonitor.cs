@@ -1,11 +1,10 @@
 using System.Diagnostics;
-using System.Net.Sockets;
 using System.Runtime.CompilerServices;
 using System.Security;
 
 namespace ReMarkableMirror;
 
-public sealed class DeviceConnectionMonitor : IDisposable
+internal sealed class DeviceConnectionMonitor : IDisposable
 {
     private static readonly TimeSpan DisconnectedPollInterval = TimeSpan.FromSeconds(3);
     // A bannerless USB endpoint is what this tablet exposes while waiting for
@@ -15,122 +14,81 @@ public sealed class DeviceConnectionMonitor : IDisposable
     private static readonly TimeSpan PortOpenPollInterval = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan WakeStatePollInterval = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan WakingPollInterval = TimeSpan.FromSeconds(1);
-    private static readonly TimeSpan SshReadyPollInterval = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan WakeAttemptInterval = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan WakeGraceInterval = TimeSpan.FromSeconds(10);
-    private static readonly TimeSpan UsbPromotionCooldown = TimeSpan.FromSeconds(45);
-    private static readonly TimeSpan ActiveRouteTransientFailureLimit = TimeSpan.FromSeconds(15);
-    private static readonly TimeSpan UsbPromotionHealthyMinimum = TimeSpan.FromSeconds(2);
-    private const int ActiveRouteTransientFailureThreshold = 3;
-    private const int UsbPromotionHealthyProbeThreshold = 2;
-    private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(1);
-    private static readonly TimeSpan BannerTimeout = TimeSpan.FromSeconds(2);
-    private const int MaximumBannerBytes = 1024;
     private readonly SemaphoreSlim _probeRequested = new(0, 1);
-    private readonly object _wakeClientGate = new();
     private readonly WifiRepairConfirmationPolicy _wifiRepairConfirmationPolicy = new();
-    private readonly SshRoute _usbRoute;
-    private readonly SshRoute? _wifiRoute;
+    private readonly DeviceRouteKind _kind;
+    private readonly SshRoute _route;
+    private readonly PassiveRouteProbe _probe;
     private DeviceProfile? _wifiProfile;
     private DeviceProfileVerification? _wifiVerification;
-    private readonly bool _wifiRequiresProfileMatch;
     private readonly string? _wifiInterfaceId;
     private readonly string? _wifiNetworkIdentity;
     private readonly string? _wakeTokenFileReference;
-    private readonly PassiveRouteProbe _usbProbe;
-    private readonly PassiveRouteProbe? _wifiProbe;
-    private readonly int _port;
     private TabletWakeClient? _wakeClient;
     private TabletWakeClientCreationStatus _wakeClientCreationStatus;
-    private int _wakeClientRefreshRequested;
     private long _lastWakeAttemptTimestamp;
     private bool _hasWakeAttempt;
     private long _lastSuccessfulWakeTimestamp;
     private bool _hasSuccessfulWake;
-    private int _activeRouteKind = -1;
-    private int _activeWifiTransientFailureCount;
-    private long _activeWifiTransientFailureStartedTimestamp;
-    private int _activeUsbTransientFailureCount;
-    private long _activeUsbTransientFailureStartedTimestamp;
-    private int _healthyUsbCandidateProbeCount;
-    private long _healthyUsbCandidateStartedTimestamp;
-    private long _usbPromotionSuppressedUntilTimestamp;
     private int _disposed;
 
-    public DeviceConnectionMonitor(string host, int port) :
-        this(new SshRoute(host), port)
+    private DeviceConnectionMonitor(
+        DeviceRouteKind kind,
+        SshRoute route,
+        DeviceProfile? profile)
     {
-    }
-
-    public DeviceConnectionMonitor(SshRoute route, int port)
-        : this(route, null, null, false, port)
-    {
-    }
-
-    public DeviceConnectionMonitor(
-        SshRoute usbRoute,
-        SshRoute? wifiRoute,
-        DeviceProfile? wifiProfile,
-        bool wifiRequiresProfileMatch,
-        int port)
-    {
-        _usbRoute = usbRoute ?? throw new ArgumentNullException(nameof(usbRoute));
-        _wifiRoute = wifiRoute;
-        _wifiProfile = wifiProfile;
-        _wifiVerification = wifiProfile?.LastVerified;
-        _wifiRequiresProfileMatch = wifiRequiresProfileMatch;
-        _wifiInterfaceId = wifiProfile?.PairedWindowsInterfaceId;
-        _wifiNetworkIdentity = wifiProfile?.PairedWindowsNetworkIdentity;
-        _wakeTokenFileReference = wifiProfile?.TokenFileReference;
-        _usbProbe = new PassiveRouteProbe(_usbRoute);
-        _wifiProbe = wifiRoute is null ? null : new PassiveRouteProbe(wifiRoute);
-        _port = port;
-        RefreshWakeClient();
-    }
-
-    public void SetActiveRouteKind(DeviceRouteKind? routeKind)
-    {
-        var next = routeKind is null ? -1 : (int)routeKind.Value;
-        if (Interlocked.Exchange(ref _activeRouteKind, next) != next)
+        _kind = kind;
+        _route = route ?? throw new ArgumentNullException(nameof(route));
+        _probe = new PassiveRouteProbe(route);
+        _wakeTokenFileReference = profile?.TokenFileReference;
+        if (kind is DeviceRouteKind.Wifi)
         {
-            _wifiRepairConfirmationPolicy.Reset();
-            ResetActiveWifiTransientFailures();
-            ResetActiveUsbTransientFailures();
-            ResetHealthyUsbCandidate();
+            _wifiProfile = profile;
+            _wifiVerification = profile?.LastVerified;
+            _wifiInterfaceId = profile?.PairedWindowsInterfaceId;
+            _wifiNetworkIdentity = profile?.PairedWindowsNetworkIdentity;
+        }
+        else
+        {
+            RefreshWakeClient();
         }
     }
 
-    public async Task<DeviceConnectionState> ProbeSelectedRouteAsync(
-        DeviceRouteKind routeKind,
+    public static DeviceConnectionMonitor ForUsb(SshRoute route, DeviceProfile? profile) =>
+        new(DeviceRouteKind.Usb, route, profile);
+
+    public static DeviceConnectionMonitor ForWifi(SshRoute route, DeviceProfile? profile) =>
+        new(DeviceRouteKind.Wifi, route, profile);
+
+    private Task<DeviceConnectionState> ProbeAsync(
         CancellationToken cancellationToken)
     {
         ObjectDisposedException.ThrowIf(
             Volatile.Read(ref _disposed) != 0,
             this);
 
-        return routeKind switch
+        return _kind switch
         {
-            DeviceRouteKind.Usb =>
-                await ProbeUsbAsync(cancellationToken).ConfigureAwait(false),
-            DeviceRouteKind.Wifi when _wifiRoute is not null =>
-                (await ProbeWifiAsync(cancellationToken).ConfigureAwait(false)).State,
-            DeviceRouteKind.Wifi => new DeviceConnectionState(
-                DeviceConnectionStatus.Disconnected,
-                string.Empty,
-                _port),
-            _ => throw new ArgumentOutOfRangeException(nameof(routeKind)),
+            DeviceRouteKind.Usb => ProbeUsbAsync(cancellationToken),
+            DeviceRouteKind.Wifi => ProbeWifiAsync(cancellationToken),
+            _ => throw new ArgumentOutOfRangeException(nameof(_kind)),
         };
     }
 
-    public async IAsyncEnumerable<DeviceConnectionState> WatchSelectedAsync(
-        DeviceRouteKind routeKind,
+    public async IAsyncEnumerable<DeviceConnectionState> WatchAsync(
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         while (!cancellationToken.IsCancellationRequested)
         {
-            var state = await ProbeSelectedRouteAsync(routeKind, cancellationToken)
+            var state = await ProbeAsync(cancellationToken)
                 .ConfigureAwait(false);
             yield return state;
+            if (state.Status is DeviceConnectionStatus.SshReady)
+            {
+                yield break;
+            }
 
             if (!await WaitForNextProbeAsync(
                     PollIntervalFor(state.Status),
@@ -144,7 +102,6 @@ public sealed class DeviceConnectionMonitor : IDisposable
 
     public void RequestProbe()
     {
-        Interlocked.Exchange(ref _wakeClientRefreshRequested, 1);
         try
         {
             _probeRequested.Release();
@@ -152,37 +109,6 @@ public sealed class DeviceConnectionMonitor : IDisposable
         catch (SemaphoreFullException)
         {
             // One pending request is enough to interrupt the current wait.
-        }
-    }
-
-    public void ReportUsbPromotionFailed()
-    {
-        ResetHealthyUsbCandidate();
-        var cooldownTicks = (long)(UsbPromotionCooldown.TotalSeconds * Stopwatch.Frequency);
-        Interlocked.Exchange(
-            ref _usbPromotionSuppressedUntilTimestamp,
-            Stopwatch.GetTimestamp() + cooldownTicks);
-        RequestProbe();
-    }
-
-    public void ConfirmUsbPromotionSucceeded() =>
-        Interlocked.Exchange(ref _usbPromotionSuppressedUntilTimestamp, 0);
-
-    public async IAsyncEnumerable<DeviceConnectionState> WatchAsync(
-        [EnumeratorCancellation] CancellationToken cancellationToken)
-    {
-        while (!cancellationToken.IsCancellationRequested)
-        {
-            var state = await ProbeAsync(cancellationToken).ConfigureAwait(false);
-            yield return state;
-
-            if (!await WaitForNextProbeAsync(
-                    PollIntervalFor(state.Status),
-                    cancellationToken)
-                .ConfigureAwait(false))
-            {
-                yield break;
-            }
         }
     }
 
@@ -196,252 +122,38 @@ public sealed class DeviceConnectionMonitor : IDisposable
             DeviceConnectionStatus.WakeSetupRequired or
             DeviceConnectionStatus.WifiNetworkMismatch => WakeStatePollInterval,
         DeviceConnectionStatus.Waking => WakingPollInterval,
-        DeviceConnectionStatus.SshReady => SshReadyPollInterval,
         _ => throw new ArgumentOutOfRangeException(nameof(status)),
     };
 
-    private async Task<DeviceConnectionState> ProbeAsync(CancellationToken cancellationToken)
+    private async Task<DeviceConnectionState> ProbeWifiAsync(CancellationToken cancellationToken)
     {
-        var activeKindValue = Volatile.Read(ref _activeRouteKind);
-        if (activeKindValue == (int)DeviceRouteKind.Usb &&
-            IsUsbPromotionSuppressed() &&
-            _wifiRoute is not null)
-        {
-            var rollbackWifi = (await ProbeWifiAsync(cancellationToken).ConfigureAwait(false)).State;
-            if (rollbackWifi.IsSshReady)
-            {
-                return rollbackWifi;
-            }
-        }
-
-        if (activeKindValue == (int)DeviceRouteKind.Usb)
-        {
-            var activeUsb = await ProbeUsbAsync(cancellationToken).ConfigureAwait(false);
-            if (activeUsb.IsSshReady)
-            {
-                ResetActiveUsbTransientFailures();
-                return activeUsb;
-            }
-
-            var isTransient = activeUsb.Status is (
-                DeviceConnectionStatus.Disconnected or
-                DeviceConnectionStatus.PortOpenWithoutSshBanner);
-            if (isTransient && ShouldRetainActiveUsbAfterTransientFailure())
-            {
-                return new DeviceConnectionState(
-                    DeviceConnectionStatus.SshReady,
-                    _usbRoute.Host,
-                    _port,
-                    _usbRoute,
-                    DeviceRouteKind.Usb);
-            }
-
-            ResetActiveUsbTransientFailures();
-            if (_wifiRoute is not null)
-            {
-                var fallbackWifi = (await ProbeWifiAsync(cancellationToken).ConfigureAwait(false)).State;
-                if (fallbackWifi.IsSshReady)
-                {
-                    return fallbackWifi;
-                }
-            }
-            return activeUsb;
-        }
-
-        if (activeKindValue == (int)DeviceRouteKind.Wifi && _wifiRoute is not null)
-        {
-            var activeWifiOutcome = await ProbeWifiAsync(cancellationToken)
-                .ConfigureAwait(false);
-            var activeWifi = activeWifiOutcome.State;
-            if (!activeWifi.IsSshReady)
-            {
-                var isTransient = activeWifiOutcome.NetworkMatch is not
-                        WindowsNetworkMatchResult.Mismatch &&
-                    activeWifi.Status is (
-                        DeviceConnectionStatus.Disconnected or
-                        DeviceConnectionStatus.PortOpenWithoutSshBanner);
-                if (isTransient && ShouldRetainActiveWifiAfterTransientFailure())
-                {
-                    return new DeviceConnectionState(
-                        DeviceConnectionStatus.SshReady,
-                        _wifiRoute.Host,
-                        _port,
-                        _wifiRoute,
-                        DeviceRouteKind.Wifi);
-                }
-
-                ResetActiveWifiTransientFailures();
-                ResetHealthyUsbCandidate();
-                var usbAfterWifiLoss = await ProbePassiveUsbCandidateAsync(cancellationToken)
+        var networkMatch = _wifiInterfaceId is null ||
+            _wifiNetworkIdentity is null
+                ? WindowsNetworkMatchResult.Mismatch
+                : await WindowsNetworkIdentityMatcher.EvaluateAsync(
+                        _route.Host,
+                        _wifiInterfaceId,
+                        _wifiNetworkIdentity,
+                        cancellationToken)
                     .ConfigureAwait(false);
-                return usbAfterWifiLoss.IsSshReady ? usbAfterWifiLoss : activeWifi;
-            }
-
-            ResetActiveWifiTransientFailures();
-            if (IsUsbPromotionSuppressed())
-            {
-                ResetHealthyUsbCandidate();
-                return activeWifi;
-            }
-            var preferredUsb = await ProbePassiveUsbCandidateAsync(cancellationToken)
-                .ConfigureAwait(false);
-            if (!preferredUsb.IsSshReady)
-            {
-                ResetHealthyUsbCandidate();
-                return activeWifi;
-            }
-            return IsHealthyUsbCandidateReadyForPromotion()
-                ? preferredUsb
-                : activeWifi;
-        }
-
-        ResetActiveWifiTransientFailures();
-        ResetActiveUsbTransientFailures();
-        ResetHealthyUsbCandidate();
-
-        if (IsUsbPromotionSuppressed() && _wifiRoute is not null)
+        if (networkMatch is not WindowsNetworkMatchResult.Match)
         {
-            var preferredWifi = (await ProbeWifiAsync(cancellationToken).ConfigureAwait(false)).State;
-            if (preferredWifi.IsSshReady)
-            {
-                return preferredWifi;
-            }
+            _wifiRepairConfirmationPolicy.Reset();
+            // This check is deliberately before the banner scan: a route or
+            // Windows network mismatch must produce zero tablet LAN traffic.
+            return new DeviceConnectionState(
+                networkMatch is WindowsNetworkMatchResult.Mismatch
+                    ? DeviceConnectionStatus.WifiNetworkMismatch
+                    : DeviceConnectionStatus.Disconnected);
         }
 
-        var usb = await ProbeUsbAsync(cancellationToken).ConfigureAwait(false);
-        if (usb.IsSshReady || _wifiRoute is null)
-        {
-            return usb;
-        }
-
-        var wifi = (await ProbeWifiAsync(cancellationToken).ConfigureAwait(false)).State;
-        var wifiHasUsefulFailureDetail =
-            usb.Status is DeviceConnectionStatus.Disconnected &&
-            wifi.Status is DeviceConnectionStatus.Disconnected &&
-            wifi.ProbeDetail is not PassiveRouteProbeDetail.None;
-        return wifi.IsSshReady || wifiHasUsefulFailureDetail || wifi.Status is
-                DeviceConnectionStatus.WakeSetupRequired or
-                DeviceConnectionStatus.WifiNetworkMismatch
-            ? wifi
-            : usb;
-    }
-
-    private bool IsUsbPromotionSuppressed()
-    {
-        var until = Interlocked.Read(ref _usbPromotionSuppressedUntilTimestamp);
-        return until != 0 && Stopwatch.GetTimestamp() < until;
-    }
-
-    private bool ShouldRetainActiveWifiAfterTransientFailure() =>
-        ShouldRetainAfterTransientFailure(
-            ref _activeWifiTransientFailureCount,
-            ref _activeWifiTransientFailureStartedTimestamp);
-
-    private bool ShouldRetainActiveUsbAfterTransientFailure() =>
-        ShouldRetainAfterTransientFailure(
-            ref _activeUsbTransientFailureCount,
-            ref _activeUsbTransientFailureStartedTimestamp);
-
-    private static bool ShouldRetainAfterTransientFailure(
-        ref int failureCount,
-        ref long startedTimestamp)
-    {
-        var now = Stopwatch.GetTimestamp();
-        var count = Interlocked.Increment(ref failureCount);
-        if (count == 1)
-        {
-            Interlocked.CompareExchange(ref startedTimestamp, now, 0);
-        }
-        var started = Interlocked.Read(ref startedTimestamp);
-        return count < ActiveRouteTransientFailureThreshold &&
-            Stopwatch.GetElapsedTime(started, now) < ActiveRouteTransientFailureLimit;
-    }
-
-    private bool IsHealthyUsbCandidateReadyForPromotion()
-    {
-        var now = Stopwatch.GetTimestamp();
-        var count = Interlocked.Increment(ref _healthyUsbCandidateProbeCount);
-        if (count == 1)
-        {
-            Interlocked.CompareExchange(ref _healthyUsbCandidateStartedTimestamp, now, 0);
-        }
-        var started = Interlocked.Read(ref _healthyUsbCandidateStartedTimestamp);
-        return count >= UsbPromotionHealthyProbeThreshold &&
-            Stopwatch.GetElapsedTime(started, now) >= UsbPromotionHealthyMinimum;
-    }
-
-    private void ResetActiveWifiTransientFailures()
-    {
-        Interlocked.Exchange(ref _activeWifiTransientFailureCount, 0);
-        Interlocked.Exchange(ref _activeWifiTransientFailureStartedTimestamp, 0);
-    }
-
-    private void ResetActiveUsbTransientFailures()
-    {
-        Interlocked.Exchange(ref _activeUsbTransientFailureCount, 0);
-        Interlocked.Exchange(ref _activeUsbTransientFailureStartedTimestamp, 0);
-    }
-
-    private void ResetHealthyUsbCandidate()
-    {
-        Interlocked.Exchange(ref _healthyUsbCandidateProbeCount, 0);
-        Interlocked.Exchange(ref _healthyUsbCandidateStartedTimestamp, 0);
-    }
-
-    private async Task<WifiProbeOutcome> ProbeWifiAsync(CancellationToken cancellationToken)
-    {
-        if (_wifiRoute is null || _wifiProbe is null)
-        {
-            return new WifiProbeOutcome(
-                new DeviceConnectionState(
-                    DeviceConnectionStatus.Disconnected,
-                    string.Empty,
-                    _port),
-                WindowsNetworkMatchResult.Unavailable);
-        }
-
-        if (_wifiRequiresProfileMatch)
-        {
-            var networkMatch = _wifiInterfaceId is null ||
-                _wifiNetworkIdentity is null
-                    ? WindowsNetworkMatchResult.Mismatch
-                    : await WindowsNetworkIdentityMatcher.EvaluateAsync(
-                            _wifiRoute.Host,
-                            _wifiInterfaceId,
-                            _wifiNetworkIdentity,
-                            cancellationToken)
-                        .ConfigureAwait(false);
-            if (networkMatch is not WindowsNetworkMatchResult.Match)
-            {
-                _wifiRepairConfirmationPolicy.Reset();
-                // This check is deliberately before the banner scan: a route or
-                // Windows network mismatch must produce zero tablet LAN traffic.
-                return new WifiProbeOutcome(
-                    new DeviceConnectionState(
-                        networkMatch is WindowsNetworkMatchResult.Mismatch
-                            ? DeviceConnectionStatus.WifiNetworkMismatch
-                            : DeviceConnectionStatus.Disconnected,
-                        _wifiRoute.Host,
-                        _port),
-                    networkMatch);
-            }
-        }
-
-        var state = await ProbeAuthenticatedRouteAsync(
-                _wifiRoute,
-                _wifiProbe,
-                DeviceRouteKind.Wifi,
-                requireProfileMatch: _wifiRequiresProfileMatch,
-                cancellationToken)
-            .ConfigureAwait(false);
-        return new WifiProbeOutcome(state, WindowsNetworkMatchResult.Match);
+        return await ProbeAuthenticatedRouteAsync(cancellationToken).ConfigureAwait(false);
     }
 
     private async Task<DeviceConnectionState> ProbeUsbAsync(CancellationToken cancellationToken)
     {
         var usbInterfacePresent = TabletWakeClient.HasDirectUsbInterface();
-        if (Interlocked.Exchange(ref _wakeClientRefreshRequested, 0) != 0 ||
-            (_wakeClientCreationStatus is TabletWakeClientCreationStatus.UsbUnavailable &&
+        if ((_wakeClientCreationStatus is TabletWakeClientCreationStatus.UsbUnavailable &&
              usbInterfacePresent) ||
             (_wakeClient is not null && !usbInterfacePresent))
         {
@@ -452,20 +164,18 @@ public sealed class DeviceConnectionMonitor : IDisposable
             return UsbState(DeviceConnectionStatus.Disconnected);
         }
 
-        var sshStatus = await ProbeUsbSshAsync(cancellationToken).ConfigureAwait(false);
-        if (sshStatus is DeviceConnectionStatus.SshReady)
+        var sshState = await ProbeAuthenticatedRouteAsync(cancellationToken).ConfigureAwait(false);
+        if (sshState.Status is
+            DeviceConnectionStatus.SshReady or
+            DeviceConnectionStatus.WakeSetupRequired)
         {
             _hasSuccessfulWake = false;
-            return await AuthenticateUsbAsync(cancellationToken).ConfigureAwait(false);
+            return sshState;
         }
+        var sshStatus = sshState.Status;
 
-        TabletWakeClient? wakeClient;
-        TabletWakeClientCreationStatus wakeClientCreationStatus;
-        lock (_wakeClientGate)
-        {
-            wakeClient = _wakeClient;
-            wakeClientCreationStatus = _wakeClientCreationStatus;
-        }
+        var wakeClient = _wakeClient;
+        var wakeClientCreationStatus = _wakeClientCreationStatus;
         if (wakeClient is null)
         {
             var status = wakeClientCreationStatus is
@@ -527,39 +237,20 @@ public sealed class DeviceConnectionMonitor : IDisposable
         return UsbState(resolvedStatus);
     }
 
-    private Task<DeviceConnectionState> ProbePassiveUsbCandidateAsync(
-        CancellationToken cancellationToken) =>
-        TabletWakeClient.HasDirectUsbInterface()
-            ? AuthenticateUsbAsync(cancellationToken)
-            : Task.FromResult(UsbState(DeviceConnectionStatus.Disconnected));
-
-    private Task<DeviceConnectionState> AuthenticateUsbAsync(CancellationToken cancellationToken) =>
-        ProbeAuthenticatedRouteAsync(
-            _usbRoute,
-            _usbProbe,
-            DeviceRouteKind.Usb,
-            requireProfileMatch: false,
-            cancellationToken);
-
     private async Task<DeviceConnectionState> ProbeAuthenticatedRouteAsync(
-        SshRoute route,
-        PassiveRouteProbe probe,
-        DeviceRouteKind kind,
-        bool requireProfileMatch,
         CancellationToken cancellationToken)
     {
-        var result = await probe.ProbeAsync(cancellationToken).ConfigureAwait(false);
+        var result = await _probe.ProbeAsync(cancellationToken).ConfigureAwait(false);
         if (result.State is PassiveRouteProbeState.Authenticated &&
             result.Capability is { IsCurrent: true } capability)
         {
-            if (kind is DeviceRouteKind.Wifi)
+            if (_kind is DeviceRouteKind.Wifi)
             {
                 _wifiRepairConfirmationPolicy.Reset();
             }
-            var profileMatches = !requireProfileMatch || MatchesWifiProfile(capability);
+            var profileMatches = _kind is DeviceRouteKind.Usb || MatchesWifiProfile(capability);
             if (!profileMatches &&
-                requireProfileMatch &&
-                kind is DeviceRouteKind.Wifi)
+                _kind is DeviceRouteKind.Wifi)
             {
                 profileMatches = TryRefreshWifiVerification(capability);
             }
@@ -567,14 +258,12 @@ public sealed class DeviceConnectionMonitor : IDisposable
             {
                 return new DeviceConnectionState(
                     DeviceConnectionStatus.SshReady,
-                    route.Host,
-                    _port,
-                    route,
-                    kind);
+                    _route,
+                    _kind);
             }
         }
 
-        if (kind is DeviceRouteKind.Wifi &&
+        if (_kind is DeviceRouteKind.Wifi &&
             result.State is not PassiveRouteProbeState.IdentityRejected and
                 not PassiveRouteProbeState.PrerequisiteMismatch)
         {
@@ -583,24 +272,19 @@ public sealed class DeviceConnectionMonitor : IDisposable
 
         var status = result.State is PassiveRouteProbeState.IdentityRejected or
                 PassiveRouteProbeState.PrerequisiteMismatch
-            ? ResolveSetupFailureStatus(kind, result)
+            ? ResolveSetupFailureStatus(result)
             : result.State is PassiveRouteProbeState.PortOpenNoBanner
                 ? DeviceConnectionStatus.PortOpenWithoutSshBanner
                 : DeviceConnectionStatus.Disconnected;
         return new DeviceConnectionState(
             status,
-            route.Host,
-            _port,
-            null,
-            null,
-            result.Detail);
+            ProbeDetail: result.Detail);
     }
 
     private DeviceConnectionStatus ResolveSetupFailureStatus(
-        DeviceRouteKind kind,
         PassiveRouteProbeResult result)
     {
-        if (kind is DeviceRouteKind.Usb)
+        if (_kind is DeviceRouteKind.Usb)
         {
             return DeviceConnectionStatus.WakeSetupRequired;
         }
@@ -677,29 +361,25 @@ public sealed class DeviceConnectionMonitor : IDisposable
     }
 
     private DeviceConnectionState UsbState(DeviceConnectionStatus status) =>
-        new(status, _usbRoute.Host, _port, null, null);
+        new(status);
 
     private void RefreshWakeClient(bool force = false)
     {
-        TabletWakeClient? previousClient;
-        lock (_wakeClientGate)
+        if (!force && _wakeClient is not null)
         {
-            if (!force && _wakeClient is not null)
-            {
-                return;
-            }
-
-            // Never let the bearer follow a generic route to 10.11.99.1. It is
-            // available only while Windows owns the observed USB /27 address.
-            var creation = TabletWakeClient.HasDirectUsbInterface()
-                ? TabletWakeClient.TryCreateUsb(_wakeTokenFileReference)
-                : new TabletWakeClientCreationResult(
-                    null,
-                    TabletWakeClientCreationStatus.UsbUnavailable);
-            previousClient = _wakeClient;
-            _wakeClient = creation.Client;
-            _wakeClientCreationStatus = creation.Status;
+            return;
         }
+
+        // Never let the bearer follow a generic route to 10.11.99.1. It is
+        // available only while Windows owns the observed USB /27 address.
+        var creation = TabletWakeClient.HasDirectUsbInterface()
+            ? TabletWakeClient.TryCreateUsb(_wakeTokenFileReference)
+            : new TabletWakeClientCreationResult(
+                null,
+                TabletWakeClientCreationStatus.UsbUnavailable);
+        var previousClient = _wakeClient;
+        _wakeClient = creation.Client;
+        _wakeClientCreationStatus = creation.Status;
         previousClient?.Dispose();
     }
 
@@ -720,136 +400,6 @@ public sealed class DeviceConnectionMonitor : IDisposable
     private bool IsWakeGraceActive() =>
         _hasSuccessfulWake &&
         Stopwatch.GetElapsedTime(_lastSuccessfulWakeTimestamp) < WakeGraceInterval;
-
-    private async Task<DeviceConnectionStatus> ProbeUsbSshAsync(CancellationToken cancellationToken)
-    {
-        using var client = new TcpClient();
-        using var connectTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        connectTimeout.CancelAfter(ConnectTimeout);
-
-        try
-        {
-            await client.ConnectAsync(_usbRoute.Host, _port, connectTimeout.Token).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-        {
-            return DeviceConnectionStatus.Disconnected;
-        }
-        catch (SocketException)
-        {
-            return DeviceConnectionStatus.Disconnected;
-        }
-
-        try
-        {
-            using var bannerTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            bannerTimeout.CancelAfter(BannerTimeout);
-            try
-            {
-                return await HasValidSshBannerAsync(client.GetStream(), bannerTimeout.Token)
-                        .ConfigureAwait(false)
-                    ? DeviceConnectionStatus.SshReady
-                    : DeviceConnectionStatus.PortOpenWithoutSshBanner;
-            }
-            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-            {
-                return DeviceConnectionStatus.PortOpenWithoutSshBanner;
-            }
-            catch (IOException)
-            {
-                return DeviceConnectionStatus.PortOpenWithoutSshBanner;
-            }
-            catch (SocketException)
-            {
-                return DeviceConnectionStatus.PortOpenWithoutSshBanner;
-            }
-        }
-        finally
-        {
-            UseAbortiveClose(client);
-        }
-    }
-
-    private static void UseAbortiveClose(TcpClient client)
-    {
-        try
-        {
-            var socket = client.Client;
-            socket.LingerState = new LingerOption(enable: true, seconds: 0);
-            socket.Close(timeout: 0);
-        }
-        catch (Exception exception) when (exception is SocketException or ObjectDisposedException)
-        {
-        }
-    }
-
-    private static async Task<bool> HasValidSshBannerAsync(
-        NetworkStream stream,
-        CancellationToken cancellationToken)
-    {
-        var buffer = new byte[MaximumBannerBytes];
-        var buffered = 0;
-        var lineStart = 0;
-
-        while (buffered < buffer.Length)
-        {
-            var read = await stream.ReadAsync(buffer.AsMemory(buffered), cancellationToken)
-                .ConfigureAwait(false);
-            if (read == 0)
-            {
-                return false;
-            }
-            buffered += read;
-
-            for (var index = lineStart; index < buffered; index++)
-            {
-                if (buffer[index] != (byte)'\n')
-                {
-                    continue;
-                }
-
-                var line = buffer.AsSpan(lineStart, index - lineStart);
-                if (!line.IsEmpty && line[^1] == (byte)'\r')
-                {
-                    line = line[..^1];
-                }
-                if (IsValidSshBanner(line))
-                {
-                    return true;
-                }
-
-                lineStart = index + 1;
-            }
-        }
-
-        return false;
-    }
-
-    private static bool IsValidSshBanner(ReadOnlySpan<byte> line)
-    {
-        ReadOnlySpan<byte> ssh2Prefix = "SSH-2.0-"u8;
-        ReadOnlySpan<byte> compatibilityPrefix = "SSH-1.99-"u8;
-        var prefixLength = line.StartsWith(ssh2Prefix)
-            ? ssh2Prefix.Length
-            : line.StartsWith(compatibilityPrefix)
-                ? compatibilityPrefix.Length
-                : 0;
-        if (prefixLength == 0 || line.Length == prefixLength)
-        {
-            return false;
-        }
-
-        // RFC 4253 identification strings are printable US-ASCII. Rejecting
-        // control/non-ASCII bytes keeps an unrelated listener from looking ready.
-        foreach (var value in line[prefixLength..])
-        {
-            if (value is < 0x20 or > 0x7e)
-            {
-                return false;
-            }
-        }
-        return true;
-    }
 
     private async Task<bool> WaitForNextProbeAsync(
         TimeSpan interval,
@@ -894,22 +444,15 @@ public sealed class DeviceConnectionMonitor : IDisposable
             return;
         }
 
-        TabletWakeClient? wakeClient;
-        lock (_wakeClientGate)
-        {
-            wakeClient = _wakeClient;
-            _wakeClient = null;
-        }
+        var wakeClient = _wakeClient;
+        _wakeClient = null;
         wakeClient?.Dispose();
         _probeRequested.Dispose();
     }
 
-    private sealed record WifiProbeOutcome(
-        DeviceConnectionState State,
-        WindowsNetworkMatchResult NetworkMatch);
 }
 
-public enum DeviceConnectionStatus
+internal enum DeviceConnectionStatus
 {
     Disconnected,
     PortOpenWithoutSshBanner,
@@ -922,29 +465,20 @@ public enum DeviceConnectionStatus
     SshReady,
 }
 
-public enum DeviceRouteKind
+internal enum DeviceRouteKind
 {
     Usb,
     Wifi,
 }
 
-public sealed record DeviceConnectionState(
+internal sealed record DeviceConnectionState(
     DeviceConnectionStatus Status,
-    string Host,
-    int Port,
     SshRoute? SelectedRoute = null,
     DeviceRouteKind? RouteKind = null,
     PassiveRouteProbeDetail ProbeDetail = PassiveRouteProbeDetail.None)
 {
-    public bool IsPortOpen => Status is DeviceConnectionStatus.PortOpenWithoutSshBanner or
-        DeviceConnectionStatus.SshReady;
-
     public bool IsSshReady =>
         Status is DeviceConnectionStatus.SshReady &&
         SelectedRoute is not null &&
         RouteKind is not null;
-
-    // Compatibility alias for callers that only need to know whether opening
-    // a real SSH session is appropriate.
-    public bool IsConnected => IsSshReady;
 }

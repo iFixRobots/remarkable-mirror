@@ -1,7 +1,5 @@
 using System.ComponentModel;
 using Microsoft.UI.Xaml;
-using Microsoft.UI.Xaml.Automation;
-using Microsoft.UI.Xaml.Automation.Peers;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
@@ -34,11 +32,9 @@ public sealed partial class FilesPaneView : UserControl
         Windows.UI.Color.FromArgb(255, 95, 96, 102);
 
     private FilesPaneState _state = new();
-    private bool _isTransitionCopy;
     private bool _isDropTargetHighlighted;
     private bool _isDocumentDragEnabled;
     private bool _suppressLibraryItemClick;
-    private double? _pendingLibraryScrollOffset;
     private LibraryDocumentDragSession? _activeDocumentDragSession;
     private long _documentDragGeneration;
 
@@ -48,9 +44,7 @@ public sealed partial class FilesPaneView : UserControl
         AttachState(_state);
     }
 
-    /// <summary>
-    /// The presentation state shared by the main and transition instances.
-    /// </summary>
+    /// <summary>The pane's presentation state.</summary>
     public FilesPaneState State
     {
         get => _state;
@@ -66,52 +60,6 @@ public sealed partial class FilesPaneView : UserControl
             _state = value;
             AttachState(_state);
         }
-    }
-
-    /// <summary>
-    /// Makes this instance a display-only compositor copy without changing its
-    /// enabled appearance. Set this before placing it in the transition island.
-    /// </summary>
-    public bool IsTransitionCopy
-    {
-        get => _isTransitionCopy;
-        set
-        {
-            if (_isTransitionCopy == value)
-            {
-                return;
-            }
-
-            _isTransitionCopy = value;
-            IsHitTestVisible = !value;
-            // The pane itself should never add an extra tab stop; its child
-            // controls remain keyboard reachable on the interactive copy.
-            IsTabStop = false;
-            AutomationProperties.SetAccessibilityView(
-                this,
-                value ? AccessibilityView.Raw : AccessibilityView.Content);
-            ApplyState();
-        }
-    }
-
-    /// <summary>
-    /// Border used where the pane joins the tablet surface. The settled main
-    /// copy normally uses zero; the transition copy uses 0,1,1,1.
-    /// </summary>
-    public Thickness SurfaceBorderThickness
-    {
-        get => PaneSurface.BorderThickness;
-        set => PaneSurface.BorderThickness = value;
-    }
-
-    /// <summary>
-    /// Corner treatment for the host context. The settled main copy normally
-    /// uses zero; the transition copy uses right-side 24-pixel corners.
-    /// </summary>
-    public CornerRadius SurfaceCornerRadius
-    {
-        get => PaneSurface.CornerRadius;
-        set => PaneSurface.CornerRadius = value;
     }
 
     public event EventHandler? CloseRequested;
@@ -137,27 +85,6 @@ public sealed partial class FilesPaneView : UserControl
         set => _isDocumentDragEnabled = value;
     }
 
-    /// <summary>
-    /// Returns the current library-list scroll offset for transition handoff.
-    /// </summary>
-    public double GetLibraryScrollOffset() =>
-        FindDescendant<ScrollViewer>(LibraryList)?.VerticalOffset ?? 0;
-
-    /// <summary>
-    /// Restores the library-list scroll offset without animating it. If the
-    /// control is not loaded yet, the offset is applied after its first layout.
-    /// </summary>
-    public void SetLibraryScrollOffset(double offset)
-    {
-        _pendingLibraryScrollOffset = Math.Max(0, offset);
-        ApplyPendingLibraryScrollOffset();
-    }
-
-    /// <summary>
-    /// Re-applies all shared presentation state immediately.
-    /// </summary>
-    public void RefreshVisualState() => ApplyState();
-
     private void AttachState(FilesPaneState state)
     {
         state.PropertyChanged += State_PropertyChanged;
@@ -180,7 +107,7 @@ public sealed partial class FilesPaneView : UserControl
 
     private void ApplyState()
     {
-        DropTarget.AllowDrop = !_isTransitionCopy && _state.IsAvailable;
+        DropTarget.AllowDrop = _state.IsAvailable;
         DropTargetTitle.Text = _state.DropTargetTitle;
         LibraryRefreshButton.IsEnabled = _state.CanRefresh;
         LibraryBackButton.IsEnabled = _state.CanGoBack;
@@ -216,17 +143,12 @@ public sealed partial class FilesPaneView : UserControl
             available ? AvailableTitle : UnavailableTitle);
     }
 
-    private void CloseButton_Click(object sender, RoutedEventArgs e)
-    {
-        if (!_isTransitionCopy)
-        {
-            CloseRequested?.Invoke(this, EventArgs.Empty);
-        }
-    }
+    private void CloseButton_Click(object sender, RoutedEventArgs e) =>
+        CloseRequested?.Invoke(this, EventArgs.Empty);
 
     private void LibraryBackButton_Click(object sender, RoutedEventArgs e)
     {
-        if (!_isTransitionCopy && _state.CanGoBack)
+        if (_state.CanGoBack)
         {
             BackRequested?.Invoke(this, EventArgs.Empty);
         }
@@ -234,7 +156,7 @@ public sealed partial class FilesPaneView : UserControl
 
     private void LibraryRefreshButton_Click(object sender, RoutedEventArgs e)
     {
-        if (!_isTransitionCopy && _state.CanRefresh)
+        if (_state.CanRefresh)
         {
             RefreshRequested?.Invoke(this, EventArgs.Empty);
         }
@@ -247,8 +169,7 @@ public sealed partial class FilesPaneView : UserControl
             return;
         }
 
-        if (!_isTransitionCopy &&
-            _state.IsLibraryEnabled &&
+        if (_state.IsLibraryEnabled &&
             e.ClickedItem is RemarkableLibraryItem item)
         {
             LibraryItemInvoked?.Invoke(this, new FilesPaneLibraryItemEventArgs(item));
@@ -260,8 +181,7 @@ public sealed partial class FilesPaneView : UserControl
         DragStartingEventArgs e)
     {
         var beginDocumentDrag = BeginDocumentDrag;
-        if (_isTransitionCopy ||
-            !_isDocumentDragEnabled ||
+        if (!_isDocumentDragEnabled ||
             !_state.IsAvailable ||
             _activeDocumentDragSession is not null ||
             beginDocumentDrag is null ||
@@ -339,7 +259,7 @@ public sealed partial class FilesPaneView : UserControl
 
     private void SaveLibraryPdf_Click(object sender, RoutedEventArgs e)
     {
-        if (!_isTransitionCopy && sender is FrameworkElement { Tag: RemarkableLibraryItem item })
+        if (sender is FrameworkElement { Tag: RemarkableLibraryItem item })
         {
             SavePdfRequested?.Invoke(this, new FilesPaneLibraryItemEventArgs(item));
         }
@@ -347,7 +267,7 @@ public sealed partial class FilesPaneView : UserControl
 
     private void SaveLibraryNative_Click(object sender, RoutedEventArgs e)
     {
-        if (!_isTransitionCopy && sender is FrameworkElement { Tag: RemarkableLibraryItem item })
+        if (sender is FrameworkElement { Tag: RemarkableLibraryItem item })
         {
             SaveNativeRequested?.Invoke(this, new FilesPaneLibraryItemEventArgs(item));
         }
@@ -392,60 +312,9 @@ public sealed partial class FilesPaneView : UserControl
     }
 
     private bool CanAcceptDrop(DragEventArgs e) =>
-        !_isTransitionCopy &&
         _state.IsAvailable &&
         !e.DataView.Contains(OutboundDocumentDragFormat) &&
         e.DataView.Contains(StandardDataFormats.StorageItems);
-
-    private void FilesPaneView_Loaded(object sender, RoutedEventArgs e)
-    {
-        ApplyState();
-        ApplyPendingLibraryScrollOffset();
-    }
-
-    private void ApplyPendingLibraryScrollOffset()
-    {
-        if (!_pendingLibraryScrollOffset.HasValue || !IsLoaded)
-        {
-            return;
-        }
-
-        LibraryList.UpdateLayout();
-        var scrollViewer = FindDescendant<ScrollViewer>(LibraryList);
-        if (scrollViewer is null)
-        {
-            return;
-        }
-
-        scrollViewer.ChangeView(
-            horizontalOffset: null,
-            verticalOffset: _pendingLibraryScrollOffset.Value,
-            zoomFactor: null,
-            disableAnimation: true);
-        _pendingLibraryScrollOffset = null;
-    }
-
-    private static T? FindDescendant<T>(DependencyObject parent)
-        where T : DependencyObject
-    {
-        var childCount = VisualTreeHelper.GetChildrenCount(parent);
-        for (var index = 0; index < childCount; index++)
-        {
-            var child = VisualTreeHelper.GetChild(parent, index);
-            if (child is T match)
-            {
-                return match;
-            }
-
-            var descendant = FindDescendant<T>(child);
-            if (descendant is not null)
-            {
-                return descendant;
-            }
-        }
-
-        return null;
-    }
 
 }
 

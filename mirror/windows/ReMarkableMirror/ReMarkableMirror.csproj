@@ -6,7 +6,7 @@
     <RootNamespace>ReMarkableMirror</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
-    <Platforms>x86;x64;ARM64</Platforms>
+    <Platforms>x64</Platforms>
     <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">win-$([System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture.ToString().ToLowerInvariant())</RuntimeIdentifier>
     <PublishProfile Condition="Exists('Properties\PublishProfiles\win-$(Platform).pubxml')">win-$(Platform).pubxml</PublishProfile>
     <UseWinUI>true</UseWinUI>
@@ -37,11 +37,11 @@
 
   <ItemGroup Condition="'$(PortablePublishProfileSelected)' == 'true'">
     <Content Include="Assets\AppIcon.ico" />
-    <None Remove=".gitignore;app.manifest;App.xaml;Files\FilesPaneView.xaml;LibraryTile.xaml;MainPage.xaml;MainWindow.xaml;Package.appxmanifest;packages.lock.json;packages.portable.lock.json;Properties\launchSettings.json;Properties\PublishProfiles\*.pubxml" />
+    <None Remove=".gitignore;app.manifest;App.xaml;Files\FilesPaneView.xaml;MainPage.xaml;MainWindow.xaml;Package.appxmanifest;packages.lock.json;packages.portable.lock.json;Properties\launchSettings.json;Properties\PublishProfiles\*.pubxml" />
     <Content Remove="Package.appxmanifest" />
     <AppxManifest Remove="Package.appxmanifest" />
     <ApplicationDefinition Update="App.xaml" CopyToOutputDirectory="Never" CopyToPublishDirectory="Never" />
-    <Page Update="Files\FilesPaneView.xaml;LibraryTile.xaml;MainPage.xaml;MainWindow.xaml" CopyToOutputDirectory="Never" CopyToPublishDirectory="Never" />
+    <Page Update="Files\FilesPaneView.xaml;MainPage.xaml;MainWindow.xaml" CopyToOutputDirectory="Never" CopyToPublishDirectory="Never" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(PortablePublishProfileSelected)' != 'true'">

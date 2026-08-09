@@ -7,7 +7,6 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     Width="320"
     HorizontalAlignment="Left"
-    Loaded="FilesPaneView_Loaded"
     RequestedTheme="Light"
     mc:Ignorable="d">
 
@@ -37,8 +36,8 @@
         Padding="14,2,14,14"
         Background="{StaticResource StageBrush}"
         BorderBrush="#FFCFCFC9"
-        BorderThickness="0,1,1,1"
-        CornerRadius="0,24,24,0">
+        BorderThickness="0"
+        CornerRadius="0">
         <Border
             Padding="14"
             Background="Transparent"

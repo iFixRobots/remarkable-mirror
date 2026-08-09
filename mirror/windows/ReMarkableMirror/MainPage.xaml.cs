@@ -26,6 +26,7 @@ public sealed partial class MainPage : Page
 {
     private static readonly TimeSpan WifiInputActivityInterval = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan UsbInputActivityInterval = TimeSpan.FromSeconds(45);
+    private static readonly TimeSpan InputHeartbeatInterval = TimeSpan.FromSeconds(3);
 
     private const int FilesPaneWidth = 320;
     private const double FilesPaneOpenDurationSeconds = 0.250;
@@ -38,8 +39,8 @@ public sealed partial class MainPage : Page
     private static readonly TimeSpan StaleDocumentDragRetention = TimeSpan.FromDays(1);
     private const int ClipboardCannotOpenHResult = unchecked((int)0x800401D0);
     private static readonly StartupRouteConfiguration StartupRoutes = ResolveStartupRoutes();
-    private readonly MirrorInputRecoveryPolicy _inputRecoveryPolicy = new();
     private readonly MirrorDiagnostics _diagnostics = new();
+    private readonly InputPublicationGate _inputPublication = new();
     private readonly WriteableBitmap _displayBitmap = new(
         SshFrameSource.FrameWidth,
         SshFrameSource.FrameHeight);
@@ -59,9 +60,6 @@ public sealed partial class MainPage : Page
     private Task? _connectionAttemptTask;
     private Task? _frameDisplayTask;
     private Task? _inputSessionTask;
-    private volatile DeviceConnectionStatus _deviceConnectionStatus = DeviceConnectionStatus.Disconnected;
-    private PassiveRouteProbeDetail _deviceConnectionProbeDetail = PassiveRouteProbeDetail.None;
-    private volatile bool _tabletReachable;
     private volatile SshInputSession? _inputSession;
     private MirrorRouteGeneration? _routeGeneration;
     private long _nextRouteGeneration;
@@ -72,7 +70,6 @@ public sealed partial class MainPage : Page
     private bool _haveFrame;
     private volatile MirrorConnectionState _mirrorState = MirrorConnectionState.Waiting;
     private string _connectionDetail = string.Empty;
-    private bool _inputAvailable;
     private volatile bool _pageIsLoaded;
     private RemoteInputMode _inputMode = RemoteInputMode.Touch;
     private uint? _activePointerId;
@@ -138,9 +135,6 @@ public sealed partial class MainPage : Page
     private void ConfigureFilesPaneView(FilesPaneView view)
     {
         view.State = _filesPaneState;
-        view.IsTransitionCopy = false;
-        view.SurfaceBorderThickness = new Thickness(0);
-        view.SurfaceCornerRadius = new CornerRadius(0);
         view.CloseRequested += FilesPane_CloseRequested;
         view.BackRequested += FilesPane_BackRequested;
         view.RefreshRequested += FilesPane_RefreshRequested;
@@ -252,11 +246,8 @@ public sealed partial class MainPage : Page
             DrainFrameRetrySignal();
             ResetDisplayPreparation();
             ResetInputPreparation();
-            _deviceConnectionStatus = DeviceConnectionStatus.Disconnected;
-            _deviceConnectionProbeDetail = PassiveRouteProbeDetail.None;
-            _tabletReachable = false;
             _haveFrame = false;
-            _inputRecoveryPolicy.Reset();
+            _inputPublication.Reset();
             ResetInputRetryPolicy();
             Interlocked.Exchange(ref _activeConnectionAttempt, 0);
             SetMirrorState(MirrorConnectionState.Waiting);
@@ -303,7 +294,6 @@ public sealed partial class MainPage : Page
             var frameTask = _frameDisplayTask;
             var inputTask = _inputSessionTask;
             var generation = Interlocked.Exchange(ref _routeGeneration, null);
-            _tabletReachable = false;
             generation?.Cancel();
             Interlocked.Exchange(ref _activeConnectionAttempt, 0);
             connectionAttemptCancellation?.Cancel();
@@ -401,20 +391,17 @@ public sealed partial class MainPage : Page
                     ReferenceEquals(nextRoute, current.Route) &&
                     !current.CancellationToken.IsCancellationRequested)
                 {
-                    _tabletReachable = true;
                     return RouteTransitionOutcome.Unchanged;
                 }
                 if (current is null && nextRoute is null)
                 {
-                    _tabletReachable = false;
                     return RouteTransitionOutcome.Unchanged;
                 }
-                _tabletReachable = false;
                 _inputRetryLatched = true;
                 current = Interlocked.Exchange(ref _routeGeneration, null);
                 if (current is not null)
                 {
-                    _inputRecoveryPolicy.AbandonGeneration(current.Id);
+                    _inputPublication.Complete(current.Id);
                 }
                 _filesReadyGeneration = 0;
                 current?.Cancel();
@@ -468,7 +455,6 @@ public sealed partial class MainPage : Page
                             {
                                 transfer.State = "Canceled";
                             }
-                            UpdateTransferCount();
                         },
                         applicationCancellationToken).ConfigureAwait(false);
                 }
@@ -489,20 +475,19 @@ public sealed partial class MainPage : Page
                     nextKind.Value,
                     nextRoute,
                     applicationCancellationToken);
-                _inputRecoveryPolicy.BeginGeneration(next.Id);
+                _inputPublication.Begin(next.Id);
                 var published = false;
                 lock (_routeAdmissionGate)
                 {
                     if (transitionAllowed is null || transitionAllowed())
                     {
                         Volatile.Write(ref _routeGeneration, next);
-                        _tabletReachable = true;
                         published = true;
                     }
                 }
                 if (!published)
                 {
-                    _inputRecoveryPolicy.AbandonGeneration(next.Id);
+                    _inputPublication.Complete(next.Id);
                     await next.DisposeAsync().ConfigureAwait(false);
                     return RouteTransitionOutcome.Unchanged;
                 }
@@ -678,8 +663,6 @@ public sealed partial class MainPage : Page
             return;
         }
 
-        _deviceConnectionStatus = DeviceConnectionStatus.Disconnected;
-        _deviceConnectionProbeDetail = PassiveRouteProbeDetail.None;
         _diagnostics.Record(
             "action",
             request.Kind is DeviceRouteKind.Usb
@@ -687,23 +670,19 @@ public sealed partial class MainPage : Page
                 : "Manual Wi-Fi connection requested");
 
         using var monitor = request.Kind is DeviceRouteKind.Usb
-            ? new DeviceConnectionMonitor(
+            ? DeviceConnectionMonitor.ForUsb(
                 StartupRoutes.UsbRoute,
-                null,
-                StartupRoutes.Profile,
-                wifiRequiresProfileMatch: false,
-                port: 22)
-            : new DeviceConnectionMonitor(
-                StartupRoutes.UsbRoute,
+                StartupRoutes.Profile)
+            : DeviceConnectionMonitor.ForWifi(
                 request.Route,
-                StartupRoutes.Profile,
-                wifiRequiresProfileMatch: true,
-                port: 22);
+                StartupRoutes.Profile);
 
         var wifiProbeCount = 0;
         DeviceConnectionStatus? lastPublishedStatus = null;
+        var lastObservedStatus = DeviceConnectionStatus.Disconnected;
+        var lastObservedDetail = PassiveRouteProbeDetail.None;
         await foreach (var state in monitor
-            .WatchSelectedAsync(request.Kind, attemptCancellationToken)
+            .WatchAsync(attemptCancellationToken)
             .ConfigureAwait(false))
         {
             if (request.Kind is DeviceRouteKind.Wifi)
@@ -715,7 +694,17 @@ public sealed partial class MainPage : Page
                 return;
             }
 
-            RecordConnectionObservation(state);
+            if (lastObservedStatus != state.Status)
+            {
+                _diagnostics.Record("connection", state.Status.ToString());
+            }
+            if (state.ProbeDetail is not PassiveRouteProbeDetail.None &&
+                (lastObservedStatus != state.Status || lastObservedDetail != state.ProbeDetail))
+            {
+                _diagnostics.Record("connection detail", state.ProbeDetail.ToString());
+            }
+            lastObservedStatus = state.Status;
+            lastObservedDetail = state.ProbeDetail;
             if (state.IsSshReady &&
                 state.SelectedRoute is not null &&
                 state.RouteKind == request.Kind)
@@ -804,23 +793,6 @@ public sealed partial class MainPage : Page
         attemptCancellationToken.ThrowIfCancellationRequested();
     }
 
-    private void RecordConnectionObservation(DeviceConnectionState state)
-    {
-        var previousStatus = _deviceConnectionStatus;
-        var previousDetail = _deviceConnectionProbeDetail;
-        _deviceConnectionStatus = state.Status;
-        _deviceConnectionProbeDetail = state.ProbeDetail;
-        if (previousStatus != state.Status)
-        {
-            _diagnostics.Record("connection", state.Status.ToString());
-        }
-        if (state.ProbeDetail is not PassiveRouteProbeDetail.None &&
-            (previousStatus != state.Status || previousDetail != state.ProbeDetail))
-        {
-            _diagnostics.Record("connection detail", state.ProbeDetail.ToString());
-        }
-    }
-
     private Task PublishManualConnectionObservationAsync(
         DeviceConnectionState state,
         DeviceRouteKind routeKind,
@@ -899,7 +871,7 @@ public sealed partial class MainPage : Page
         while (!cancellationToken.IsCancellationRequested)
         {
             var generation = Volatile.Read(ref _routeGeneration);
-            if (!_tabletReachable || generation is null)
+            if (generation is null)
             {
                 await WaitForFrameRetryAsync(Timeout.InfiniteTimeSpan, cancellationToken)
                     .ConfigureAwait(false);
@@ -1085,7 +1057,7 @@ public sealed partial class MainPage : Page
                 failure = new FrameStreamException(
                     FrameStreamFailureKind.CompanionNotReady,
                     "The secure connection opened, but the tablet display did not start.",
-                    canAutoRetry: true);
+                    isTransient: true);
             }
             catch (FrameStreamException exception)
             {
@@ -1104,7 +1076,7 @@ public sealed partial class MainPage : Page
                 failure = new FrameStreamException(
                     FrameStreamFailureKind.StreamInterrupted,
                     "The tablet display connection stopped.",
-                    canAutoRetry: true);
+                    isTransient: true);
             }
 
             if (!IsCurrentGeneration(generation) ||
@@ -1142,7 +1114,7 @@ public sealed partial class MainPage : Page
             : $"{failure.Kind}: {failure.TechnicalDetail}";
         _diagnostics.Record("mirror failure", diagnostic);
         var hadFrame = _haveFrame;
-        var message = failure.CanAutoRetry
+        var message = failure.IsTransient
             ? hadFrame
                 ? "The selected connection ended. Choose USB-C or Wi-Fi to connect again."
                 : "Mirror couldn’t start the display on the selected connection. Choose USB-C or Wi-Fi to try again."
@@ -1204,14 +1176,28 @@ public sealed partial class MainPage : Page
 
     private void ApplyFrameUpdate(FrameUpdate update)
     {
-        var rowBytes = update.Width * 4;
-        for (var row = 0; row < update.Height; row++)
+        if (update.IsFull &&
+            update.X == 0 &&
+            update.Y == 0 &&
+            update.Width == SshFrameSource.FrameWidth &&
+            update.Height == SshFrameSource.FrameHeight &&
+            update.PayloadBytes == _latestFrame.Length)
         {
-            var source = update.Payload.Slice(row * rowBytes, rowBytes);
-            var destinationOffset = ((update.Y + row) * SshFrameSource.FrameWidth + update.X) * 4;
-            source.CopyTo(_latestFrame.AsSpan(destinationOffset, rowBytes));
-            _displayPixelStream.Position = destinationOffset;
-            _displayPixelStream.Write(source);
+            update.Payload.CopyTo(_latestFrame);
+            _displayPixelStream.Position = 0;
+            _displayPixelStream.Write(update.Payload);
+        }
+        else
+        {
+            var rowBytes = update.Width * 4;
+            for (var row = 0; row < update.Height; row++)
+            {
+                var source = update.Payload.Slice(row * rowBytes, rowBytes);
+                var destinationOffset = ((update.Y + row) * SshFrameSource.FrameWidth + update.X) * 4;
+                source.CopyTo(_latestFrame.AsSpan(destinationOffset, rowBytes));
+                _displayPixelStream.Position = destinationOffset;
+                _displayPixelStream.Write(source);
+            }
         }
 
         _displayBitmap.Invalidate();
@@ -1354,7 +1340,7 @@ public sealed partial class MainPage : Page
                 "Mirror could not confirm that physical tablet input was restored. Restart the tablet and reopen Mirror before using controls again.");
             return;
         }
-        if (_inputRecoveryPolicy.RequiresInputPublication(generation.Id))
+        if (_inputPublication.IsPending(generation.Id))
         {
             var session = _inputSession;
             if (session is null ||
@@ -1366,7 +1352,7 @@ public sealed partial class MainPage : Page
                     "The selected connection opened the display, but controls did not start. Choose USB-C or Wi-Fi to try again.");
                 return;
             }
-            _inputRecoveryPolicy.MarkRecoveryComplete(generation.Id);
+            _inputPublication.Complete(generation.Id);
         }
         SetMirrorState(MirrorConnectionState.Live);
         ConnectionText.Text = generation.Kind is DeviceRouteKind.Usb
@@ -1446,14 +1432,15 @@ public sealed partial class MainPage : Page
 
         FileTransferFailure? recordedFailure = null;
         string? recordedUnexpectedFailure = null;
-        var refreshOpenFilesAfterProbe = false;
+        IReadOnlyList<RemarkableLibraryItem>? rootItems = null;
         try
         {
             while (IsCurrentGeneration(generation) && _filesPaneDesiredOpen)
             {
                 try
                 {
-                    await generation.FileTransport.ListRootAsync(generation.CancellationToken)
+                    rootItems = await generation.FileTransport.ListRootAsync(
+                            generation.CancellationToken)
                         .ConfigureAwait(false);
                     lock (_routeAdmissionGate)
                     {
@@ -1476,7 +1463,6 @@ public sealed partial class MainPage : Page
                             SetFileAvailability(true);
                         },
                         generation.CancellationToken).ConfigureAwait(false);
-                    refreshOpenFilesAfterProbe = true;
                     break;
                 }
                 catch (OperationCanceledException) when (
@@ -1534,7 +1520,7 @@ public sealed partial class MainPage : Page
                 }
             }
         }
-        if (refreshOpenFilesAfterProbe)
+        if (rootItems is not null)
         {
             DispatcherQueue.TryEnqueue(
                 DispatcherQueuePriority.High,
@@ -1542,7 +1528,7 @@ public sealed partial class MainPage : Page
                 {
                     if (IsCurrentGeneration(generation) && _filesPaneOpen)
                     {
-                        _ = RefreshLibraryAsync();
+                        _ = RefreshLibraryAsync(rootItems);
                     }
                 });
         }
@@ -1577,9 +1563,12 @@ public sealed partial class MainPage : Page
         while (!cancellationToken.IsCancellationRequested)
         {
             var generation = Volatile.Read(ref _routeGeneration);
-            if (!_tabletReachable || generation is null)
+            if (generation is null)
             {
-                await CloseInputSessionAsync().ConfigureAwait(false);
+                if (_inputSession is not null)
+                {
+                    await CloseInputSessionAsync().ConfigureAwait(false);
+                }
                 await DelayWithoutThrowAsync(TimeSpan.FromMilliseconds(500), cancellationToken)
                     .ConfigureAwait(false);
                 continue;
@@ -1649,7 +1638,6 @@ public sealed partial class MainPage : Page
                         {
                             candidate = await SshInputSession.ConnectAsync(
                                 generation.Route,
-                                enableFilesFallback: false,
                                 routeToken).ConfigureAwait(false);
                             await candidate.WakeIfDeepSleepingAsync(routeToken).ConfigureAwait(false);
                             if (generation.Kind is DeviceRouteKind.Wifi)
@@ -1764,11 +1752,12 @@ public sealed partial class MainPage : Page
                         MarkInputActivity();
                     }
                     else if (Stopwatch.GetElapsedTime(
-                                 Interlocked.Read(ref _lastInputHeartbeatTimestamp)) >= TimeSpan.FromSeconds(3))
+                                 Interlocked.Read(ref _lastInputHeartbeatTimestamp)) >= InputHeartbeatInterval)
                     {
                         await session.PingAsync(routeToken).ConfigureAwait(false);
                         MarkInputHeartbeat();
                     }
+                    retryDelay = NextInputMaintenanceDelay(activityInterval);
                 }
                 catch (InputSessionException exception)
                 {
@@ -1832,7 +1821,6 @@ public sealed partial class MainPage : Page
 
     private void SetInputAvailability(bool available)
     {
-        _inputAvailable = available;
         ToolTipService.SetToolTip(
             ModeSelector,
             available
@@ -1849,6 +1837,16 @@ public sealed partial class MainPage : Page
 
     private void MarkInputHeartbeat() =>
         Interlocked.Exchange(ref _lastInputHeartbeatTimestamp, Stopwatch.GetTimestamp());
+
+    private TimeSpan NextInputMaintenanceDelay(TimeSpan activityInterval)
+    {
+        var untilActivity = activityInterval - Stopwatch.GetElapsedTime(
+            Interlocked.Read(ref _lastInputActivityTimestamp));
+        var untilHeartbeat = InputHeartbeatInterval - Stopwatch.GetElapsedTime(
+            Interlocked.Read(ref _lastInputHeartbeatTimestamp));
+        var delay = untilActivity < untilHeartbeat ? untilActivity : untilHeartbeat;
+        return delay > TimeSpan.Zero ? delay : TimeSpan.Zero;
+    }
 
     private async Task CloseInputSessionAsync()
     {
@@ -1902,7 +1900,7 @@ public sealed partial class MainPage : Page
                 latchForRetry: true).ConfigureAwait(false);
             if (belongsToGeneration && removal.Removed)
             {
-                _inputRecoveryPolicy.AbandonGeneration(generation.Id);
+                _inputPublication.Complete(generation.Id);
             }
 
             return removal.Removed;
@@ -2615,7 +2613,8 @@ public sealed partial class MainPage : Page
         }
     }
 
-    private async Task RefreshLibraryAsync()
+    private async Task RefreshLibraryAsync(
+        IReadOnlyList<RemarkableLibraryItem>? knownRootItems = null)
     {
         if (!IsFilesRouteReady())
         {
@@ -2641,7 +2640,7 @@ public sealed partial class MainPage : Page
         try
         {
             var items = _currentFolderId is null
-                ? await routeGeneration.FileTransport.ListRootAsync(token)
+                ? knownRootItems ?? await routeGeneration.FileTransport.ListRootAsync(token)
                 : await routeGeneration.FileTransport.ListFolderAsync(_currentFolderId, token);
             if (generation != _libraryRefreshGeneration ||
                 !IsCurrentGeneration(routeGeneration))
@@ -2917,9 +2916,6 @@ public sealed partial class MainPage : Page
             if (!materialized && stagingDirectory is not null)
             {
                 DeleteDocumentDragDirectory(stagingDirectory);
-            }
-            if (routeGeneration is not null)
-            {
             }
             if (ownsExportGate)
             {
@@ -3597,67 +3593,59 @@ public sealed partial class MainPage : Page
         }
 
         var sent = 0;
-        try
+        foreach (var file in compatibleFiles)
         {
-            foreach (var file in compatibleFiles)
+            if (!IsCurrentGeneration(routeGeneration))
+            {
+                break;
+            }
+
+            var transfer = new TransferItem(file.Name, "Sending…");
+            Transfers.Insert(0, transfer);
+            try
+            {
+                if (string.IsNullOrWhiteSpace(file.Path))
+                {
+                    throw new FileTransferException(
+                        FileTransferFailure.LocalFile,
+                        "Windows did not provide a readable path for this file.");
+                }
+
+                await routeGeneration.FileTransport.UploadAsync(
+                    file.Path,
+                    destinationFolderId,
+                    routeGeneration.CancellationToken);
+                if (!IsCurrentGeneration(routeGeneration))
+                {
+                    break;
+                }
+                transfer.State = "Sent";
+                sent++;
+            }
+            catch (OperationCanceledException) when (
+                routeGeneration.CancellationToken.IsCancellationRequested)
+            {
+                break;
+            }
+            catch (FileTransferException exception)
             {
                 if (!IsCurrentGeneration(routeGeneration))
                 {
                     break;
                 }
-
-                var transfer = new TransferItem(file.Name, "Sending…", file.Path);
-                Transfers.Insert(0, transfer);
-                UpdateTransferCount();
-                try
-                {
-                    if (string.IsNullOrWhiteSpace(file.Path))
-                    {
-                        throw new FileTransferException(
-                            FileTransferFailure.LocalFile,
-                            "Windows did not provide a readable path for this file.");
-                    }
-
-                    await routeGeneration.FileTransport.UploadAsync(
-                        file.Path,
-                        destinationFolderId,
-                        routeGeneration.CancellationToken);
-                    if (!IsCurrentGeneration(routeGeneration))
-                    {
-                        break;
-                    }
-                    transfer.State = "Sent";
-                    sent++;
-                }
-                catch (OperationCanceledException) when (
-                    routeGeneration.CancellationToken.IsCancellationRequested)
-                {
-                    break;
-                }
-                catch (FileTransferException exception)
-                {
-                    if (!IsCurrentGeneration(routeGeneration))
-                    {
-                        break;
-                    }
-                    transfer.State = exception.Failure is FileTransferFailure.AmbiguousResult
-                        ? "Check tablet, then refresh"
-                        : "Couldn’t send";
-                    var status = exception.StatusCode is { } statusCode
-                        ? $" http={(int)statusCode}"
-                        : string.Empty;
-                    _diagnostics.Record(
-                        "files upload failure",
-                        $"failure={exception.Failure}{status}");
-                    ShowInfo(exception.Message, InfoBarSeverity.Error);
-                }
+                transfer.State = exception.Failure is FileTransferFailure.AmbiguousResult
+                    ? "Check tablet, then refresh"
+                    : "Couldn’t send";
+                var status = exception.StatusCode is { } statusCode
+                    ? $" http={(int)statusCode}"
+                    : string.Empty;
+                _diagnostics.Record(
+                    "files upload failure",
+                    $"failure={exception.Failure}{status}");
+                ShowInfo(exception.Message, InfoBarSeverity.Error);
             }
         }
-        finally
-        {
-        }
 
-        UpdateTransferCount();
         if (sent > 0 && IsCurrentGeneration(routeGeneration))
         {
             ShowInfo(
@@ -3665,11 +3653,6 @@ public sealed partial class MainPage : Page
                 InfoBarSeverity.Success);
             await RefreshLibraryAsync();
         }
-    }
-
-    private void UpdateTransferCount()
-    {
-        _filesPaneState.RefreshTransferSummary();
     }
 
     private void ShowInfo(string message, InfoBarSeverity severity = InfoBarSeverity.Informational)
@@ -3764,11 +3747,10 @@ public sealed class TransferItem : INotifyPropertyChanged
 {
     private string _state;
 
-    public TransferItem(string name, string state, string path)
+    public TransferItem(string name, string state)
     {
         Name = name;
         _state = state;
-        Path = path;
     }
 
     public string Name { get; set; }
@@ -3787,8 +3769,6 @@ public sealed class TransferItem : INotifyPropertyChanged
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(State)));
         }
     }
-
-    public string Path { get; set; }
 
     public event PropertyChangedEventHandler? PropertyChanged;
 }

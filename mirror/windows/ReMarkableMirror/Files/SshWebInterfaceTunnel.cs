@@ -17,18 +17,6 @@ internal sealed class SshWebInterfaceTunnel : IAsyncDisposable
     private Uri? _baseUri;
     private bool _disposed;
 
-    public SshWebInterfaceTunnel(
-        string host,
-        string? identityFile = null,
-        string? knownHostsFile = null) :
-        this(new SshRoute(
-            host,
-            identityFile,
-            knownHostsFile,
-            filesTargetHost: host))
-    {
-    }
-
     internal SshWebInterfaceTunnel(SshRoute route)
     {
         _route = route ?? throw new ArgumentNullException(nameof(route));
@@ -106,7 +94,7 @@ internal sealed class SshWebInterfaceTunnel : IAsyncDisposable
                 }
                 catch (Win32Exception exception)
                 {
-                    TerminateAndDisposeProcess(process);
+                    SshChildProcessJob.TerminateAndDispose(process);
                     throw new FileTransferException(
                         FileTransferFailure.Configuration,
                         "Windows could not secure the tablet file connection lifetime.",
@@ -114,7 +102,7 @@ internal sealed class SshWebInterfaceTunnel : IAsyncDisposable
                 }
                 catch
                 {
-                    TerminateAndDisposeProcess(process);
+                    SshChildProcessJob.TerminateAndDispose(process);
                     throw;
                 }
 
@@ -346,27 +334,6 @@ internal sealed class SshWebInterfaceTunnel : IAsyncDisposable
             return stderrTask is null || !stderrTask.IsCompleted
                 ? string.Empty
                 : (await stderrTask.ConfigureAwait(false)).Trim();
-        }
-        finally
-        {
-            process.Dispose();
-        }
-    }
-
-    private static void TerminateAndDisposeProcess(Process process)
-    {
-        try
-        {
-            if (!process.HasExited)
-            {
-                process.Kill(entireProcessTree: true);
-            }
-        }
-        catch (InvalidOperationException)
-        {
-        }
-        catch (Win32Exception)
-        {
         }
         finally
         {

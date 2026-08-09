@@ -12,6 +12,9 @@ namespace ReMarkableMirror;
 /// </summary>
 public sealed class SshInputSession : IAsyncDisposable
 {
+    internal const string RemoteCommand =
+        "/home/root/.local/bin/rmmirror-probe input --heartbeat-timeout 15s";
+
     private const string ProtocolSchema = "rmmirror.input/v1";
     private const int TouchXMax = 1248;
     private const int TouchYMax = 2208;
@@ -35,7 +38,6 @@ public sealed class SshInputSession : IAsyncDisposable
     private bool _disposed;
 
     public string InitialDisplayState { get; private set; } = "unknown";
-    public string InitialFilesState { get; private set; } = "not_requested";
     internal bool IsRunning => !_disposed && !_process.HasExited;
 
     private SshInputSession(Process process, Task<string> stderrTask)
@@ -47,32 +49,13 @@ public sealed class SshInputSession : IAsyncDisposable
     }
 
     public static async Task<SshInputSession> ConnectAsync(
-        string host,
-        CancellationToken cancellationToken = default) =>
-        await ConnectAsync(
-            new SshRoute(host),
-            enableFilesFallback: false,
-            cancellationToken).ConfigureAwait(false);
-
-    public static async Task<SshInputSession> ConnectAsync(
         SshRoute route,
-        CancellationToken cancellationToken = default) =>
-        await ConnectAsync(
-            route,
-            enableFilesFallback: false,
-            cancellationToken).ConfigureAwait(false);
-
-    public static async Task<SshInputSession> ConnectAsync(
-        SshRoute route,
-        bool enableFilesFallback,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(route);
         if (!route.CredentialFilesExist)
         {
-            throw new InputSessionException(
-                "Mirror setup is missing its tablet SSH key.",
-                isPersistent: true);
+            throw new InputSessionException("Mirror setup is missing its tablet SSH key.");
         }
 
         using var startupTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -80,7 +63,7 @@ public sealed class SshInputSession : IAsyncDisposable
 
         var process = new Process
         {
-            StartInfo = CreateStartInfo(route, enableFilesFallback),
+            StartInfo = CreateStartInfo(route),
         };
         var started = false;
         Task<string>? stderrTask = null;
@@ -102,16 +85,14 @@ public sealed class SshInputSession : IAsyncDisposable
                 {
                     throw new InputSessionException(
                         "Windows could not secure the tablet input connection lifetime.",
-                        exception,
-                        isPersistent: true);
+                        exception);
                 }
             }
             catch (Win32Exception exception)
             {
                 throw new InputSessionException(
                     "Windows OpenSSH is not available.",
-                    exception,
-                    isPersistent: true);
+                    exception);
             }
 
             stderrTask = process.StandardError.ReadToEndAsync();
@@ -129,8 +110,8 @@ public sealed class SshInputSession : IAsyncDisposable
             }
             if (readyLine is null)
             {
-                var stopped = await session.DescribeStoppedProcessAsync();
-                throw new InputSessionException(stopped.Message, stopped.IsPersistent);
+                throw new InputSessionException(
+                    await session.DescribeStoppedProcessAsync());
             }
 
             InputEnvelope? ready;
@@ -142,8 +123,7 @@ public sealed class SshInputSession : IAsyncDisposable
             {
                 throw new InputSessionException(
                     "The tablet returned an invalid input handshake.",
-                    exception,
-                    isPersistent: true);
+                    exception);
             }
             if (ready is not
                 {
@@ -153,16 +133,12 @@ public sealed class SshInputSession : IAsyncDisposable
                     Touch.YMax: TouchYMax,
                     Pen.XMax: PenXMax,
                     Pen.YMax: PenYMax,
-                } ||
-                (enableFilesFallback &&
-                 ready.FilesState is not ("ready" or "unavailable")))
+                })
             {
                 throw new InputSessionException(
-                    "The tablet input ranges do not match this Paper Pro Move.",
-                    isPersistent: true);
+                    "The tablet input ranges do not match this Paper Pro Move.");
             }
             session.InitialDisplayState = ready.DisplayState ?? "unknown";
-            session.InitialFilesState = ready.FilesState ?? "not_requested";
             return session;
         }
         catch (Exception startupException)
@@ -184,8 +160,7 @@ public sealed class SshInputSession : IAsyncDisposable
                     if (stop.Forced || !stop.Exited)
                     {
                         cleanupException = new InputSessionException(
-                            "Mirror could not confirm tablet input cleanup after setup failed.",
-                            isPersistent: true);
+                            "Mirror could not confirm tablet input cleanup after setup failed.");
                     }
                 }
             }
@@ -201,8 +176,7 @@ public sealed class SshInputSession : IAsyncDisposable
             {
                 throw new InputSessionException(
                     "Mirror could not confirm that physical tablet input was restored after control setup failed.",
-                    new AggregateException(startupException, cleanupException),
-                    isPersistent: true);
+                    new AggregateException(startupException, cleanupException));
             }
 
             ExceptionDispatchInfo.Capture(startupException).Throw();
@@ -255,13 +229,6 @@ public sealed class SshInputSession : IAsyncDisposable
                 Key: linuxKeyName),
             cancellationToken);
 
-    public Task SendTextAsync(
-        string text,
-        CancellationToken cancellationToken = default) =>
-        SendCommandAsync(
-            new InputCommand(NextCommandId(), "text", Text: text),
-            cancellationToken);
-
     public Task ResetAsync(CancellationToken cancellationToken = default) =>
         SendCommandAsync(
             new InputCommand(NextCommandId(), "reset"),
@@ -271,63 +238,6 @@ public sealed class SshInputSession : IAsyncDisposable
         SendCommandAsync(
             new InputCommand(NextCommandId(), "ping"),
             cancellationToken);
-
-    internal async Task<InputSessionStopStatus?> InspectStoppedAsync(
-        TimeSpan observationWindow,
-        CancellationToken cancellationToken)
-    {
-        ArgumentOutOfRangeException.ThrowIfLessThan(observationWindow, TimeSpan.Zero);
-        var observationStarted = Stopwatch.GetTimestamp();
-        while (!_disposed && !_process.HasExited)
-        {
-            var remaining = observationWindow - Stopwatch.GetElapsedTime(observationStarted);
-            if (remaining <= TimeSpan.Zero)
-            {
-                return null;
-            }
-            try
-            {
-                await Task.Delay(
-                        remaining < TimeSpan.FromMilliseconds(50)
-                            ? remaining
-                            : TimeSpan.FromMilliseconds(50),
-                        cancellationToken)
-                    .ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                return null;
-            }
-        }
-
-        if (_disposed)
-        {
-            return null;
-        }
-
-        try
-        {
-            await _commandGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            return null;
-        }
-        try
-        {
-            if (_disposed || !_process.HasExited)
-            {
-                return null;
-            }
-
-            var stopped = await DescribeStoppedProcessAsync().ConfigureAwait(false);
-            return new InputSessionStopStatus(stopped.Message, stopped.IsPersistent);
-        }
-        finally
-        {
-            _commandGate.Release();
-        }
-    }
 
     public async Task<bool> WakeIfDeepSleepingAsync(CancellationToken cancellationToken = default)
     {
@@ -359,8 +269,7 @@ public sealed class SshInputSession : IAsyncDisposable
             ObjectDisposedException.ThrowIf(_disposed, this);
             if (_process.HasExited)
             {
-                var stopped = await DescribeStoppedProcessAsync();
-                throw new InputSessionException(stopped.Message, stopped.IsPersistent);
+                throw new InputSessionException(await DescribeStoppedProcessAsync());
             }
 
             var line = JsonSerializer.Serialize(command, JsonOptions);
@@ -370,8 +279,7 @@ public sealed class SshInputSession : IAsyncDisposable
                 var responseLine = await _process.StandardOutput.ReadLineAsync(cancellationToken);
                 if (responseLine is null)
                 {
-                    var stopped = await DescribeStoppedProcessAsync();
-                    throw new InputSessionException(stopped.Message, stopped.IsPersistent);
+                    throw new InputSessionException(await DescribeStoppedProcessAsync());
                 }
 
                 InputEnvelope? response;
@@ -383,14 +291,12 @@ public sealed class SshInputSession : IAsyncDisposable
                 {
                     throw new InputSessionException(
                         "The tablet returned an invalid input response.",
-                        exception,
-                        isPersistent: true);
+                        exception);
                 }
                 if (response is null || response.Id != command.Id)
                 {
                     throw new InputSessionException(
-                        "The tablet input channel lost command ordering.",
-                        isPersistent: true);
+                        "The tablet input channel lost command ordering.");
                 }
                 if (!response.Ok)
                 {
@@ -444,14 +350,12 @@ public sealed class SshInputSession : IAsyncDisposable
             if (stop.Stderr.Contains("input_physical_restore_failed", StringComparison.Ordinal))
             {
                 throw new InputSessionException(
-                    "The tablet could not restore its physical input after mirroring.",
-                    isPersistent: true);
+                    "The tablet could not restore its physical input after mirroring.");
             }
             if (stop.Forced || !stop.Exited || Volatile.Read(ref _forcedAbort) != 0)
             {
                 throw new InputSessionException(
-                    "The tablet input cleanup lost its completion signal. Mirror will wait for physical input restoration.",
-                    isPersistent: true);
+                    "The tablet input cleanup lost its completion signal. Mirror will wait for physical input restoration.");
             }
         }
         finally
@@ -566,28 +470,15 @@ public sealed class SshInputSession : IAsyncDisposable
         _ => throw new ArgumentOutOfRangeException(nameof(action)),
     };
 
-    internal static string CreateRemoteCommand(bool enableFilesFallback)
-    {
-        const string command =
-            "/home/root/.local/bin/rmmirror-probe input --heartbeat-timeout 15s";
-        return enableFilesFallback
-            ? command + " --files-fallback"
-            : command;
-    }
-
-    private static ProcessStartInfo CreateStartInfo(
-        SshRoute route,
-        bool enableFilesFallback)
-    {
-        return route.CreateProcessStartInfo(
-            remoteCommand: CreateRemoteCommand(enableFilesFallback),
+    private static ProcessStartInfo CreateStartInfo(SshRoute route) =>
+        route.CreateProcessStartInfo(
+            remoteCommand: RemoteCommand,
             disablePseudoTerminal: true,
             redirectStandardInput: true,
             redirectStandardOutput: true,
             redirectStandardError: true);
-    }
 
-    private async Task<InputStopDescription> DescribeStoppedProcessAsync()
+    private async Task<string> DescribeStoppedProcessAsync()
     {
         var stop = await StopProcessAsync(
             _process,
@@ -601,59 +492,47 @@ public sealed class SshInputSession : IAsyncDisposable
         return DescribeStoppedProcess(stop);
     }
 
-    private static InputStopDescription DescribeStoppedProcess(ProcessStopResult stop)
+    private static string DescribeStoppedProcess(ProcessStopResult stop)
     {
         // SSH stderr can contain local paths, route addresses, and OpenSSH
         // configuration. Classify it in memory but never carry it into the UI
         // or diagnostic ledger.
         if (stop.Stderr.Contains("input_input_session_busy", StringComparison.Ordinal))
         {
-            return new InputStopDescription("Tablet input is already in use.", IsPersistent: false);
+            return "Tablet input is already in use.";
         }
         if (stop.Stderr.Contains("input_xochitl_not_running", StringComparison.Ordinal))
         {
-            return new InputStopDescription("Tablet input is waiting for the display service.", IsPersistent: false);
+            return "Tablet input is waiting for the display service.";
         }
         if (stop.Stderr.Contains("input_heartbeat_timeout", StringComparison.Ordinal))
         {
-            return new InputStopDescription("Tablet input timed out and will reconnect.", IsPersistent: false);
+            return "Tablet input timed out.";
         }
         if (
             stop.Stderr.Contains("Timeout, server", StringComparison.OrdinalIgnoreCase) &&
             stop.Stderr.Contains("not responding", StringComparison.OrdinalIgnoreCase))
         {
-            return new InputStopDescription(
-                "The tablet input connection missed its network keepalive and will reconnect.",
-                IsPersistent: false);
+            return "The tablet input connection missed its network keepalive.";
         }
         if (stop.Stderr.Contains("REMOTE HOST IDENTIFICATION HAS CHANGED", StringComparison.OrdinalIgnoreCase) ||
             stop.Stderr.Contains("Host key verification failed", StringComparison.OrdinalIgnoreCase))
         {
-            return new InputStopDescription(
-                "The tablet's secure identity changed. Run Mirror setup again before retrying.",
-                IsPersistent: true);
+            return "The tablet's secure identity changed. Run Mirror setup again before retrying.";
         }
         if (stop.Stderr.Contains("Permission denied", StringComparison.OrdinalIgnoreCase))
         {
-            return new InputStopDescription(
-                "This PC is no longer authorized to control the tablet.",
-                IsPersistent: true);
+            return "This PC is no longer authorized to control the tablet.";
         }
         if (stop.Stderr.Contains("rmmirror-probe:", StringComparison.OrdinalIgnoreCase))
         {
-            return new InputStopDescription(
-                "The tablet input companion stopped unexpectedly.",
-                IsPersistent: true);
+            return "The tablet input companion stopped unexpectedly.";
         }
 
-        return new InputStopDescription(
-            stop.ExitCode is { } exitCode
-                ? $"Tablet input stopped with exit code {exitCode}."
-                : "Tablet input stopped without an exit status.",
-            IsPersistent: false);
+        return stop.ExitCode is { } exitCode
+            ? $"Tablet input stopped with exit code {exitCode}."
+            : "Tablet input stopped without an exit status.";
     }
-
-    private sealed record InputStopDescription(string Message, bool IsPersistent);
 
     private sealed record ProcessStopResult(
         bool Exited,
@@ -669,14 +548,12 @@ public sealed class SshInputSession : IAsyncDisposable
         double? Y = null,
         double? Pressure = null,
         string? Tool = null,
-        string? Key = null,
-        string? Text = null);
+        string? Key = null);
 
     private sealed record InputEnvelope(
         string? Schema,
         bool Ready,
         [property: JsonPropertyName("display_state")] string? DisplayState,
-        [property: JsonPropertyName("files_state")] string? FilesState,
         long Id,
         bool Ok,
         string? Error,
@@ -697,23 +574,16 @@ public enum RemotePointerAction
 
 public class InputSessionException : Exception
 {
-    public bool IsPersistent { get; }
-
-    public InputSessionException(string message, bool isPersistent = false) : base(message)
+    public InputSessionException(string message) : base(message)
     {
-        IsPersistent = isPersistent;
     }
 
     public InputSessionException(
         string message,
-        Exception innerException,
-        bool isPersistent = false) : base(message, innerException)
+        Exception innerException) : base(message, innerException)
     {
-        IsPersistent = isPersistent;
     }
 }
 
-internal sealed record InputSessionStopStatus(string Message, bool IsPersistent);
-
 public sealed class InputCommandRejectedException(string message) :
-    InputSessionException(message, isPersistent: true);
+    InputSessionException(message);

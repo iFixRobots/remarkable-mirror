@@ -3,8 +3,6 @@ using System.Net.Http.Headers;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Security;
-using System.Security.AccessControl;
-using System.Security.Principal;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -306,7 +304,7 @@ internal sealed class TabletWakeClient : IDisposable
                 FileOptions.SequentialScan);
             var tokenFile = new FileInfo(tokenPath);
             if ((tokenFile.Attributes & FileAttributes.ReparsePoint) != 0 ||
-                !HasCurrentUserOnlyAcl(tokenFile))
+                !DeviceProfileStore.HasCurrentUserOnlyAcl(tokenFile))
             {
                 return new WakeTokenReadResult(
                     null,
@@ -355,40 +353,6 @@ internal sealed class TabletWakeClient : IDisposable
         {
             return new WakeTokenReadResult(null, TabletWakeClientCreationStatus.InvalidToken);
         }
-    }
-
-    private static bool HasCurrentUserOnlyAcl(FileInfo file)
-    {
-        var sid = WindowsIdentity.GetCurrent().User;
-        if (sid is null)
-        {
-            return false;
-        }
-
-        var security = FileSystemAclExtensions.GetAccessControl(file);
-        if (!security.AreAccessRulesProtected ||
-            !sid.Equals(security.GetOwner(typeof(SecurityIdentifier))))
-        {
-            return false;
-        }
-
-        var rules = security.GetAccessRules(
-            includeExplicit: true,
-            includeInherited: false,
-            targetType: typeof(SecurityIdentifier));
-        var matchingRules = 0;
-        foreach (FileSystemAccessRule rule in rules)
-        {
-            if (rule.AccessControlType != AccessControlType.Allow ||
-                !sid.Equals(rule.IdentityReference) ||
-                (rule.FileSystemRights & FileSystemRights.FullControl) != FileSystemRights.FullControl)
-            {
-                return false;
-            }
-            matchingRules++;
-        }
-
-        return matchingRules == 1;
     }
 
     public void Dispose()

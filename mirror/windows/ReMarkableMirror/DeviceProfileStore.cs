@@ -222,30 +222,6 @@ public sealed class DeviceProfileStore
         }
     }
 
-    public bool Forget()
-    {
-        try
-        {
-            var file = new FileInfo(_profilePath);
-            if (!file.Exists)
-            {
-                return false;
-            }
-            if ((file.Attributes & FileAttributes.ReparsePoint) != 0 ||
-                !HasCurrentUserOnlyAcl(file))
-            {
-                throw new UnauthorizedAccessException("Refusing to remove an insecure device profile path.");
-            }
-
-            file.Delete();
-            return true;
-        }
-        catch (FileNotFoundException)
-        {
-            return false;
-        }
-    }
-
     private void PublishAtomically(string temporaryPath)
     {
         var destination = new FileInfo(_profilePath);
@@ -608,7 +584,7 @@ public sealed class DeviceProfileStore
         FileSystemAclExtensions.SetAccessControl((FileInfo)fileSystemInfo, fileSecurity);
     }
 
-    private static bool HasCurrentUserOnlyAcl(FileInfo file)
+    internal static bool HasCurrentUserOnlyAcl(FileInfo file)
     {
         var sid = WindowsIdentity.GetCurrent().User;
         if (sid is null)

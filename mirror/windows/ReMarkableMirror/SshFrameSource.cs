@@ -101,10 +101,6 @@ public sealed class SshFrameSource
         """;
     private readonly SshRoute _route;
 
-    public SshFrameSource(string host) : this(new SshRoute(host))
-    {
-    }
-
     public SshFrameSource(SshRoute route)
     {
         _route = route ?? throw new ArgumentNullException(nameof(route));
@@ -192,7 +188,7 @@ public sealed class SshFrameSource
             throw new FrameStreamException(
                 FrameStreamFailureKind.CompanionNotReady,
                 "The tablet display setup did not finish. Copy the connection details, then choose Retry.",
-                canAutoRetry: false,
+                isTransient: false,
                 technicalDetail: "category=display_preparation_timeout");
         }
 
@@ -286,7 +282,7 @@ public sealed class SshFrameSource
             throw new FrameStreamException(
                 FrameStreamFailureKind.CompanionNotReady,
                 "The tablet display service could not be prepared safely. Run Mirror setup again, then choose Retry.",
-                canAutoRetry: false,
+                isTransient: false,
                 technicalDetail: "category=activation_busy_without_running_status");
         }
 
@@ -348,8 +344,8 @@ public sealed class SshFrameSource
             {
                 throw lastTransientFailure ?? new FrameStreamException(
                     FrameStreamFailureKind.CompanionNotReady,
-                    "The tablet display service is still starting. Mirror will reconnect automatically.",
-                    canAutoRetry: true,
+                    "The tablet display service is still starting. Choose USB-C or Wi-Fi to try again.",
+                    isTransient: true,
                     technicalDetail: "category=activation_status_temporarily_unavailable");
             }
 
@@ -363,7 +359,7 @@ public sealed class SshFrameSource
         throw new FrameStreamException(
             FrameStreamFailureKind.CompanionNotReady,
             "The tablet display setup did not finish. Copy the connection details, then choose Retry.",
-            canAutoRetry: false,
+            isTransient: false,
             technicalDetail: "category=activation_poll_timeout");
     }
 
@@ -418,7 +414,7 @@ public sealed class SshFrameSource
                     throw new FrameStreamException(
                         FrameStreamFailureKind.ConnectionProcessUnavailable,
                         "Windows could not open the secure tablet connection. Restart reMarkable Mirror, then choose Retry.",
-                        canAutoRetry: false);
+                        isTransient: false);
                 }
                 try
                 {
@@ -429,7 +425,7 @@ public sealed class SshFrameSource
                     throw new FrameStreamException(
                         FrameStreamFailureKind.ConnectionProcessUnavailable,
                         "Windows could not secure the tablet connection. Restart reMarkable Mirror, then choose Retry.",
-                        canAutoRetry: false,
+                        isTransient: false,
                         exception);
                 }
                 started = true;
@@ -439,7 +435,7 @@ public sealed class SshFrameSource
                 throw new FrameStreamException(
                     FrameStreamFailureKind.OpenSshUnavailable,
                     "Windows OpenSSH is unavailable. Install OpenSSH Client, then choose Retry.",
-                    canAutoRetry: false,
+                    isTransient: false,
                     exception);
             }
 
@@ -493,7 +489,7 @@ public sealed class SshFrameSource
                     throw new FrameStreamException(
                         FrameStreamFailureKind.ConnectionProcessUnavailable,
                         "Windows could not open the secure tablet connection. Restart reMarkable Mirror, then choose Retry.",
-                        canAutoRetry: false);
+                        isTransient: false);
                 }
                 try
                 {
@@ -504,7 +500,7 @@ public sealed class SshFrameSource
                     throw new FrameStreamException(
                         FrameStreamFailureKind.ConnectionProcessUnavailable,
                         "Windows could not secure the tablet connection. Restart reMarkable Mirror, then choose Retry.",
-                        canAutoRetry: false,
+                        isTransient: false,
                         exception);
                 }
                 started = true;
@@ -514,7 +510,7 @@ public sealed class SshFrameSource
                 throw new FrameStreamException(
                     FrameStreamFailureKind.OpenSshUnavailable,
                     "Windows OpenSSH is unavailable. Install OpenSSH Client, then choose Retry.",
-                    canAutoRetry: false,
+                    isTransient: false,
                     exception);
             }
 
@@ -645,7 +641,7 @@ public sealed class SshFrameSource
             throw new FrameStreamException(
                 FrameStreamFailureKind.SetupMissing,
                 "Mirror setup is incomplete on this PC. Run Mirror setup again, then choose Retry.",
-                canAutoRetry: false);
+                isTransient: false);
         }
     }
 
@@ -920,7 +916,7 @@ public sealed class SshFrameSource
             return new FrameStreamException(
                 FrameStreamFailureKind.CompanionMissing,
                 "Tablet mirror setup is incomplete. Run Mirror setup again, then choose Retry.",
-                canAutoRetry: false,
+                isTransient: false,
                 technicalDetail: technicalDetail);
         }
         if (status.Outcome == XoviActivationOutcome.FailedUnknown)
@@ -928,13 +924,13 @@ public sealed class SshFrameSource
             return new FrameStreamException(
                 FrameStreamFailureKind.CompanionFailed,
                 "The tablet display service stopped in an unverified state. Run Mirror setup again before retrying.",
-                canAutoRetry: false,
+                isTransient: false,
                 technicalDetail: technicalDetail);
         }
         return new FrameStreamException(
             FrameStreamFailureKind.CompanionNotReady,
             "The tablet display service could not be prepared safely. Run Mirror setup again, then choose Retry.",
-            canAutoRetry: false,
+            isTransient: false,
             technicalDetail: technicalDetail);
     }
 
@@ -949,8 +945,8 @@ public sealed class SshFrameSource
     private static FrameStreamException DisplayRuntimeNotReady() =>
         new(
             FrameStreamFailureKind.CompanionNotReady,
-            "The tablet display service is still starting. Mirror will reconnect automatically.",
-            canAutoRetry: true,
+            "The tablet display service is still starting. Choose USB-C or Wi-Fi to try again.",
+            isTransient: true,
             technicalDetail: "category=display_runtime_not_ready");
 
     private static FrameStreamException DescribePreparationExit(
@@ -963,7 +959,7 @@ public sealed class SshFrameSource
             return new FrameStreamException(
                 FrameStreamFailureKind.CompanionMissing,
                 "Tablet mirror setup is incomplete. Run Mirror setup again, then choose Retry.",
-                canAutoRetry: false,
+                isTransient: false,
                 technicalDetail: technicalDetail);
         }
         if (ContainsAny(
@@ -972,8 +968,8 @@ public sealed class SshFrameSource
         {
             return new FrameStreamException(
                 FrameStreamFailureKind.CompanionNotReady,
-                "The tablet display service is still starting. Mirror will reconnect automatically.",
-                canAutoRetry: true,
+                "The tablet display service is still starting. Choose USB-C or Wi-Fi to try again.",
+                isTransient: true,
                 technicalDetail: technicalDetail);
         }
         if (ContainsAny(
@@ -984,7 +980,7 @@ public sealed class SshFrameSource
             return new FrameStreamException(
                 FrameStreamFailureKind.CompanionNotReady,
                 "The tablet display service could not be prepared safely. Run Mirror setup again, then choose Retry.",
-                canAutoRetry: false,
+                isTransient: false,
                 technicalDetail: technicalDetail);
         }
         return DescribeExit(exitCode, standardError);
@@ -1001,7 +997,7 @@ public sealed class SshFrameSource
             return new FrameStreamException(
                 FrameStreamFailureKind.HostIdentityChanged,
                 "The tablet's secure identity changed. Run Mirror setup again before retrying.",
-                canAutoRetry: false,
+                isTransient: false,
                 technicalDetail: technicalDetail);
         }
         if (exitCode == 255 && ContainsAny(
@@ -1013,7 +1009,7 @@ public sealed class SshFrameSource
             return new FrameStreamException(
                 FrameStreamFailureKind.AuthenticationRejected,
                 "This PC is no longer authorized to connect to the tablet. Run Mirror setup again before retrying.",
-                canAutoRetry: false,
+                isTransient: false,
                 technicalDetail: technicalDetail);
         }
         if (ContainsAny(
@@ -1031,8 +1027,8 @@ public sealed class SshFrameSource
         {
             return new FrameStreamException(
                 FrameStreamFailureKind.CompanionNotReady,
-                "The tablet display service is restarting. Mirror will reconnect automatically.",
-                canAutoRetry: true,
+                "The tablet display service is restarting. Choose USB-C or Wi-Fi to try again.",
+                isTransient: true,
                 technicalDetail: technicalDetail);
         }
         if (ContainsAny(standardError, "not found", "No such file", "rmmirror: companion_missing"))
@@ -1040,7 +1036,7 @@ public sealed class SshFrameSource
             return new FrameStreamException(
                 FrameStreamFailureKind.CompanionMissing,
                 "The mirror companion is missing on the tablet. Run Mirror setup again, then choose Retry.",
-                canAutoRetry: false,
+                isTransient: false,
                 technicalDetail: technicalDetail);
         }
         if (standardError.Contains("rmmirror-probe:", StringComparison.OrdinalIgnoreCase))
@@ -1048,7 +1044,7 @@ public sealed class SshFrameSource
             return new FrameStreamException(
                 FrameStreamFailureKind.CompanionFailed,
                 "The tablet mirror companion stopped unexpectedly. Copy the connection details, then choose Retry.",
-                canAutoRetry: false,
+                isTransient: false,
                 technicalDetail: technicalDetail);
         }
         if (ContainsAny(
@@ -1120,22 +1116,22 @@ public sealed class SshFrameSource
     private static FrameStreamException SecureConnectionUnavailable(string? technicalDetail = null) =>
         new(
             FrameStreamFailureKind.SecureConnectionUnavailable,
-            "The secure connection is not ready. Mirror will reconnect automatically.",
-            canAutoRetry: true,
+            "The secure connection is not ready. Choose USB-C or Wi-Fi to try again.",
+            isTransient: true,
             technicalDetail: technicalDetail);
 
     private static FrameStreamException IncompatibleCompanion(string? technicalDetail = null) =>
         new(
             FrameStreamFailureKind.ProtocolMismatch,
             "The tablet mirror companion is incompatible with this app. Update Mirror setup before retrying.",
-            canAutoRetry: false,
+            isTransient: false,
             technicalDetail: technicalDetail);
 
     private static FrameStreamException StreamInterrupted(string? technicalDetail = null) =>
         new(
             FrameStreamFailureKind.StreamInterrupted,
-            "The tablet display connection stopped. Mirror will reconnect automatically.",
-            canAutoRetry: true,
+            "The tablet display connection stopped. Choose USB-C or Wi-Fi to try again.",
+            isTransient: true,
             technicalDetail: technicalDetail);
 
     private readonly record struct ParsedFrameUpdate(
@@ -1208,19 +1204,19 @@ public sealed class FrameStreamException : Exception
     public FrameStreamException(
         FrameStreamFailureKind kind,
         string message,
-        bool canAutoRetry,
+        bool isTransient,
         Exception? innerException = null,
         string? technicalDetail = null)
         : base(message, innerException)
     {
         Kind = kind;
-        CanAutoRetry = canAutoRetry;
+        IsTransient = isTransient;
         TechnicalDetail = technicalDetail;
     }
 
     public FrameStreamFailureKind Kind { get; }
 
-    public bool CanAutoRetry { get; }
+    public bool IsTransient { get; }
 
     public string? TechnicalDetail { get; }
 }
