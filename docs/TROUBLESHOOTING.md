@@ -1,8 +1,13 @@
 # Troubleshooting
 
-If this is a first installation, keep [Getting started](GETTING_STARTED.md) open
-and stop at the first failed step. The visible Mirror status is more useful than
-repeatedly rerunning the installer or starting the same connection again.
+For a first Windows installation, keep [Getting started](GETTING_STARTED.md)
+open and stop at the first failed step. The visible Mirror status is more useful
+than repeatedly rerunning the installer or starting the same connection again.
+
+The macOS app is a real native host, but its current setup flow does not install
+every tablet prerequisite. If Mac setup reports a missing probe or Xovi
+runtime, run the complete Windows installer once; see
+[Platform support](PLATFORM_SUPPORT.md).
 
 ## USB does not create the direct tablet network
 
@@ -51,11 +56,11 @@ $key = Join-Path $env:USERPROFILE '.ssh\remarkable_chiappa_ed25519'
 $knownHosts = Join-Path $env:USERPROFILE '.ssh\remarkable_known_hosts'
 ```
 
-If you know the private key was created for Mirror, reuse it. Run step 7 in
-Getting started from its first code block. That block derives a fresh `.pub`
-file from the private key instead of trusting an old public side file. The next
-direct-USB scan refreshes the tablet host key before the public key is installed
-again, which is the correct path after a factory reset.
+If you know the private key was created for Mirror, reuse it. Run the complete
+**Pair one dedicated SSH key** block in Getting started. That block derives a
+fresh `.pub` file from the private key instead of trusting an old public side
+file. The direct-USB scan refreshes the tablet host key before the public key is
+installed again, which is the correct path after a factory reset.
 
 Do not test against stale host trust after a factory reset, and do not create
 another key just to bypass the mismatch.
@@ -86,6 +91,11 @@ connection. A Wi-Fi attempt confirms an authenticated component mismatch once
 inside that owner action before showing **Repair**. A direct USB setup failure
 still appears immediately.
 
+While Live, click **Live over USB** to enter a Wi-Fi address, or click
+**Live over Wi-Fi** to start the bounded USB-C action. These are the same manual
+actions shown while disconnected; the status does not add another connection
+system.
+
 ## Repair tablet setup
 
 A tablet update may have removed the components Mirror installed.
@@ -105,10 +115,11 @@ Files is independent from display and input.
 
 1. Unlock the tablet.
 2. Enable **Settings > General > Storage > USB web interface** on the tablet.
-3. Leave the Files drawer open for a few seconds or choose refresh.
+3. Leave the Files drawer open during its owner-requested readiness window, or
+   choose **Try Files Again** after that window ends.
 
 The tablet turns off Files while it is passcode-locked. Unlock it and Mirror
-will reconnect Files automatically.
+can complete the still-open Files request without reopening the route.
 
 ## Files says "Couldn't send"
 
@@ -153,9 +164,10 @@ older package reports a command-line length or launcher-start failure, use a
 newer package built from current source instead of retrying the same extracted
 files.
 
-- For the current private build, download
-  **remarkable-mirror-windows-installer** from a successful
-  **Build Windows downloads** run in this repository's Actions tab.
+- For a public release, download the installer from this repository's
+  **Releases** page and verify its published hash.
+- Repository collaborators can use **remarkable-mirror-windows-installer** from
+  a successful **Build Windows downloads** Actions run.
 - Extract the GitHub artifact, then extract the versioned installer ZIP inside
   it before running `Install.cmd`.
 - Do not use the portable `ReMarkableMirror.exe` for first-time setup. It does
@@ -165,12 +177,11 @@ files.
   directory together.
 - Do not mix files from different releases.
 
-For a public release, a visible publisher name such as `CN=iFixRobots` does not
-show where the file came from. Download it from this repository's GitHub
-Releases page, compare the SHA-256 and certificate fingerprint with the release
-notes, and confirm the Authenticode signature is valid. The installer also
-checks the package identity, publisher, version, and file hash against
-`release.json`.
+A visible publisher name does not prove where a file came from. Compare the
+SHA-256 and certificate fingerprint with the release notes and inspect
+`release.json`. Current development packages use a release-specific self-signed
+certificate that setup adds to **Local Machine > Trusted People**; that is not
+a public code-signing identity.
 
 ## After a firmware update
 

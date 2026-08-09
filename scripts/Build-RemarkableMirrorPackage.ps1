@@ -38,6 +38,9 @@ $transportSleepGuardPath = Join-Path $repositoryRoot 'mirror\agent\deploy\rmmirr
 $publicOnboardingGuidePath = Join-Path $repositoryRoot 'docs\PACKAGE_ONBOARDING.md'
 $publicGettingStartedGuidePath = Join-Path $repositoryRoot 'docs\GETTING_STARTED.md'
 $publicTroubleshootingGuidePath = Join-Path $repositoryRoot 'docs\TROUBLESHOOTING.md'
+$publicPlatformSupportGuidePath = Join-Path $repositoryRoot 'docs\PLATFORM_SUPPORT.md'
+$publicTabletChangesGuidePath = Join-Path $repositoryRoot 'docs\TABLET_CHANGES.md'
+$publicUninstallGuidePath = Join-Path $repositoryRoot 'docs\UNINSTALL.md'
 $publicOnboardingImagesDirectory = Join-Path $repositoryRoot 'docs\images'
 $xoviNoticePath = Join-Path $repositoryRoot 'mirror\third-party\xovi\NOTICE.txt'
 $xoviLicensePath = Join-Path $repositoryRoot 'mirror\third-party\xovi\LICENSE-GPL-3.0.txt'
@@ -119,7 +122,6 @@ foreach ($requiredPath in @(
         $publicGettingStartedGuidePath,
         $publicTroubleshootingGuidePath,
         (Join-Path $publicOnboardingImagesDirectory 'remarkable-mirror-live-wifi.png'),
-        (Join-Path $publicOnboardingImagesDirectory 'remarkable-mirror-files.png'),
         (Join-Path $publicOnboardingImagesDirectory 'remarkable-mirror-preparing.png'),
         $projectLicensePath,
         $projectNoticePath,
@@ -612,13 +614,13 @@ try {
     Copy-Item -LiteralPath $publicOnboardingGuidePath -Destination (Join-Path $releaseDirectory 'ONBOARDING.md')
     Copy-Item -LiteralPath $publicGettingStartedGuidePath -Destination (Join-Path $releaseDirectory 'GETTING_STARTED.md')
     Copy-Item -LiteralPath $publicTroubleshootingGuidePath -Destination (Join-Path $releaseDirectory 'TROUBLESHOOTING.md')
+    Copy-Item -LiteralPath $publicPlatformSupportGuidePath -Destination (Join-Path $releaseDirectory 'PLATFORM_SUPPORT.md')
+    Copy-Item -LiteralPath $publicTabletChangesGuidePath -Destination (Join-Path $releaseDirectory 'TABLET_CHANGES.md')
+    Copy-Item -LiteralPath $publicUninstallGuidePath -Destination (Join-Path $releaseDirectory 'UNINSTALL.md')
     $releaseImagesDirectory = Join-Path $releaseDirectory 'images'
     New-Item -ItemType Directory -Path $releaseImagesDirectory | Out-Null
     Copy-Item `
         -LiteralPath (Join-Path $publicOnboardingImagesDirectory 'remarkable-mirror-live-wifi.png') `
-        -Destination $releaseImagesDirectory
-    Copy-Item `
-        -LiteralPath (Join-Path $publicOnboardingImagesDirectory 'remarkable-mirror-files.png') `
         -Destination $releaseImagesDirectory
     Copy-Item `
         -LiteralPath (Join-Path $publicOnboardingImagesDirectory 'remarkable-mirror-preparing.png') `

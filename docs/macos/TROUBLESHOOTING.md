@@ -1,197 +1,168 @@
-# macOS Troubleshooting
+# macOS troubleshooting
 
-This page covers the private native Mac candidate through the Milestone 6 source
-boundary. It builds as a single production target under stable Xcode 26.6. The
-last audited Release package has a recorded archive audit and binary match with
-the installed app. On 2026-08-08, one owner-started USB-C connection reached
-Live on the physical tablet with a real frame and persistent authenticated
-frame, input and Files processes. The same session recovered Files after an
-owner-authorized unlock and loaded a 7-item root listing without reconnect
-or pane reopen. A later clean **Command-Q** retired all active owned children
-without an orphan or AppKit exception. Wi-Fi and the release package remain
-separate proof boundaries.
+Start with [macOS Getting started](GETTING_STARTED.md). The current app is an
+unsigned development build, and its setup flow does not yet install every
+tablet prerequisite.
 
-## The wrong Xcode builds the app
+## macOS blocks the app
 
-The Mac may globally select a beta Xcode. Use the repository build script or
-pass the stable toolchain explicitly:
+Current packages are unsigned and not notarized. In Finder, Control-click the
+app, choose **Open**, and confirm **Open**.
+
+Do not disable Gatekeeper system-wide or remove security attributes from other
+apps. A public Mac release needs Developer ID signing and notarization.
+
+## The build uses the wrong Xcode
+
+Use the repository script, which selects stable Xcode, or verify it explicitly:
 
 ```zsh
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
   xcodebuild -version
 ```
 
-The Release scripts select Xcode 26.6 with Swift 6.3.3. The current source
-builds as a single production target under that toolchain. The last audited
-Release build predates the current recovery and presentation changes.
+See [Development](../DEVELOPMENT.md) for the pinned toolchain.
 
-## macOS blocks the app
+## The local installer refuses to continue
 
-A locally packaged review candidate would be unsigned and not notarized. Open
-it from Finder's context menu and confirm **Open**. Do not remove security
-attributes from other apps or disable Gatekeeper system-wide.
+`Install-RemarkableMirrorMac.sh` does not overwrite an existing app. Quit the
+installed build, move it aside, then run the installer again.
 
-## The installer refuses to continue
+## Mirror reports a missing probe or Xovi runtime
 
-`Install-RemarkableMirrorMac.sh` will not overwrite an existing app. Quit and
-move the earlier candidate aside explicitly, then rerun the script.
+The Mac setup flow currently installs the transport-wake component but not the
+probe, Xovi runtime, and Files extension set. Run the complete Windows
+installer once to install those tablet prerequisites, then return to the Mac.
 
-## Setup says to use the tablet's USB-C connection
+Do not bypass the capability check or install unpinned components manually.
 
-Mirror could not confirm the tablet through the directly connected USB-C data
-cable. The app intentionally does not contact an unverified device or create
-credentials.
+## Setup cannot confirm USB-C
 
-- Enter the tablet passcode if it asks for one.
-- Reconnect the USB-C cable at both ends.
-- Use a known data-capable cable and a direct Mac port where possible.
-- Choose **Retry Setup** to make one new check.
+Mirror requires one direct data-capable cable before it captures a host key or
+creates credentials.
 
-Do not bypass the check by entering an address or disabling strict host-key
-verification. If the warning persists, choose
-**Help > Copy Connection Diagnostics**.
-That report contains fixed event codes and timestamps, not raw network output,
-addresses, keys, or SSH output.
+1. Wake the tablet and complete its first passcode unlock after boot.
+2. Reconnect the cable at both ends.
+3. Use a direct Mac port and a cable known to carry data.
+4. Choose **Retry Setup** for one new bounded check.
 
-## Setup is waiting for USB-C
-
-Mirror cannot see the tablet through the direct USB-C data cable. Reconnect the
-cable, enter the tablet passcode if requested, then choose **Retry Setup**. Cable appearance
-does not start tablet communication. If Mirror already confirmed the connected
-tablet but it did not answer, the app explains what the current setup step needs.
-
-## The app says USB data is blocked
-
-The Mac can see the attached device, but the direct USB-C data connection is not
-available. Keep both devices unlocked, reconnect a known data-capable USB-C
-cable directly, then choose the action shown for the current step again. Mirror
-does not keep checking or continue automatically.
+Cable appearance does not start tablet communication. Do not bypass the check
+with an IP address or by disabling strict host-key verification.
 
 ## Setup asks for the tablet passcode
 
-Mirror confirmed the tablet through the cable, but the tablet did not answer
-before initial setup could finish. This does not mean the cable is absent. Enter
-the passcode on the tablet, then choose the offered USB-C setup action again.
+The cable was found, but the Developer Mode system did not answer. Enter the
+passcode on the tablet, then choose the offered setup action again.
+
+The tablet passcode is never sent to or stored by Mirror.
 
 ## The app offers Add This Mac…
 
-Mac-side preparation finished and the local profile is pending. No tablet
-change has been made yet. **Add This Mac…** is the explicit persistent-change
-boundary: after the exact direct-USB checks pass again, it appends this app's
-dedicated public key and installs or upgrades the tablet-side USB keep-awake
-service, including its wake lock and sleep guard. The confirmation opens
-without inspecting the Mac's Wi-Fi connection and uses the tablet's
-one-time root password without saving it. It does not change documents or the
-Wi-Fi password. The authorization submission is bounded. If its outcome cannot
-be confirmed, Mirror stops at **Check Authorization**; that action makes one
-bounded key-only check and never reopens the password prompt by itself.
+Mac-side preparation has finished, but the tablet has not yet authorized this
+Mac. **Add This Mac…** is the explicit persistent-change boundary.
 
-## Mirror cannot verify the Wi-Fi connection
+After verifying the direct cable again, Mirror:
 
-Keep Wi-Fi enabled on the Mac, connect the Mac and tablet to the intended local
-network, keep USB connected, and choose **Connection > Set Up Wi‑Fi…** again.
-Mirror checks the current Wi-Fi connection without reading the network name or
-requesting Location Services. If that bounded operation cannot finish, the app
-returns to an action instead of continuing in the background.
+- appends its dedicated public SSH key;
+- installs or verifies the transport-wake component; and
+- uses the one-time Developer Mode root password without saving it.
 
-## Wi‑Fi setup is still pending
+If the result cannot be confirmed, choose **Check Authorization**. That action
+makes one key-only check and never reopens the password prompt by itself.
 
-The dedicated key was authorized and the tablet-side USB keep-awake service was
-installed or upgraded and validated. Persistent Wi‑Fi setup is intentionally a
-separate step, but it does not gate the manual IP connection path. The current
-connection card still shows **Connect USB‑C** followed by
-**Connect via Wi‑Fi**. The latter asks for an IPv4 address and uses it only for
-that owner-started attempt; it does not complete or persist Wi-Fi setup. To
-complete the separate persistent setup, keep USB connected, enter the tablet
-passcode if requested, keep both devices on the intended Wi‑Fi network, and
-choose **Connection > Set Up Wi‑Fi…**.
+## Wi-Fi setup is pending
 
-## The app says the saved setup needs attention
+Persistent Wi-Fi setup is separate and does not gate the manual IP connection.
+The connection card still shows **Connect USB-C** followed by
+**Connect via Wi-Fi**.
 
-Mirror rejected a corrupt, unsupported, inconsistent, inaccessible, or
-insecure local profile. **Set Up Again…** presents a confirmation before
-removing Mirror's app-owned local profile, key and Keychain material. It does
-not remove a public key already authorized on the tablet or disable Developer
-Mode SSH over Wi-Fi.
+To complete the optional persistent setup:
 
-## A connected tablet does not appear Live
+1. Keep USB connected.
+2. Put the Mac and tablet on the same network that you control.
+3. Unlock the tablet if needed.
+4. Choose **Connection > Set Up Wi-Fi…**.
 
-Successful host authentication alone stops at **Secure connection ready**.
-Mirror publishes **Live** only after it accepts a fresh frame and a running input
-session from the same active connection. If either owned process stops or that
-session ends, the app removes Live and returns to the disconnected
-surface instead of leaving stale controls enabled. Choose
-**Help > Copy Connection Diagnostics** if needed, then explicitly choose
-**Connect USB‑C** or **Connect via Wi‑Fi**.
+Mirror verifies the current network context and Developer Mode Wi-Fi SSH. It
+does not read or store the Wi-Fi password, read the SSID, request Location
+Services, or append the SSH key again.
 
-## Connect via Wi‑Fi asks for the tablet IP address
+## Connect via Wi-Fi asks for an IP address
 
-This is intentional. **Connect via Wi‑Fi** sits directly below
-**Connect USB‑C**. Its first click changes only the local Mac presentation and
-sends no tablet or network traffic. The prompt says the tablet must be awake but
-may remain locked and asks for its IPv4 address. Submitting starts one bounded
-Wi-Fi-only attempt to that exact address, bound to the current Wi-Fi context and
-authenticated with the saved pinned SSH identity. Mirror checks a transiently
-offline route every three seconds during a 45-second retry window. A bounded
-check already admitted may finish afterward, but no new retry starts. The
-attempt does not auto-discover or save an address, inspect or use USB, wake the
-tablet, fall back to another transport, call the wake HTTP endpoint, request a
-password, or require an unlock. If it ends without connecting, Mirror returns to
-the same two manual choices. Files remains separate and may still require the
-tablet to be unlocked.
+This is intentional. The first click changes only the local Mac presentation
+and sends no tablet or network traffic. Enter the tablet's current IPv4 address
+and choose **Connect via Wi-Fi**.
 
-## Files does not show tablet documents
+The tablet must be awake but may remain locked. Submitting starts one bounded
+Wi-Fi-only attempt to that address, bound to the current Wi-Fi context and
+authenticated with the pinned tablet identity. Mirror may check a transiently
+offline route every three seconds during a 45-second attempt. It does not
+auto-discover or save the address, inspect or use USB, wake the tablet, fall
+back to another route, call the wake HTTP endpoint, request a password, or
+require an unlock.
 
-Files is implemented, but it is a separate capability from Live. It remains
-disconnected until the loopback-only SSH forward is listening and the stock
-tablet service responds. Open Files once to start its 60-second readiness window.
-If the tablet is locked, unlock it and leave the current USB session and Files
-pane open. Mirror retries the exact current capability during that window; on
-the 2026-08-08 physical run it recovered to a 7-item root listing without a
-reconnect or pane reopen. Closing Files or reaching the deadline stops those
-attempts. If the window has expired, choose the circular-arrow action labeled
-**Try Files Again** to start a fresh 60-second owner window; you do not need to
-close and reopen Files. Once the library is available, that same action becomes
-**Refresh** and reloads the listing. PDF and native RMDOC Save As are physically
-exercised. Import or upload, delete and Finder drag-out remain separate proof
-boundaries.
+## The saved setup needs attention
 
-## USB disconnected
+Mirror rejected a corrupt, unsupported, inconsistent, inaccessible, or insecure
+local profile. **Set Up Again…** confirms before removing the app-owned local
+profile, SSH files, and Keychain material.
 
-Disconnecting USB ends that USB session. Mirror does not switch to Wi-Fi
-automatically. To continue over Wi-Fi, keep the Mac and tablet on the same local
-network, make sure the tablet is awake, and choose **Connect via Wi‑Fi**. The
-first click is local only; enter the tablet’s IPv4 address and submit it to start
-the bounded Wi-Fi-only attempt. The tablet may stay locked. A Wi-Fi identity mismatch does not bypass
-the trust checks. To continue over USB, reconnect the cable and choose
-**Connect USB-C**. That one click owns the bounded direct-cable wake, recovery,
-authentication, and connection session; the owner intervenes only if the tablet
-asks for its passcode.
+It does not remove the already authorized tablet key, disable Developer Mode
+Wi-Fi SSH, or remove tablet components.
 
-## USB reconnected but Mirror did not connect
+## Authentication succeeds but Live does not appear
 
-This is intentional. USB appearance never starts tablet communication or moves
-an active Wi-Fi session. End the current connection if necessary, then choose
-**Connect USB‑C**. That click stays on the direct cable, wakes and recovers the
-tablet as needed, authenticates, and connects without selecting Wi-Fi.
+`Live` requires a fresh frame and running input session from the same active
+connection. SSH authentication alone is not enough.
+
+Unlock the tablet if asked. If the selected session ends, choose
+**Connect USB-C** or **Connect via Wi-Fi** again; Mirror does not reconnect or
+fall back automatically.
+
+Use **Help > Copy Connection Diagnostics** for a sanitized state summary.
+Review it before sharing.
+
+## Files does not show documents
+
+Files is separate from Live and starts only when you open it. It uses an
+authenticated SSH forward to the tablet-loopback stock Files service.
+
+- Unlock the tablet and leave Files open during its readiness window.
+- If the window ends, choose **Try Files Again**.
+- Do not reconnect the entire mirror solely to retry Files.
+
+Closing Files ends its retry window.
+
+## USB was disconnected or reconnected
+
+Disconnecting USB retires that USB session. Reconnecting the cable does not
+start another session or move an active Wi-Fi session.
+
+- Choose **Connect USB-C** for a new cable session.
+- Choose **Connect via Wi-Fi** and enter the tablet address for a new Wi-Fi
+  session.
+
+Each action uses only the selected route.
+
+While Live, click **Live over USB-C** to open the same Wi-Fi address prompt or
+**Live over Wi-Fi** to start the same USB-C action. Canceling the address prompt
+leaves USB-C Live.
 
 ## Keychain access fails
 
-Only explicit persistent Wi-Fi setup stores the protected Wi-Fi context secret
-and wake token in the Data Protection Keychain. The address entered through
-**Connect via Wi‑Fi** is session-only and is not saved; USB-C never requires
-either Keychain value. The current
-app is unsigned and has no proved Team Identifier or
-access-group policy, so service scoping and signed-package persistence remain
-unproven. If Keychain cleanup fails, Mirror blocks local setup reset rather than
-leaving secret state behind while claiming a clean reset.
+Only optional persistent Wi-Fi setup stores the protected network-context
+secret and wake token in the Data Protection Keychain. The manually entered
+address is session-only and is not saved. USB-C does not use those secrets.
+
+The current unsigned app has no production Team Identifier or proved
+signed-package persistence. If Keychain cleanup fails, Mirror blocks local
+reset instead of claiming that secret state was removed.
 
 ## The app will not quit
 
-Normal termination waits for Mirror-owned child processes to retire. If that
-bounded cleanup fails, the app declines termination and shows a local warning
-instead of claiming success while a child may remain. Retry quitting and copy
-the sanitized connection details if it persists. On 2026-08-08, **Command-Q**
-with active frame, input and Files children retired every owned process, left
-no orphan and produced no AppKit exception. Mirror never uses `killall`,
-`pkill`, or process-name matching.
+Normal termination waits for Mirror-owned frame, input, Files, and wake work to
+retire. If cleanup fails, Mirror declines termination and shows a local warning
+instead of leaving a possible child process behind silently.
+
+Retry quitting and copy the sanitized diagnostics if the problem persists.
+Mirror never uses `killall`, `pkill`, or process-name matching.

@@ -6,33 +6,73 @@ body:
   - type: markdown
     attributes:
       value: |
-        Do not post passwords, keys, tokens, document contents, document filenames, or unreviewed diagnostics. Report security problems privately through the Security tab.
+        reMarkable Mirror has native Windows and macOS desktop apps. Windows has the complete installer/setup path; the current macOS development build is unsigned. Small ARM64 Linux components run on the tablet and support both apps.
+
+        Do not post passwords, keys, tokens, document contents or filenames, IP addresses, personal network details, device identifiers, or unreviewed diagnostics. Report security problems privately through the Security tab.
+
+  - type: dropdown
+    id: host-platform
+    attributes:
+      label: Host platform
+      options:
+        - Windows 11 x64
+        - macOS on Apple silicon (unsigned development build)
+        - Linux desktop (not supported)
+        - Other or unknown
+    validations:
+      required: true
+
+  - type: input
+    id: host-version
+    attributes:
+      label: Host OS version
+      placeholder: Windows 11 24H2 or macOS 15.6
+    validations:
+      required: true
 
   - type: input
     id: mirror-version
     attributes:
       label: Mirror version
-      placeholder: 1.x.x.x
+      placeholder: Version shown by the app or package
     validations:
       required: true
 
   - type: input
-    id: tablet
+    id: package-source
     attributes:
-      label: Tablet and software version
-      placeholder: Paper Pro Move, 3.x.x.x
+      label: Package source
+      description: Name the release, GitHub Actions run, or local commit/build. Do not paste credentials or private URLs.
+      placeholder: Release tag, Actions run number, or commit SHA
+    validations:
+      required: true
+
+  - type: input
+    id: tablet-model
+    attributes:
+      label: Tablet model
+      placeholder: reMarkable Paper Pro Move
+    validations:
+      required: true
+
+  - type: input
+    id: tablet-firmware
+    attributes:
+      label: Tablet firmware version
+      placeholder: Version shown under tablet software settings
     validations:
       required: true
 
   - type: dropdown
     id: route
     attributes:
-      label: Connection
+      label: Selected route or stage
       options:
-        - USB
+        - USB-C
         - Wi-Fi
-        - Both
+        - Switching between USB-C and Wi-Fi
         - No connection established
+        - Setup, Files, or another non-connection step
     validations:
       required: true
 
@@ -40,7 +80,7 @@ body:
     id: steps
     attributes:
       label: Steps to reproduce
-      description: Include whether the tablet was awake and unlocked.
+      description: Start with the manual button or command you selected. Include whether the tablet was awake and unlocked.
     validations:
       required: true
 
@@ -63,5 +103,5 @@ body:
     attributes:
       label: Privacy check
       options:
-        - label: I removed credentials, document contents, document filenames, and personal network details.
+        - label: I reviewed this report and removed credentials, keys, tokens, document data, IP addresses, personal network details, device identifiers, and unreviewed diagnostics.
           required: true

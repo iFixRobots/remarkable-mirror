@@ -1,353 +1,99 @@
 # Start here
 
-You already have a reMarkable Mirror installer package. This guide takes you from
-that folder to a working USB and Wi-Fi connection. Keep the whole extracted
-folder together while you install it.
-
-> [!IMPORTANT]
-> This package targets the reMarkable Paper Pro Move, code name `chiappa`. It has
-> been tested with beta `3.28.0.164`, OS build `5.8.199`. Do not run
-> tablet setup on another model or software version unless the release notes
-> explicitly include it.
-
-The installed app needs Windows 11 x64 build `22621` or newer.
-
-> [!NOTE]
-> I use Mirror on my own tablet and have tested its USB and Wi-Fi connections,
-> input modes, screenshots, PDF and EPUB import, PDF export, and PDF drag-out to
-> Explorer. One complete run on a freshly reset tablet and clean Windows account
-> is still open before the first public binary release. If a step does not match
-> what you see, stop there and report it.
-
-![reMarkable Mirror connected over Wi-Fi](images/remarkable-mirror-live-wifi.png)
-
-## Before Developer Mode
+You already have a reMarkable Mirror installer package. Keep every extracted
+file and folder together.
 
 > [!WARNING]
-> Enabling Developer Mode factory-resets the tablet and removes saved Wi-Fi.
+> First-time setup uses reMarkable Developer Mode, which factory-resets the
+> tablet and erases saved Wi-Fi networks. Verify your content before enabling
+> it.
 
-Let reMarkable cloud sync finish, then confirm your current notebooks, documents,
-and folders are visible in the official
-[reMarkable desktop app](https://support.remarkable.com/articles/Knowledge/Desktop-app)
-or mobile app. If they are not visible somewhere other than the tablet, stop
-here.
+> [!IMPORTANT]
+> This package targets the reMarkable Paper Pro Move (`chiappa`) on beta
+> `3.28.0.164`, OS build `5.8.199`. Stop if the model or software version does
+> not match the support statement for this release.
 
-Follow reMarkable's official
-[Developer Mode guide](https://developer.remarkable.com/documentation/developer-mode).
-On the tablet, the current path is:
+The installed app requires Windows 11 x64 build `22621` or newer. Windows has
+the complete installer and setup path. The native macOS app is currently an
+unsigned development build, and its setup flow does not yet install every
+tablet prerequisite.
 
-**Settings > General > Paper Tablet > Software > Advanced > Developer Mode**
+## Read the complete guide
 
-After the reset:
+Open [GETTING_STARTED.md](GETTING_STARTED.md). It contains the exact path from
+backup and Developer Mode through USB pairing, installation, and both manual
+connections.
 
-1. Finish first-run setup.
-2. Sign into the same reMarkable account used for the backup.
-3. Reconnect the tablet to Wi-Fi from its own screen.
-4. Wait until the tablet's network screen explicitly says **Connected**.
-5. Wait for cloud sync and confirm the expected notebooks, documents, and
-   folders return.
-6. Complete the first passcode unlock after boot.
-7. Find the Developer Mode root password under **Settings > General > Help >
-   About > Copyrights and Licenses**.
-8. Enable **Settings > General > Storage > USB web interface**.
+Do not skip the one-time SSH pairing. Before `Install.cmd` can prepare the
+tablet, the current Windows account must have:
 
-Mirror never needs the Wi-Fi password. Enter it only on the tablet.
-The reset does not restore that password, Developer Mode credentials, locally
-installed software, or every device preference.
-
-> [!NOTE]
-> The PC and tablet must be able to reach each other directly on Wi-Fi. Guest
-> networks and access points with client isolation usually block this.
-
-## Prepare Windows
-
-You need Windows 11 x64 build `22621` or newer, PowerShell 7.5 or newer, Windows
-OpenSSH Client, and a USB-C data cable. The signed-in Windows account must itself
-be an administrator. Entering a different administrator's credentials is not a
-tested install path because setup stores the app and SSH profile for the signed-in
-account.
-
-Install PowerShell 7 if needed. Microsoft's
-[PowerShell installation guide](https://learn.microsoft.com/powershell/scripting/install/install-powershell-on-windows)
-lists WinGet and installer options. With WinGet:
-
-```powershell
-winget install --id Microsoft.PowerShell --source winget
+```text
+%USERPROFILE%\.ssh\remarkable_chiappa_ed25519
+%USERPROFILE%\.ssh\remarkable_known_hosts
 ```
 
-In an elevated **Windows PowerShell** window, check OpenSSH:
+The complete guide creates or safely reuses that dedicated key, pins the tablet
+identity over direct USB, restricts the private-key ACL, installs only the
+public key, and verifies key-only access. Inside that complete pairing block,
+the tablet-side append is idempotent:
 
-```powershell
-Get-WindowsCapability -Online -Name OpenSSH.Client~~~~0.0.1.0
+```shell
+key=$(cat)
+grep -qxF "$key" /home/root/.ssh/authorized_keys ||
+    printf '%s\n' "$key" >> /home/root/.ssh/authorized_keys
 ```
 
-If the state is `NotPresent`, install it:
+## Installation checklist
 
-```powershell
-Add-WindowsCapability -Online -Name OpenSSH.Client~~~~0.0.1.0
-```
+1. Extract the entire release folder.
+2. Back up and verify tablet content.
+3. Enable reMarkable Developer Mode using the official guide.
+4. After reset, sign in again, reconnect Wi-Fi, wait for cloud restoration,
+   complete the first physical unlock, find the Developer Mode root password,
+   and enable **USB web interface**.
+5. Prepare PowerShell 7.5+ and Windows OpenSSH Client.
+6. Pair the dedicated key over the direct USB-C network by following
+   `GETTING_STARTED.md`.
+7. Confirm the tablet still says Wi-Fi is **Connected**.
+8. Return to this extracted folder and double-click `Install.cmd`.
+9. Accept the administrator/certificate prompt only after verifying the package
+   source and hashes.
+10. Keep the tablet connected and unlocked until setup finishes.
 
-Open PowerShell 7 and confirm:
+The installer adds more than a desktop app. It installs the tablet probe, Xovi
+runtime and extensions, Files loopback, transport-wake service, USB suspend
+guard, protected wake token and device profile, then enables Developer Mode SSH
+over Wi-Fi. It does not store the tablet root password or Wi-Fi password.
 
-```powershell
-pwsh --version
-Get-Command ssh.exe, scp.exe, ssh-keygen.exe, ssh-keyscan.exe
-```
+There is no complete tested one-click stock-restoration workflow yet. Read
+[TABLET_CHANGES.md](TABLET_CHANGES.md) and [UNINSTALL.md](UNINSTALL.md) before
+installation.
 
-## Pair the tablet over USB
+## First connection
 
-Connect the tablet directly with the USB-C data cable. Wake it and complete the
-first passcode unlock after boot. The direct Developer Mode address is
-`10.11.99.1`. Check the same direct USB route that the installer requires:
+Launch waits without contacting the tablet.
 
-```powershell
-$usbAddresses = @(
-    Get-NetIPAddress `
-        -IPAddress 10.11.99.11 `
-        -AddressFamily IPv4 `
-        -ErrorAction SilentlyContinue
-)
-if ($usbAddresses.Count -ne 1) {
-    throw 'Windows does not have exactly one reMarkable USB address.'
-}
-$usbAddress = $usbAddresses[0]
+1. Choose **Connect USB-C** and wait for **Live over USB**.
+2. Check Touch + Type, Pen, and a screenshot.
+3. Unlock the tablet, open Files, send a small PDF and a DRM-free EPUB, and
+   confirm a human-named PDF appears in Explorer when dragged out. The drag
+   should begin immediately.
+4. Use the document menu and confirm **Save native RMDOC...** is available.
+5. Click **Live over USB**. Only then does the IP address field appear.
+6. Enter the tablet's current Wi-Fi IPv4 address and wait for
+   **Live over Wi-Fi**.
+7. Click **Live over Wi-Fi** to start the USB-C switch.
 
-$usbAdapters = @(
-    Get-NetAdapter `
-        -InterfaceIndex $usbAddress.InterfaceIndex `
-        -ErrorAction SilentlyContinue
-)
-$usbRoutes = @(
-    Get-NetRoute `
-        -InterfaceIndex $usbAddress.InterfaceIndex `
-        -DestinationPrefix '10.11.99.0/27' `
-        -ErrorAction SilentlyContinue
-)
+Mirror checks only the route you select. It never switches or reconnects by
+itself.
 
-if ($usbAddress.PrefixLength -ne 27 -or
-    $usbAddress.AddressState -ne 'Preferred' -or
-    $usbAddress.SkipAsSource -or
-    $usbAdapters.Count -ne 1 -or
-    $usbAdapters[0].Status -ne 'Up' -or
-    -not $usbAdapters[0].HardwareInterface -or
-    $usbAdapters[0].Virtual -or
-    $usbAdapters[0].PnPDeviceID -notmatch '^USB\\' -or
-    $usbRoutes.Count -ne 1 -or
-    $usbRoutes[0].NextHop -ne '0.0.0.0' -or
-    $usbRoutes[0].State -ne 'Alive') {
-    throw 'The reMarkable direct USB address, adapter, or route is not ready.'
-}
-
-[pscustomobject]@{
-    Address = "$($usbAddress.IPAddress)/$($usbAddress.PrefixLength)"
-    Adapter = $usbAdapters[0].InterfaceAlias
-    Route = $usbRoutes[0].DestinationPrefix
-    State = $usbRoutes[0].State
-}
-```
-
-The output should show `10.11.99.11/27`, a physical USB adapter,
-`10.11.99.0/27`, and `Alive`. If the block throws, open the bundled
-[Troubleshooting guide](TROUBLESHOOTING.md#usb-does-not-create-the-direct-tablet-network).
-
-Create a dedicated key and save the USB host key:
-
-```powershell
-$key = Join-Path $env:USERPROFILE '.ssh\remarkable_chiappa_ed25519'
-$knownHosts = Join-Path $env:USERPROFILE '.ssh\remarkable_known_hosts'
-
-New-Item -ItemType Directory -Path (Split-Path $key) -Force | Out-Null
-
-if (-not (Test-Path -LiteralPath $key)) {
-    ssh-keygen.exe -t ed25519 -f $key -C 'remarkable-mirror' -N ''
-}
-
-$derivedPublicKey = @(& ssh-keygen.exe -y -f $key 2>$null)
-$derivedPublicKeyFields = if ($derivedPublicKey.Count -eq 1) {
-    @($derivedPublicKey[0] -split '\s+')
-} else {
-    @()
-}
-if ($LASTEXITCODE -ne 0 -or
-    $derivedPublicKeyFields.Count -lt 2 -or
-    $derivedPublicKeyFields[0] -ne 'ssh-ed25519' -or
-    [string]::IsNullOrWhiteSpace($derivedPublicKeyFields[1])) {
-    throw 'The Mirror private key could not produce one Ed25519 public key.'
-}
-"$($derivedPublicKeyFields[0]) $($derivedPublicKeyFields[1]) remarkable-mirror" |
-    Set-Content -LiteralPath "$key.pub" -Encoding ascii
-```
-
-An existing private key is reused. Its public half is rebuilt from that private
-key, so a stale or missing `.pub` file cannot pair the wrong identity. The next
-step re-pairs the same dedicated key after a factory reset without replacing it.
-
-Scan one Ed25519 host key, reject an empty or malformed result, then show the
-fingerprint you are about to trust:
-
-```powershell
-$scannedHostKey = @(
-    & ssh-keyscan.exe -T 5 -t ed25519 10.11.99.1 2>$null
-)
-if ($LASTEXITCODE -ne 0 -or
-    $scannedHostKey.Count -ne 1 -or
-    $scannedHostKey[0] -notmatch '^10\.11\.99\.1\s+ssh-ed25519\s+\S+$') {
-    throw 'The tablet did not return one valid Ed25519 SSH host key.'
-}
-$scannedHostKey |
-    Set-Content -LiteralPath $knownHosts -Encoding ascii
-
-$fingerprint = (& ssh-keygen.exe -lf $knownHosts 2>&1) -join "`n"
-if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($fingerprint)) {
-    throw 'The saved tablet host key could not be fingerprinted.'
-}
-$fingerprint
-```
-
-This is trust on first use across the physical USB cable. If the scan fails,
-wake and unlock the tablet, confirm the USB address and route, and run only this
-scan block again.
-
-Replace the private key's inherited Windows permissions with one rule for the
-current account:
-
-```powershell
-$sid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
-$acl = [System.Security.AccessControl.FileSecurity]::new()
-$acl.SetOwner($sid)
-$acl.SetAccessRuleProtection($true, $false)
-$acl.AddAccessRule(
-    [System.Security.AccessControl.FileSystemAccessRule]::new(
-        $sid,
-        [System.Security.AccessControl.FileSystemRights]::FullControl,
-        [System.Security.AccessControl.AccessControlType]::Allow
-    )
-)
-Set-Acl -LiteralPath $key -AclObject $acl
-
-$keyAcl = Get-Acl -LiteralPath $key
-$keyRules = @($keyAcl.GetAccessRules(
-    $true,
-    $false,
-    [System.Security.Principal.SecurityIdentifier]
-))
-[pscustomobject]@{
-    Owner = $keyAcl.GetOwner(
-        [System.Security.Principal.SecurityIdentifier]).Value
-    Protected = $keyAcl.AreAccessRulesProtected
-    RuleCount = $keyRules.Count
-    RuleSid = $keyRules[0].IdentityReference.Value
-    Rights = $keyRules[0].FileSystemRights
-}
-```
-
-The output must show `Protected` as `True`, `RuleCount` as `1`, the current SID
-for both owner and rule, and `FullControl` rights.
-
-Install the public key. Enter the generated tablet root password when prompted:
-
-```powershell
-Get-Content -LiteralPath "$key.pub" |
-    ssh.exe -F NUL `
-        -o "UserKnownHostsFile=$knownHosts" `
-        -o StrictHostKeyChecking=yes `
-        root@10.11.99.1 `
-        'umask 077; mkdir -p /home/root/.ssh; chmod 700 /home/root/.ssh; touch /home/root/.ssh/authorized_keys; chmod 600 /home/root/.ssh/authorized_keys; key=$(cat); grep -qxF "$key" /home/root/.ssh/authorized_keys || printf "%s\n" "$key" >> /home/root/.ssh/authorized_keys'
-```
-
-You can safely run this command again. It keeps the existing key when it is
-already present instead of adding another copy.
-
-Verify key-only access:
-
-```powershell
-ssh.exe -F NUL `
-    -i $key `
-    -o BatchMode=yes `
-    -o IdentitiesOnly=yes `
-    -o "UserKnownHostsFile=$knownHosts" `
-    -o StrictHostKeyChecking=yes `
-    root@10.11.99.1 true
-```
-
-Success returns to the prompt without output.
-
-## Install
-
-Return to this extracted release folder and double-click `Install.cmd`.
-
-Keep the tablet connected and unlocked until setup finishes. Accept the one
-Windows administrator prompt. The installer validates the package, installs the
-Windows app, installs the tablet components Mirror needs, and enables the tablet's
-official SSH-over-WLAN setting.
-
-Before starting, confirm the tablet still explicitly says Wi-Fi is
-**Connected**. If Wi-Fi is not ready, the installer can finish USB work but must
-pause wireless pairing. Connect Wi-Fi on the tablet and run this same
-`Install.cmd` again.
-
-It does not enable Developer Mode, bypass a passcode, or ask for the Wi-Fi
-password.
-
-On success, the installer window closes and reMarkable Mirror opens
-automatically. If the installer window stays open, setup failed and its last
-lines contain the error. Read that error before closing the window.
-
-## Check USB first
-
-Mirror should already be open after a successful install. If it was closed, open
-it from Start. Launch waits without contacting the tablet. Choose **Connect
-USB-C**, then wait for **Live over USB**. This bounded attempt checks only the
-direct cable.
-
-![Mirror preparing the display and controls](images/remarkable-mirror-preparing.png)
-
-- Use **Touch + Type** to click and type without switching modes.
-- Use **Pen** to treat the mouse like a stylus.
-- Left-click the camera button to copy a screenshot. Right-click it and choose
-  **Save screenshot as...** to open **Save As**.
-- Open **Files** while the tablet is unlocked.
-- Drop a small disposable PDF and a DRM-free EPUB into the tablet, one at a
-  time.
-- Drag a document row into a normal Windows Explorer folder and confirm that a
-  human-named PDF appears there. The drag should begin immediately, with no
-  **Preparing** message in Mirror. Start another drag, cancel it, then
-  immediately drag the same document again. The retry should begin right away
-  and Mirror should stay responsive.
-- Click a document to open **Save As** for PDF. Right-click it to choose
-  **Save as PDF...** or **Save native RMDOC...**.
-
-If the Files drawer waits while the tablet is passcode-locked, that is normal.
-Unlocking starts the stock Files listener again.
-
-![Files waits for unlock while the mirror stays live](images/remarkable-mirror-files.png)
-
-## Then check each manual connection
-
-Confirm the tablet says Wi-Fi is connected and find its IPv4 address in the
-tablet's Wi-Fi network details. Close and reopen Mirror so the two manual
-connection choices are visible, unplug USB-C, and leave the tablet awake. Choose
-**Connect Wi-Fi**; only then does the IP address field appear. Enter the tablet's
-IPv4 address, choose **Connect**, and wait for **Live over Wi-Fi**. Repeat touch,
-keyboard, Pen, and screenshot checks, then confirm that the Files library loads.
-Drop one small PDF and one DRM-free EPUB, drag one tablet document into Explorer,
-then save one document as native RMDOC to Windows.
-
-Close and reopen Mirror, reconnect USB-C, choose **Connect USB-C**, and wait for
-**Live over USB**. Confirm that **Touch + Type** and Files still work.
-
-During an active Mirror session, the USB carrier guard prevents suspend while
-attached and the selected input session holds its own wake lease. If Linux
-already completed suspend before a connection starts, there is no source-proven
-host wake guarantee. Press the tablet's power button once, enter its passcode,
-then choose the route again. Mirror never switches or reconnects by itself.
+![Mirror preparing the selected connection](images/remarkable-mirror-preparing.png)
 
 ## If something fails
 
-Use the visible app state to find the matching section in the bundled
-[Troubleshooting guide](TROUBLESHOOTING.md).
+Stop at the first failed step and use the bundled
+[Troubleshooting guide](TROUBLESHOOTING.md). Do not disable strict host-key
+checking or repeatedly rerun the installer without understanding the error.
 
-After a firmware A/B root-slot switch, first confirm that this release explicitly
-supports the tablet's new software version. If it does not, stop and report the
-new version. If it does, reconnect and unlock over USB, then run that supported
-release's `Install.cmd` again.
+After a firmware/root-slot switch, rerun this release only if its support notes
+explicitly include the tablet's new software version.

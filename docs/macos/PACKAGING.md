@@ -1,90 +1,80 @@
-# macOS Packaging
+# macOS packaging
 
-The last audited Milestone 6 package is a private, unsigned arm64 `0.2.0 (2)`
-ZIP for local review. Current source builds as a single production target under
-stable Xcode 26.6.
-The Release app was packaged, rehashed, freshly extracted and compared
-recursively with an exact match, and its packaged binary matches the installed
-app. Its executable retains a linker-generated ad-hoc signature, while the
-app bundle does not pass strict code-signature verification. It has not been
-Developer ID signed, notarized, hosted, released, promoted to Gold or
-owner-accepted. A current product-only Debug build has completed an owner-started
-USB-C connection to Live on the physical tablet, recovered an already-open
-Files pane after an owner-authorized unlock in the same generation, loaded a
-7-item root listing, and quit cleanly with its active owned children
-retired. That proof does not transfer to this older Release archive, Wi-Fi,
-signing, notarization or release.
+The macOS app is a native SwiftUI/AppKit application. Current development
+packages are arm64, unsigned, and not notarized. They are development builds,
+not public releases.
 
-## Local candidate
+## Build
+
+Use an Apple-silicon Mac with stable Xcode 26 and the Go version pinned by the
+repository:
 
 ```zsh
 scripts/Build-RemarkableMirrorMac.sh
 scripts/Package-RemarkableMirrorMac.sh
 ```
 
-The package script derives `CFBundleShortVersionString`, `CFBundleExecutable`,
-and the executable architectures from the built bundle. It verifies the
-archive and distinguishes a valid bundle signature from the executable's
-linker-generated signature. Candidate `0.2.0 (2)` is:
+The build script:
+
+- selects the `ReMarkableMirror` scheme;
+- builds the requested architecture for macOS 14 or newer;
+- bundles the Linux ARM64 transport-wake component;
+- verifies the bundle identifier, version, executable, and architectures; and
+- leaves the build output unregistered with Launch Services.
+
+The package script creates:
 
 ```text
-artifacts/macos/package/reMarkable-Mirror-0.2.0-macOS-arm64-unsigned.zip
+artifacts/macos/package/reMarkable-Mirror-<version>-macOS-<architecture>-unsigned.zip
 ```
 
-SHA-256:
+It stages a fresh app copy, validates the embedded tablet component and app
+identity, creates one ZIP, extracts it again, and verifies the packaged app.
 
-```text
-0bb79a5331142d42a4f5d74cdf31802a660f6d8ebb1d0adb4a93a99f6fcc38cf
+## Install a development build
+
+For a local build:
+
+```zsh
+scripts/Install-RemarkableMirrorMac.sh
+open "$HOME/Applications/reMarkable Mirror.app"
 ```
 
-The source and the older archive have proved these states separately:
+The local installer refuses to overwrite an existing app. Quit and move the
+previous build aside before installing another one.
 
-- the source builds as a single production target under stable Xcode 26.6;
-- `go test ./...`, `go vet ./...` and host-policy checks pass; and
-- the last audited ZIP has a recorded clean extraction and recursive Release-product
-  comparison.
+Because the current package is unsigned, macOS may require **Open** from the
+Finder context menu. Do not present that bypass as the public installation
+experience.
 
-The last audited ZIP proves only that local Release product and archive comparison.
-The packaged app was installed and its binary matched that older archive. A
-newer product-only Debug build completed one owner-started USB-C session to Live
-with a real tablet frame and authenticated frame, input and Files processes.
-In that current-source run, an already-open Files pane recovered after an
-owner-authorized unlock in the same USB generation and loaded a 7-item root
-listing without reconnecting or reopening; a later Command-Q retired all active
-owned children without an orphan or AppKit exception. Other current-worktree
-runs physically exercised screenshot copy/save, touch and Pen taps, committed
-keyboard text, a continuous swipe, folder navigation, PDF export and native
-RMDOC export. That newer proof does not prove this archive, import or upload,
-delete, Finder drag-out, pen stroke, eraser/right-click, Wi-Fi, the exact
-fully-deep-sleep power event, Keychain behavior in an authorized signed app,
-hosted artifacts, Developer ID signing, notarization, release or owner
-acceptance.
+## Signing and notarization
 
-A separate macOS packaging workflow file exists in the repository, but it has
-not run on a hosted runner and has produced no hosted artifact.
+The package script supports credentialed release hooks without storing
+credentials in the repository:
 
-## Signing boundary
+```zsh
+MACOS_SIGNING_IDENTITY='Developer ID Application: Example (TEAMID)' \
+MACOS_NOTARY_KEYCHAIN_PROFILE='remarkable-mirror-notary' \
+scripts/Package-RemarkableMirrorMac.sh
+```
 
-The latest product-only Debug app is locally ad-hoc signed, with no Team
-Identifier; the last audited Release archive remains unsigned. Neither is
-Developer ID or notarization proof. No signing or notarization credential is
-read, fabricated, or stored by the scripts.
-Only explicit Wi-Fi setup calls the Data Protection Keychain adapter for the
-paired Wi-Fi context secret and wake token. Direct USB-C does not use them.
-Persistence and access-group behavior still require an authorized signed build.
+When those variables are set, the script signs with hardened runtime, verifies
+the signature, submits the app for notarization, waits for acceptance, and
+staples the result before creating the final archive.
 
-Before a private downloadable Mac artifact can be treated as distributable:
+A public Mac artifact requires all of the following:
 
-- exercise the complete tablet-backed product path;
-- run and verify the separate macOS GitHub Actions workflow without changing
-  Windows jobs;
-- compile each claimed architecture before calling the package universal;
-- add explicit Developer ID and notarization hooks without embedding secrets;
-- verify Local Network privacy and system OpenSSH in the packaged signed app;
-- exercise the real Keychain access group and persistence across replacement;
-  and
-- record signing, notarization, hosted-artifact, owner-acceptance, and release
-  status independently.
+- Developer ID signature verification;
+- successful Apple notarization and stapling;
+- expected bundle identifier, version, and architecture;
+- a SHA-256 published beside the download;
+- matching public source and license notices;
+- launch and connection testing from the packaged app; and
+- release notes that state the current setup-prerequisite boundary.
 
-Signing, notarization, publishing, and release require explicit owner
-authorization and are not part of the current Milestone 6 proof.
+The current Mac setup flow installs the transport-wake component but not every
+tablet prerequisite. That installer limitation is separate from the native
+app's ability to connect to the real tablet.
+
+See [Development](../DEVELOPMENT.md) and
+[Releasing](../RELEASING.md).
