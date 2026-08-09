@@ -19,6 +19,7 @@ internal sealed class PassiveRouteProbe
     private const string ExpectedProbeVersion = "0.4.9";
     private const string ExpectedTransportVersion = "0.6.0";
     private const string ExpectedTransportSchema = "rmmirror.transport-wake/v1";
+    private const string ExpectedUsbConnectionPolicy = "carrier-qualified-power-hold/v1";
     private const string ExpectedXoviVersion = "v19-23052026";
 
     private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(2);
@@ -45,6 +46,7 @@ internal sealed class PassiveRouteProbe
         transport_version="$($transport --version 2>/dev/null || true)"
         transport_active="$(systemctl is-active rmmirror-transport-wake.service 2>/dev/null || true)"
         transport_schema="$(sed -n 's/.*"schema":"\([^"]*\)".*/\1/p' "$transport_status" 2>/dev/null | head -n 1)"
+        usb_connection_policy="$(sed -n 's/.*"usb_connection_policy":"\([^"]*\)".*/\1/p' "$transport_status" 2>/dev/null | head -n 1)"
         wake_endpoint_healthy="$(sed -n 's/.*"wake_endpoint_healthy":\(true\|false\).*/\1/p' "$transport_status" 2>/dev/null | head -n 1)"
         xovi_version="$(cat "$xovi_version_file" 2>/dev/null | head -n 1 || true)"
 
@@ -56,6 +58,7 @@ internal sealed class PassiveRouteProbe
         printf '%s\n' "RMMIRROR_CAP_PROBE_VERSION=$probe_version"
         printf '%s\n' "RMMIRROR_CAP_TRANSPORT_VERSION=$transport_version"
         printf '%s\n' "RMMIRROR_CAP_TRANSPORT_SCHEMA=$transport_schema"
+        printf '%s\n' "RMMIRROR_CAP_USB_CONNECTION_POLICY=$usb_connection_policy"
         printf '%s\n' "RMMIRROR_CAP_TRANSPORT_ACTIVE=$transport_active"
         printf '%s\n' "RMMIRROR_CAP_WAKE_ENDPOINT_HEALTHY=$wake_endpoint_healthy"
         printf '%s\n' "RMMIRROR_CAP_XOVI_VERSION=$xovi_version"
@@ -69,6 +72,7 @@ internal sealed class PassiveRouteProbe
         test "$probe_version" = '0.4.9' || mismatch=1
         test "$transport_version" = '0.6.0' || mismatch=1
         test "$transport_schema" = 'rmmirror.transport-wake/v1' || mismatch=1
+        test "$usb_connection_policy" = 'carrier-qualified-power-hold/v1' || mismatch=1
         test "$transport_active" = 'active' || mismatch=1
         test "$wake_endpoint_healthy" = 'true' || mismatch=1
         test "$xovi_version" = 'v19-23052026' || mismatch=1
@@ -422,6 +426,10 @@ internal sealed class PassiveRouteProbe
             !TryGetSafeValue(values, "RMMIRROR_CAP_PROBE_VERSION", out var probeVersion) ||
             !TryGetSafeValue(values, "RMMIRROR_CAP_TRANSPORT_VERSION", out var transportVersion) ||
             !TryGetSafeValue(values, "RMMIRROR_CAP_TRANSPORT_SCHEMA", out var transportSchema) ||
+            !TryGetSafeValue(
+                values,
+                "RMMIRROR_CAP_USB_CONNECTION_POLICY",
+                out var usbConnectionPolicy) ||
             !TryGetSafeValue(values, "RMMIRROR_CAP_TRANSPORT_ACTIVE", out var transportActive) ||
             !TryGetSafeValue(
                 values,
@@ -441,12 +449,17 @@ internal sealed class PassiveRouteProbe
             probeVersion,
             transportVersion,
             transportSchema,
+            usbConnectionPolicy,
             string.Equals(transportActive, "active", StringComparison.Ordinal),
             string.Equals(wakeEndpointHealthy, "true", StringComparison.Ordinal),
             xoviVersion,
             string.Equals(probeVersion, ExpectedProbeVersion, StringComparison.Ordinal) &&
             string.Equals(transportVersion, ExpectedTransportVersion, StringComparison.Ordinal) &&
             string.Equals(transportSchema, ExpectedTransportSchema, StringComparison.Ordinal) &&
+            string.Equals(
+                usbConnectionPolicy,
+                ExpectedUsbConnectionPolicy,
+                StringComparison.Ordinal) &&
             string.Equals(transportActive, "active", StringComparison.Ordinal) &&
             string.Equals(wakeEndpointHealthy, "true", StringComparison.Ordinal) &&
             string.Equals(xoviVersion, ExpectedXoviVersion, StringComparison.Ordinal));
@@ -588,6 +601,7 @@ internal sealed record PassiveRouteCapability(
     string ProbeVersion,
     string TransportVersion,
     string TransportSchema,
+    string UsbConnectionPolicy,
     bool TransportActive,
     bool WakeEndpointHealthy,
     string XoviVersion,

@@ -20,6 +20,7 @@ persistent_enable_target=../rmmirror-transport-wake.service
 sleep_guard_directory=/usr/lib/systemd/system/systemd-suspend-then-hibernate.service.d
 sleep_guard_anchor=$sleep_guard_directory/50-rmmirror-usb-carrier.conf
 status_path=/run/rmmirror-transport-wake.json
+power_online_path=/sys/class/power_supply/max77818-charger/online
 wake_lock_path=/sys/power/wake_lock
 wake_unlock_path=/sys/power/wake_unlock
 installer_wake_lock_name="rmmirror-usb-install-$$"
@@ -98,26 +99,87 @@ release_installer_wake_lock() {
     installer_wake_lock_active=0
 }
 
+current_status_is_healthy() {
+    test -r "$status_path" &&
+        grep -q '"schema":"rmmirror.transport-wake/v1"' "$status_path" &&
+        grep -q '"usb_connection_policy":"carrier-qualified-power-hold/v1"' "$status_path" &&
+        grep -q '"power_known":true' "$status_path" &&
+        grep -q '"connection_known":true' "$status_path" &&
+        grep -q '"wake_endpoint_healthy":true' "$status_path" &&
+        ! grep -q '"error":' "$status_path" &&
+        {
+            {
+                grep -q '"usb_connected":true' "$status_path" &&
+                    grep -q '"usb_data_qualified":true' "$status_path" &&
+                    grep -q '"state":"holding"' "$status_path" &&
+                    grep -q '"wake_lock_active":true' "$status_path" &&
+                    grep -q '"system_sleep_blocked":true' "$status_path"
+            } || {
+                grep -q '"usb_connected":false' "$status_path" &&
+                    grep -q '"usb_data_qualified":false' "$status_path" &&
+                    grep -q '"state":"idle"' "$status_path" &&
+                    grep -q '"wake_lock_active":false' "$status_path" &&
+                    grep -q '"system_sleep_blocked":false' "$status_path"
+            }
+        }
+}
+
+current_status_is_operational() {
+    current_status_is_healthy &&
+        grep -q '"usb_connected":true' "$status_path" &&
+        grep -q '"usb_data_qualified":true' "$status_path" &&
+        grep -q '"state":"holding"' "$status_path" &&
+        grep -q '"wake_lock_active":true' "$status_path" &&
+        grep -q '"system_sleep_blocked":true' "$status_path"
+}
+
+legacy_status_is_healthy() {
+    test -r "$status_path" &&
+        grep -q '"schema":"rmmirror.transport-wake/v1"' "$status_path" &&
+        ! grep -q '"usb_connection_policy":' "$status_path" &&
+        grep -q '"carrier_known":true' "$status_path" &&
+        grep -q '"wake_endpoint_healthy":true' "$status_path" &&
+        ! grep -q '"error":' "$status_path" &&
+        {
+            {
+                grep -q '"usb_carrier":true' "$status_path" &&
+                    grep -q '"state":"holding"' "$status_path" &&
+                    grep -q '"wake_lock_active":true' "$status_path" &&
+                    grep -q '"system_sleep_blocked":true' "$status_path"
+            } || {
+                grep -q '"usb_carrier":false' "$status_path" &&
+                    grep -q '"state":"idle"' "$status_path" &&
+                    grep -q '"wake_lock_active":false' "$status_path" &&
+                    grep -q '"system_sleep_blocked":false' "$status_path"
+            }
+        }
+}
+
 wait_for_healthy_status() {
+    expected_contract=$1
+    case "$expected_contract" in
+        current|rollback-compatible) ;;
+        *) return 2 ;;
+    esac
     attempt=0
     while test "$attempt" -lt 200; do
-        if test -r "$status_path" &&
-            grep -q '"schema":"rmmirror.transport-wake/v1"' "$status_path" &&
-            grep -q '"carrier_known":true' "$status_path" &&
-            grep -q '"wake_endpoint_healthy":true' "$status_path" &&
-            ! grep -q '"error":' "$status_path"; then
-            if grep -q '"usb_carrier":true' "$status_path" &&
-                grep -q '"state":"holding"' "$status_path" &&
-                grep -q '"wake_lock_active":true' "$status_path" &&
-                grep -q '"system_sleep_blocked":true' "$status_path"; then
-                return 0
-            fi
-            if grep -q '"usb_carrier":false' "$status_path" &&
-                grep -q '"state":"idle"' "$status_path" &&
-                grep -q '"wake_lock_active":false' "$status_path" &&
-                grep -q '"system_sleep_blocked":false' "$status_path"; then
-                return 0
-            fi
+        if current_status_is_healthy; then
+            return 0
+        fi
+        if test "$expected_contract" = rollback-compatible && legacy_status_is_healthy; then
+            return 0
+        fi
+        attempt=$((attempt + 1))
+        sleep 0.1
+    done
+    return 1
+}
+
+wait_for_operational_status() {
+    attempt=0
+    while test "$attempt" -lt 200; do
+        if current_status_is_operational; then
+            return 0
         fi
         attempt=$((attempt + 1))
         sleep 0.1
@@ -445,7 +507,7 @@ rollback_install_transaction() {
                 systemctl start rmmirror-transport-wake.service >/dev/null 2>&1 || rollback_failed=1
             fi
             systemctl is-active --quiet rmmirror-transport-wake.service || rollback_failed=1
-            wait_for_healthy_status || rollback_failed=1
+            wait_for_healthy_status rollback-compatible || rollback_failed=1
         else
             stop_transport_service || rollback_failed=1
         fi
@@ -596,10 +658,53 @@ for source_path in "$binary_source" "$unit_source" "$sleep_guard_source"; do
     test -f "$source_path"
     test ! -L "$source_path"
 done
-test -r /sys/class/net/usb0/carrier
+test -r "$power_online_path"
 test -r "$wake_lock_path"
 test -w "$wake_lock_path"
 test -w "$wake_unlock_path"
+power_online_value=$(tr -d '[:space:]' < "$power_online_path")
+case "$power_online_value" in
+    0|1) ;;
+    *)
+        printf '%s\n' 'rmmirror-transport-wake: USB power state has an unexpected value' >&2
+        exit 1
+        ;;
+esac
+carrier_value=unknown
+if test -r /sys/class/net/usb0/carrier; then
+    carrier_value=$(tr -d '[:space:]' < /sys/class/net/usb0/carrier)
+    case "$carrier_value" in
+        0|1) ;;
+        *) carrier_value=unknown ;;
+    esac
+fi
+udc_state_count=0
+udc_configured_count=0
+udc_state_unknown=0
+for candidate in /sys/class/udc/*/state; do
+    test -e "$candidate" || continue
+    udc_state_count=$((udc_state_count + 1))
+    if ! test -r "$candidate"; then
+        udc_state_unknown=1
+        continue
+    fi
+    candidate_state=$(tr -d '[:space:]' < "$candidate")
+    case "$candidate_state" in
+        configured) udc_configured_count=$((udc_configured_count + 1)) ;;
+        notattached|attached|powered|reconnecting|unauthenticated|default|addressed|suspended) ;;
+        *) udc_state_unknown=1 ;;
+    esac
+done
+udc_configured=0
+if test "$udc_state_count" -gt 0 &&
+    test "$udc_state_unknown" -eq 0 &&
+    test "$udc_configured_count" -eq 1; then
+    udc_configured=1
+fi
+if test "$carrier_value" != 1 && test "$udc_configured" != 1; then
+    printf '%s\n' 'rmmirror-transport-wake: direct USB-C data is not configured' >&2
+    exit 1
+fi
 ensure_wake_token
 
 begin_install_transaction
@@ -632,30 +737,21 @@ case " $loaded_sleep_guard " in
         ;;
 esac
 test "$("$binary_anchor" --version)" = "$expected_transport_version"
-carrier_value=$(tr -d '[:space:]' < /sys/class/net/usb0/carrier)
-case "$carrier_value" in
-    0) expected_sleep_condition_exit=0 ;;
-    1) expected_sleep_condition_exit=1 ;;
-    *)
-        printf '%s\n' 'rmmirror-transport-wake: USB carrier has an unexpected value' >&2
-        exit 1
-        ;;
-esac
 sleep_condition_exit=0
-"$binary_anchor" allow-system-sleep --carrier /sys/class/net/usb0/carrier >/dev/null 2>&1 || sleep_condition_exit=$?
-test "$sleep_condition_exit" -eq "$expected_sleep_condition_exit"
+"$binary_anchor" allow-system-sleep --carrier /sys/class/net/usb0/carrier --udc-state-glob '/sys/class/udc/*/state' >/dev/null 2>&1 || sleep_condition_exit=$?
+test "$sleep_condition_exit" -eq 1
 sleep_hold_probe_exit=0
-"$binary_anchor" hold-system-sleep --carrier "$install_rollback_directory/missing-carrier" >/dev/null 2>&1 || sleep_hold_probe_exit=$?
+"$binary_anchor" hold-system-sleep --carrier "$install_rollback_directory/missing-carrier" --udc-state-glob "$install_rollback_directory/missing-udc/*/state" --power-online "$power_online_path" >/dev/null 2>&1 || sleep_hold_probe_exit=$?
 test "$sleep_hold_probe_exit" -eq 0
 test "$(systemctl is-enabled rmmirror-transport-wake.service)" = static
 persistent_enablement_is_exact
 sync
 
 # Atomic publication leaves the running prior process attached to its old,
-# now-unlinked executable inode. The root cannot be remounted read-only until
-# that process exits. The distinct timed installer wake lock is already active,
-# so stop the old process before the remount and start the verified candidate
-# only after the root is read-only.
+# now-unlinked executable inode. The original root-mount state cannot be restored
+# until that process exits. The distinct timed installer wake lock is already
+# active, so stop the old process, restore the original mount state, and then
+# start the verified candidate.
 stop_pending_system_sleep
 stop_transport_service
 restore_root_mount
@@ -663,7 +759,7 @@ restore_root_mount
 rm -f "$status_path"
 systemctl start rmmirror-transport-wake.service
 systemctl is-active --quiet rmmirror-transport-wake.service
-wait_for_healthy_status
+wait_for_operational_status
 cleanup_legacy_sleep_masks
 release_installer_wake_lock
 install_transaction_committed=1

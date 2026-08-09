@@ -134,6 +134,164 @@ func TestSystemSleepHoldWaitsForUSBDetach(t *testing.T) {
 	}
 }
 
+func TestSystemSleepHoldUsesQualifiedUSBPowerAcrossCarrierLoss(t *testing.T) {
+	type signals struct {
+		carrier string
+		power   string
+	}
+	sequence := []signals{
+		{carrier: "1\n", power: "1\n"},
+		{carrier: "0\n", power: "1\n"},
+		{carrier: "0\n", power: "0\n"},
+	}
+	iteration := 0
+	waits := 0
+	pings := 0
+	identity := serviceWatchdogIdentity{
+		MainPID:      42,
+		InvocationID: strings.Repeat("a", 32),
+	}
+
+	exitCode := runSystemSleepHold(
+		context.Background(),
+		[]string{
+			"--carrier", "/carrier",
+			"--power-online", "/power-online",
+			"--poll-interval", "1s",
+		},
+		io.Discard,
+		func(path string) ([]byte, error) {
+			if iteration >= len(sequence) {
+				t.Fatalf("unexpected signal read after iteration %d", iteration)
+			}
+			switch path {
+			case "/carrier":
+				return []byte(sequence[iteration].carrier), nil
+			case "/power-online":
+				value := sequence[iteration].power
+				iteration++
+				return []byte(value), nil
+			default:
+				t.Fatalf("unexpected read path %q", path)
+				return nil, os.ErrNotExist
+			}
+		},
+		func(context.Context, time.Duration) error {
+			waits++
+			return nil
+		},
+		func() time.Time { return time.Unix(0, 0) },
+		func(context.Context, string, *serviceWatchdogIdentity) (serviceWatchdogIdentity, error) {
+			pings++
+			return identity, nil
+		},
+	)
+
+	if exitCode != 0 {
+		t.Fatalf("exit code = %d, want stock sleep released after USB power loss", exitCode)
+	}
+	if waits != 2 {
+		t.Fatalf("waits = %d, want carrier loss bridged until power loss", waits)
+	}
+	if pings != 1 {
+		t.Fatalf("watchdog pings = %d, want 1", pings)
+	}
+}
+
+func TestSystemSleepHoldDoesNotArmFromChargeOnlyUSBPower(t *testing.T) {
+	waited := false
+	pinged := false
+	exitCode := runSystemSleepHold(
+		context.Background(),
+		[]string{"--carrier", "/carrier", "--power-online", "/power-online"},
+		io.Discard,
+		func(path string) ([]byte, error) {
+			switch path {
+			case "/carrier":
+				return []byte("0\n"), nil
+			case "/power-online":
+				return []byte("1\n"), nil
+			default:
+				t.Fatalf("unexpected read path %q", path)
+				return nil, os.ErrNotExist
+			}
+		},
+		func(context.Context, time.Duration) error {
+			waited = true
+			return nil
+		},
+		func() time.Time { return time.Unix(0, 0) },
+		func(context.Context, string, *serviceWatchdogIdentity) (serviceWatchdogIdentity, error) {
+			pinged = true
+			return serviceWatchdogIdentity{}, nil
+		},
+	)
+
+	if exitCode != 0 {
+		t.Fatalf("exit code = %d, want stock sleep allowed for unqualified charge-only power", exitCode)
+	}
+	if waited || pinged {
+		t.Fatalf("charge-only power unexpectedly held sleep: waited=%t pinged=%t", waited, pinged)
+	}
+}
+
+func TestSystemSleepHoldFailsOpenWhenQualifiedPowerBecomesUnknown(t *testing.T) {
+	iteration := 0
+	waits := 0
+	pings := 0
+	var stderr bytes.Buffer
+	exitCode := runSystemSleepHold(
+		context.Background(),
+		[]string{
+			"--carrier", "/carrier",
+			"--power-online", "/power-online",
+			"--poll-interval", "1s",
+		},
+		&stderr,
+		func(path string) ([]byte, error) {
+			switch path {
+			case "/carrier":
+				if iteration == 0 {
+					return []byte("1\n"), nil
+				}
+				return []byte("0\n"), nil
+			case "/power-online":
+				if iteration == 0 {
+					iteration++
+					return []byte("1\n"), nil
+				}
+				iteration++
+				return nil, os.ErrNotExist
+			default:
+				t.Fatalf("unexpected read path %q", path)
+				return nil, os.ErrNotExist
+			}
+		},
+		func(context.Context, time.Duration) error {
+			waits++
+			return nil
+		},
+		func() time.Time { return time.Unix(0, 0) },
+		func(context.Context, string, *serviceWatchdogIdentity) (serviceWatchdogIdentity, error) {
+			pings++
+			return serviceWatchdogIdentity{
+				MainPID:      42,
+				InvocationID: strings.Repeat("a", 32),
+			}, nil
+		},
+	)
+
+	if exitCode != 0 {
+		t.Fatalf("exit code = %d, want unknown attachment state to allow stock sleep", exitCode)
+	}
+	if waits != 1 || pings != 1 {
+		t.Fatalf("waits/pings = %d/%d, want 1/1 before fail-open", waits, pings)
+	}
+	if !strings.Contains(stderr.String(), "allowing stock sleep") {
+		t.Fatalf("stderr = %q, want fail-open explanation", stderr.String())
+	}
+}
+
 func TestSystemSleepHoldFailsOpenWithoutConfirmedCarrier(t *testing.T) {
 	tests := []struct {
 		name      string

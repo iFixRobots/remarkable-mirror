@@ -1,0 +1,101 @@
+name: Build macOS download
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  macos-download:
+    name: Build macOS download
+    runs-on: macos-26
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Select stable Xcode 26
+        shell: zsh {0}
+        run: |
+          set -euo pipefail
+          developer_directory=$(xcode-select -p)
+          xcode_version=$(xcodebuild -version | sed -n '1s/^Xcode //p')
+          if [[ "${xcode_version}" != 26.* ]]; then
+              print -u2 "The macOS artifact requires stable Xcode 26; found ${xcode_version}."
+              exit 1
+          fi
+          if [[ "$(uname -m)" != arm64 ]]; then
+              print -u2 "The current Mac artifact must build on an arm64 runner."
+              exit 1
+          fi
+          print "DEVELOPER_DIR=${developer_directory}" >> "${GITHUB_ENV}"
+          xcodebuild -version
+          swift --version
+
+      - name: Build and package unsigned arm64 app
+        id: package
+        shell: zsh {0}
+        env:
+          MACOS_ARCHITECTURES: arm64
+        run: |
+          set -euo pipefail
+          scripts/Build-RemarkableMirrorMac.sh
+          scripts/Package-RemarkableMirrorMac.sh
+
+          setopt null_glob
+          archives=(artifacts/macos/package/reMarkable-Mirror-*-macOS-arm64-unsigned.zip)
+          if (( ${#archives} != 1 )); then
+              print -u2 "Packaging produced ${#archives} unsigned arm64 archives instead of one."
+              exit 1
+          fi
+
+          verification_directory=$(mktemp -d "${RUNNER_TEMP}/remarkable-mirror-verify.XXXXXX")
+          trap 'rm -rf -- "${verification_directory}"' EXIT
+          ditto -x -k "${archives[1]}" "${verification_directory}"
+          app_path=${verification_directory}/reMarkable\ Mirror.app
+          info_plist=${app_path}/Contents/Info.plist
+          bundle_identifier=$(plutil -extract CFBundleIdentifier raw -expect string "${info_plist}")
+          version=$(plutil -extract CFBundleShortVersionString raw -expect string "${info_plist}")
+          build_number=$(plutil -extract CFBundleVersion raw -expect string "${info_plist}")
+          executable=$(plutil -extract CFBundleExecutable raw -expect string "${info_plist}")
+          architectures=$(lipo -archs "${app_path}/Contents/MacOS/${executable}")
+
+          if [[ "${bundle_identifier}" != com.ifixrobots.ReMarkableMirror ||
+                "${version}" != 0.2.0 ||
+                "${build_number}" != 2 ||
+                "${architectures}" != arm64 ]]; then
+              print -u2 "The packaged app does not match the 0.2.0 (2) arm64 product identity."
+              exit 1
+          fi
+
+          expected_name=reMarkable-Mirror-${version}-macOS-arm64-unsigned.zip
+          if [[ "${archives[1]:t}" != "${expected_name}" ]]; then
+              print -u2 "Unexpected package name: ${archives[1]:t}"
+              exit 1
+          fi
+
+          archive_hash=$(shasum -a 256 "${archives[1]}" | awk '{print $1}')
+          print "archive=${archives[1]}" >> "${GITHUB_OUTPUT}"
+          print "version=${version}" >> "${GITHUB_OUTPUT}"
+          print "build=${build_number}" >> "${GITHUB_OUTPUT}"
+          print "architecture=${architectures}" >> "${GITHUB_OUTPUT}"
+          print "### macOS artifact" >> "${GITHUB_STEP_SUMMARY}"
+          print -r -- "- Version: ${version} (${build_number})" >> "${GITHUB_STEP_SUMMARY}"
+          print -r -- "- Architecture: ${architectures}" >> "${GITHUB_STEP_SUMMARY}"
+          print -r -- "- Signing: unsigned app bundle" >> "${GITHUB_STEP_SUMMARY}"
+          print -r -- "- Notarization: not performed" >> "${GITHUB_STEP_SUMMARY}"
+          print -r -- "- SHA-256: \`${archive_hash}\`" >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload macOS package
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: remarkable-mirror-macos-${{ steps.package.outputs.architecture }}
+          path: ${{ steps.package.outputs.archive }}
+          if-no-files-found: error
+          retention-days: 30

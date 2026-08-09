@@ -69,15 +69,15 @@ setup.
 
 Mirror cannot reach your tablet right now.
 
-- If the tablet entered full Linux suspend, press its power button once.
-- Mirror reconnects automatically over Wi-Fi when the tablet wakes.
-- If Wi-Fi does not return, connect USB-C after waking the tablet.
+- Leave Mirror open; it retries automatically.
+- During an active session, the USB carrier guard and input wake lease are
+  designed to prevent the tablet from reaching full suspend across handoff.
+- If Linux already completed suspend before Mirror could reach it, press its
+  power button once. There is no source-proven host wake guarantee from that
+  terminal state.
+- If Wi-Fi does not return after wake, connect USB-C.
 - Complete the first post-boot passcode unlock.
 - For Wi-Fi, confirm the tablet and PC are on the same Wi-Fi network.
-
-On the tested Paper Pro Move, a direct network connection and a standard wake
-packet both failed during full sleep. USB-C is a fallback connection after
-wake; it did not wake the tablet.
 
 Mirror does not turn one interrupted Wi-Fi identity or capability check into a
 tablet repair warning. It stays in this wake/offline flow unless the tablet

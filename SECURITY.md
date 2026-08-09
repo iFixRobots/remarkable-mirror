@@ -32,10 +32,11 @@ coordinate publication after a fix is available.
   passphrase-free key because its SSH processes run with `BatchMode=yes`. Anyone
   who obtains that private key can authenticate as root to the paired tablet.
 - Files travels through authenticated SSH and is not exposed directly on Wi-Fi.
-- The wake HTTP endpoint binds only to tablet loopback and the direct USB
-  interface. It never listens on the tablet's Wi-Fi address. Before SSH is
-  available, Windows sends wake bearer traffic only on a verified direct USB
-  route.
+- The wake HTTP endpoint binds only to tablet loopback and the direct USB-C
+  attachment. It never listens on the tablet's Wi-Fi address. Windows sends its
+  wake bearer only through a verified direct connection. On Mac, status and a
+  strictly gated power-button-equivalent wake may omit the bearer only on the
+  exact direct-cable listener; loopback and Wi-Fi never receive that exception.
 - Private signing keys and tablet credentials are never repository assets.
 
 A publisher name such as `CN=iFixRobots` does not show where a file came from.

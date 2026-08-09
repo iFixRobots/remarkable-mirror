@@ -6,7 +6,7 @@ Before=remarkable-enable-slumber.service
 [Service]
 Type=simple
 UMask=0022
-ExecStart=/usr/libexec/rmmirror-transport-wake --carrier /sys/class/net/usb0/carrier --wake-lock /sys/power/wake_lock --wake-unlock /sys/power/wake_unlock --status /run/rmmirror-transport-wake.json --poll-interval 1s --renew-interval 20s --wake-lock-timeout 60s --wake-listen 127.0.0.1:51337 --wake-listen 10.11.99.1:51337 --wake-token /data/rmmirror/wake-token --wake-request-timeout 2s
+ExecStart=/usr/libexec/rmmirror-transport-wake --carrier /sys/class/net/usb0/carrier --udc-state-glob /sys/class/udc/*/state --power-online /sys/class/power_supply/max77818-charger/online --wake-lock /sys/power/wake_lock --wake-unlock /sys/power/wake_unlock --status /run/rmmirror-transport-wake.json --poll-interval 1s --renew-interval 20s --wake-lock-timeout 60s --wake-listen 127.0.0.1:51337 --wake-listen 10.11.99.1:51337 --wake-token /data/rmmirror/wake-token --wake-request-timeout 2s
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=5

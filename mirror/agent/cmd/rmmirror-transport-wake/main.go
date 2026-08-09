@@ -64,6 +64,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("rmmirror-transport-wake", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	flags.StringVar(&config.CarrierPath, "carrier", config.CarrierPath, "USB carrier sysfs path")
+	flags.StringVar(&config.UDCStatePattern, "udc-state-glob", config.UDCStatePattern, "USB device-controller state sysfs glob")
+	flags.StringVar(&config.PowerOnlinePath, "power-online", config.PowerOnlinePath, "USB input power online sysfs path")
 	flags.StringVar(&config.WakeLockPath, "wake-lock", config.WakeLockPath, "wake-lock sysfs path")
 	flags.StringVar(&config.WakeUnlockPath, "wake-unlock", config.WakeUnlockPath, "wake-unlock sysfs path")
 	flags.StringVar(&config.StatusPath, "status", config.StatusPath, "runtime status path")
@@ -119,28 +121,36 @@ type watchdogPinger func(
 // so a missing interface or detach cannot strand normal tablet sleep.
 func runSystemSleepCondition(args []string, stderr io.Writer, readFile carrierFileReader) int {
 	carrierPath := transportwake.DefaultConfig().CarrierPath
+	udcStatePattern := ""
 	flags := flag.NewFlagSet("allow-system-sleep", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	flags.StringVar(&carrierPath, "carrier", carrierPath, "USB carrier sysfs path")
+	flags.StringVar(&udcStatePattern, "udc-state-glob", udcStatePattern, "USB device-controller state sysfs glob")
 	if err := flags.Parse(args); err != nil || flags.NArg() != 0 {
 		fmt.Fprintln(stderr, "rmmirror-transport-wake: invalid system sleep condition; allowing stock sleep")
 		return 0
 	}
 
-	payload, err := readFile(carrierPath)
-	if err != nil {
-		fmt.Fprintf(stderr, "rmmirror-transport-wake: USB carrier unavailable; allowing stock sleep: %v\n", err)
+	signals, signalErr := transportwake.ReadUSBSignals(
+		readFile,
+		carrierPath,
+		udcStatePattern,
+		"",
+	)
+	var connectionLatch transportwake.USBConnectionLatch
+	connected, connectionKnown := connectionLatch.Resolve(signals)
+	if !connectionKnown {
+		if signalErr != nil {
+			fmt.Fprintf(stderr, "rmmirror-transport-wake: USB data state unavailable; allowing stock sleep: %v\n", signalErr)
+		} else {
+			fmt.Fprintln(stderr, "rmmirror-transport-wake: USB data state is unknown; allowing stock sleep")
+		}
 		return 0
 	}
-	switch strings.TrimSpace(string(payload)) {
-	case "1":
+	if connected {
 		return 1
-	case "0":
-		return 0
-	default:
-		fmt.Fprintln(stderr, "rmmirror-transport-wake: USB carrier is unknown; allowing stock sleep")
-		return 0
 	}
+	return 0
 }
 
 // runSystemSleepHold keeps the stock suspend executor pending while USB is
@@ -158,6 +168,8 @@ func runSystemSleepHold(
 	pingWatchdog watchdogPinger,
 ) int {
 	carrierPath := transportwake.DefaultConfig().CarrierPath
+	udcStatePattern := ""
+	powerOnlinePath := ""
 	pollInterval := time.Second
 	watchdogInterval := 20 * time.Second
 	watchdogTimeout := 5 * time.Second
@@ -165,6 +177,8 @@ func runSystemSleepHold(
 	flags := flag.NewFlagSet("hold-system-sleep", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	flags.StringVar(&carrierPath, "carrier", carrierPath, "USB carrier sysfs path")
+	flags.StringVar(&udcStatePattern, "udc-state-glob", udcStatePattern, "USB device-controller state sysfs glob")
+	flags.StringVar(&powerOnlinePath, "power-online", powerOnlinePath, "USB input power online sysfs path")
 	flags.DurationVar(&pollInterval, "poll-interval", pollInterval, "USB carrier polling interval")
 	flags.StringVar(&watchdogUnit, "watchdog-unit", watchdogUnit, "blocked caller service watchdog unit")
 	flags.DurationVar(&watchdogInterval, "watchdog-interval", watchdogInterval, "blocked caller watchdog renewal interval")
@@ -177,6 +191,7 @@ func runSystemSleepHold(
 	}
 
 	holdingLogged := false
+	var connectionLatch transportwake.USBConnectionLatch
 	var nextWatchdog time.Time
 	var watchdogIdentity *serviceWatchdogIdentity
 	for {
@@ -184,24 +199,33 @@ func runSystemSleepHold(
 			fmt.Fprintln(stderr, "rmmirror-transport-wake: system sleep hold canceled; skipping stock sleep")
 			return 1
 		}
-		payload, err := readFile(carrierPath)
+		signals, signalErr := transportwake.ReadUSBSignals(
+			readFile,
+			carrierPath,
+			udcStatePattern,
+			powerOnlinePath,
+		)
 		if ctx.Err() != nil {
 			fmt.Fprintln(stderr, "rmmirror-transport-wake: system sleep hold canceled; skipping stock sleep")
 			return 1
 		}
-		if err != nil {
-			fmt.Fprintf(stderr, "rmmirror-transport-wake: USB carrier unavailable; allowing stock sleep: %v\n", err)
-			return 0
-		}
-		switch strings.TrimSpace(string(payload)) {
-		case "0":
-			if holdingLogged {
-				fmt.Fprintln(stderr, "rmmirror-transport-wake: USB detached; releasing stock sleep")
+		connected, connectionKnown := connectionLatch.Resolve(signals)
+		switch {
+		case !connectionKnown:
+			if signalErr != nil {
+				fmt.Fprintf(stderr, "rmmirror-transport-wake: USB attachment unavailable; allowing stock sleep: %v\n", signalErr)
+			} else {
+				fmt.Fprintln(stderr, "rmmirror-transport-wake: USB attachment is unknown; allowing stock sleep")
 			}
 			return 0
-		case "1":
+		case !connected:
+			if holdingLogged {
+				fmt.Fprintln(stderr, "rmmirror-transport-wake: qualified USB attachment ended; releasing stock sleep")
+			}
+			return 0
+		case connected:
 			if !holdingLogged {
-				fmt.Fprintln(stderr, "rmmirror-transport-wake: USB attached; holding stock sleep until detach")
+				fmt.Fprintln(stderr, "rmmirror-transport-wake: USB data attachment qualified; holding stock sleep until powered detach")
 				holdingLogged = true
 			}
 			pingStarted := now()
@@ -219,9 +243,6 @@ func runSystemSleepHold(
 				// part of the interval instead of extending the watchdog gap.
 				nextWatchdog = pingStarted.Add(watchdogInterval)
 			}
-		default:
-			fmt.Fprintln(stderr, "rmmirror-transport-wake: USB carrier is unknown; allowing stock sleep")
-			return 0
 		}
 
 		if err := wait(ctx, pollInterval); err != nil {

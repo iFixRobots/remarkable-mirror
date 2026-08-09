@@ -36,6 +36,11 @@ if (-not $source.Replace("`r`n", "`n").Contains(
         [StringComparison]::Ordinal)) {
     throw 'Passive route probe does not use the proven os-release parser.'
 }
+if (-not $prerequisiteSource.Contains(
+        '"usb_connection_policy":"carrier-qualified-power-hold/v1"',
+        [StringComparison]::Ordinal)) {
+    throw 'Windows setup does not verify the USB connection-policy capability after repair.'
+}
 
 if ($source.Contains('\{0,1\}', [StringComparison]::Ordinal)) {
     throw 'Passive route probe still contains the broken optional-quote sed expression.'
@@ -49,6 +54,18 @@ foreach ($requiredMarker in @(
     )) {
     if (-not $source.Contains($requiredMarker, [StringComparison]::Ordinal)) {
         throw "Passive route authentication evidence is missing marker: $requiredMarker"
+    }
+}
+
+foreach ($requiredMarker in @(
+        'private const string ExpectedUsbConnectionPolicy = "carrier-qualified-power-hold/v1";',
+        '"usb_connection_policy":"\([^"]*\)"',
+        'RMMIRROR_CAP_USB_CONNECTION_POLICY=$usb_connection_policy',
+        'test "$usb_connection_policy" = ''carrier-qualified-power-hold/v1'' || mismatch=1',
+        '"RMMIRROR_CAP_USB_CONNECTION_POLICY"'
+    )) {
+    if (-not $source.Contains($requiredMarker, [StringComparison]::Ordinal)) {
+        throw "Passive route USB connection-policy capability is missing marker: $requiredMarker"
     }
 }
 
@@ -139,7 +156,75 @@ internal static class Program
             return 1;
         }
 
+        var legacyCarrierOnlyOutput = """
+            RMMIRROR_ROUTE_AUTHENTICATED=1
+            RMMIRROR_CAP_BOOT_ID=00000000-0000-0000-0000-000000000001
+            RMMIRROR_CAP_ACTIVE_ROOT=/dev/root
+            RMMIRROR_CAP_OS_VERSION=3.28.0.164
+            RMMIRROR_CAP_OS_BUILD=5.8.199
+            RMMIRROR_CAP_KERNEL=6.0.0
+            RMMIRROR_CAP_PROBE_VERSION=0.4.9
+            RMMIRROR_CAP_TRANSPORT_VERSION=0.6.0
+            RMMIRROR_CAP_TRANSPORT_SCHEMA=rmmirror.transport-wake/v1
+            RMMIRROR_CAP_TRANSPORT_ACTIVE=active
+            RMMIRROR_CAP_WAKE_ENDPOINT_HEALTHY=true
+            RMMIRROR_CAP_XOVI_VERSION=v19-23052026
+            RMMIRROR_ROUTE_READY=1
+            """.ReplaceLineEndings("\n");
+        var legacyResult = PassiveRouteProbe.ClassifyAuthenticationResult(
+            0,
+            legacyCarrierOnlyOutput,
+            string.Empty);
+        if (legacyResult.State is not PassiveRouteProbeState.PrerequisiteMismatch ||
+            legacyResult.Detail is not PassiveRouteProbeDetail.TabletPrerequisiteMismatch ||
+            legacyResult.Capability is not null ||
+            !legacyResult.IdentityAuthenticated)
+        {
+            Console.Error.WriteLine("Carrier-only transport 0.6.0 did not require repair.");
+            return 1;
+        }
+
+        var currentOutput = legacyCarrierOnlyOutput.Replace(
+            "RMMIRROR_CAP_TRANSPORT_SCHEMA=rmmirror.transport-wake/v1\n",
+            "RMMIRROR_CAP_TRANSPORT_SCHEMA=rmmirror.transport-wake/v1\n" +
+            "RMMIRROR_CAP_USB_CONNECTION_POLICY=carrier-qualified-power-hold/v1\n",
+            StringComparison.Ordinal);
+        var currentResult = PassiveRouteProbe.ClassifyAuthenticationResult(
+            0,
+            currentOutput,
+            string.Empty);
+        if (currentResult.State is not PassiveRouteProbeState.Authenticated ||
+            currentResult.Capability is not
+                { UsbConnectionPolicy: "carrier-qualified-power-hold/v1", IsCurrent: true } ||
+            !currentResult.IdentityAuthenticated)
+        {
+            Console.Error.WriteLine("Current USB connection-policy capability was rejected.");
+            return 1;
+        }
+
+        var wrongPolicyOutput = currentOutput
+            .Replace(
+                "RMMIRROR_CAP_USB_CONNECTION_POLICY=carrier-qualified-power-hold/v1",
+                "RMMIRROR_CAP_USB_CONNECTION_POLICY=carrier-only/v1",
+                StringComparison.Ordinal)
+            .Replace(
+                "RMMIRROR_ROUTE_READY=1",
+                "RMMIRROR_ROUTE_PREREQUISITE_MISMATCH=1",
+                StringComparison.Ordinal);
+        var wrongPolicyResult = PassiveRouteProbe.ClassifyAuthenticationResult(
+            42,
+            wrongPolicyOutput,
+            string.Empty);
+        if (wrongPolicyResult.State is not PassiveRouteProbeState.PrerequisiteMismatch ||
+            wrongPolicyResult.Capability is not { IsCurrent: false } ||
+            !wrongPolicyResult.IdentityAuthenticated)
+        {
+            Console.Error.WriteLine("A different USB connection-policy value was accepted.");
+            return 1;
+        }
+
         Console.WriteLine("AuthenticatedMissingComponent: PASS");
+        Console.WriteLine("UsbConnectionPolicyCapability: PASS");
         return 0;
     }
 }

@@ -11,6 +11,8 @@ $installerPath = Join-Path $repositoryRoot 'scripts\Install-RemarkableMirrorPrer
 $installerText = [System.IO.File]::ReadAllText($installerPath)
 $wakeServicePath = Join-Path $repositoryRoot 'mirror\agent\deploy\rmmirror-transport-wake.service'
 $wakeServiceText = [System.IO.File]::ReadAllText($wakeServicePath)
+$sleepGuardPath = Join-Path $repositoryRoot 'mirror\agent\deploy\rmmirror-usb-sleep-guard.conf'
+$sleepGuardText = [System.IO.File]::ReadAllText($sleepGuardPath)
 $transportInstallerPath = Join-Path $repositoryRoot 'mirror\agent\deploy\install-transport-wake.sh'
 $transportInstallerText = [System.IO.File]::ReadAllText($transportInstallerPath)
 $tokens = $null
@@ -177,6 +179,18 @@ foreach ($requiredMarker in @(
     }
 }
 
+foreach ($requiredMarker in @(
+        'grep -q ''"usb_connection_policy":"carrier-qualified-power-hold/v1"'' /run/rmmirror-transport-wake.json',
+        '"USB_CONNECTION_POLICY=$usb_connection_policy"',
+        '$capabilityMetadata[''USB_CONNECTION_POLICY''] -cne',
+        'usb_connection_policy=`$(sed -n',
+        'test "`$usb_connection_policy" = ''$($capabilityMetadata[''USB_CONNECTION_POLICY''])'''
+    )) {
+    if (-not $installerText.Contains($requiredMarker, [StringComparison]::Ordinal)) {
+        throw "Windows setup is missing USB connection-policy repair proof: $requiredMarker"
+    }
+}
+
 foreach ($forbiddenMarker in @(
         'root@$TabletAddress',
         'http://${TabletAddress}:51337',
@@ -199,11 +213,18 @@ foreach ($requiredMarker in @(
 
 foreach ($requiredMarker in @(
         '--wake-listen 127.0.0.1:51337',
-        '--wake-listen 10.11.99.1:51337'
+        '--wake-listen 10.11.99.1:51337',
+        '--power-online /sys/class/power_supply/max77818-charger/online'
     )) {
     if (-not $wakeServiceText.Contains($requiredMarker, [StringComparison]::Ordinal)) {
         throw "The wake service is missing a private listener: $requiredMarker"
     }
+}
+if (-not $sleepGuardText.Contains(
+        '--power-online /sys/class/power_supply/max77818-charger/online',
+        [StringComparison]::Ordinal
+    )) {
+    throw 'The suspend executor guard is missing the Chiappa USB power signal.'
 }
 if ($wakeServiceText.Contains('--wake-listen 0.0.0.0:51337', [StringComparison]::Ordinal)) {
     throw 'The wake service still exposes its endpoint on every tablet interface.'
@@ -227,6 +248,21 @@ foreach ($requiredMarker in @(
     )) {
     if (-not $transportInstallerText.Contains($requiredMarker, [StringComparison]::Ordinal)) {
         throw "The transport installer is missing persistent boot marker: $requiredMarker"
+    }
+}
+
+foreach ($requiredMarker in @(
+        'power_online_path=/sys/class/power_supply/max77818-charger/online',
+        'test -r "$power_online_path"',
+        'power_online_value=$(tr -d ''[:space:]'' < "$power_online_path")',
+        '"usb_connection_policy":"carrier-qualified-power-hold/v1"',
+        '"power_known":true',
+        '"connection_known":true',
+        '"usb_connected":true',
+        '"usb_data_qualified":true'
+    )) {
+    if (-not $transportInstallerText.Contains($requiredMarker, [StringComparison]::Ordinal)) {
+        throw "The transport installer is missing USB power qualification marker: $requiredMarker"
     }
 }
 

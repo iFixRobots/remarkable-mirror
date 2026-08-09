@@ -19,6 +19,7 @@ type fakeCommandRunner struct {
 	outputs map[string][]byte
 	errors  map[string]error
 	calls   []commandCall
+	output  func(string, []string) ([]byte, error)
 }
 
 func (runner *fakeCommandRunner) Output(
@@ -28,7 +29,251 @@ func (runner *fakeCommandRunner) Output(
 	limit int,
 ) ([]byte, error) {
 	runner.calls = append(runner.calls, commandCall{name: name, arguments: arguments, limit: limit})
+	if runner.output != nil {
+		return runner.output(name, arguments)
+	}
 	return runner.outputs[name], runner.errors[name]
+}
+
+func expectedSleepHoldExecutable(path string) (string, error) {
+	if path != "/proc/4242/exe" {
+		return "", errors.New("unexpected executable")
+	}
+	return defaultTransportWakeExecutablePath, nil
+}
+
+func TestInspectorUsesCurrentSystemSleepHoldAsAuthoritativeDeepSleep(t *testing.T) {
+	xochitlInvocation := "0123456789abcdef0123456789abcdef"
+	sleepInvocation := "fedcba9876543210fedcba9876543210"
+	runner := &fakeCommandRunner{
+		output: func(name string, arguments []string) ([]byte, error) {
+			switch {
+			case name == "systemctl" && containsArgument(arguments, "xochitl.service"):
+				return []byte("ActiveState=active\nInvocationID=" + xochitlInvocation + "\n"), nil
+			case name == "journalctl":
+				return []byte("Changing display state from Normal to DeepSleep\n"), nil
+			case name == "systemctl" && containsArgument(arguments, guardedSystemSleepService):
+				return []byte(strings.Join([]string{
+					"ActiveState=activating",
+					"SubState=condition",
+					"ControlPID=4242",
+					"InvocationID=" + sleepInvocation,
+				}, "\n") + "\n"), nil
+			default:
+				return nil, errors.New("unexpected command")
+			}
+		},
+	}
+	inspector := &osTabletInspector{
+		mountInfoPath: "/mountinfo",
+		readFile: func(path string) ([]byte, error) {
+			switch path {
+			case "/mountinfo":
+				return []byte("32 25 253:0 / /home rw - ext4 /dev/mapper/home rw\n"), nil
+			case "/proc/4242/cmdline":
+				return []byte("/usr/libexec/rmmirror-transport-wake\x00hold-system-sleep\x00--carrier\x00/sys/class/net/usb0/carrier\x00"), nil
+			default:
+				return nil, errors.New("unexpected file")
+			}
+		},
+		readLink: expectedSleepHoldExecutable,
+		runner:   runner,
+		timeout:  time.Second,
+	}
+
+	observation, err := inspector.Inspect(context.Background())
+	if err != nil {
+		t.Fatalf("Inspect returned %v", err)
+	}
+	want := tabletObservation{
+		HomeKnown: true, HomeMounted: true, DisplayState: displayDeepSleep,
+		DisplayAuthoritative: true,
+	}
+	if !reflect.DeepEqual(observation, want) {
+		t.Fatalf("observation = %#v, want %#v", observation, want)
+	}
+	if len(runner.calls) != 5 {
+		t.Fatalf("calls = %#v", runner.calls)
+	}
+	if runner.calls[1].name != "journalctl" {
+		t.Fatalf("current Xochitl transition was not checked before the sleep hold: %#v", runner.calls)
+	}
+}
+
+func TestInspectorKeepsBufferedNormalDisplayAdvisory(t *testing.T) {
+	xochitlInvocation := "0123456789abcdef0123456789abcdef"
+	runner := &fakeCommandRunner{
+		output: func(name string, arguments []string) ([]byte, error) {
+			switch {
+			case name == "systemctl" && containsArgument(arguments, "xochitl.service"):
+				return []byte("ActiveState=active\nInvocationID=" + xochitlInvocation + "\n"), nil
+			case name == "journalctl":
+				return []byte("Changing display state from DeepSleep to Normal\n"), nil
+			default:
+				return nil, errors.New("unexpected command")
+			}
+		},
+	}
+	inspector := &osTabletInspector{
+		mountInfoPath: "/mountinfo",
+		readFile: func(path string) ([]byte, error) {
+			if path != "/mountinfo" {
+				return nil, errors.New("unexpected file")
+			}
+			return []byte("32 25 253:0 / /home rw - ext4 /dev/mapper/home rw\n"), nil
+		},
+		readLink: expectedSleepHoldExecutable,
+		runner:   runner,
+		timeout:  time.Second,
+	}
+
+	observation, err := inspector.Inspect(context.Background())
+	if err != nil {
+		t.Fatalf("Inspect returned %v", err)
+	}
+	if got := observationState(observation); got != "starting" {
+		t.Fatalf("observationState(%#v) = %q, want starting", observation, got)
+	}
+	if len(runner.calls) != 2 {
+		t.Fatalf("calls = %#v", runner.calls)
+	}
+}
+
+func TestInspectorRejectsDeepSleepWhenXochitlInvocationChanges(t *testing.T) {
+	firstInvocation := "0123456789abcdef0123456789abcdef"
+	secondInvocation := "11111111111111111111111111111111"
+	sleepInvocation := "fedcba9876543210fedcba9876543210"
+	xochitlInspections := 0
+	runner := &fakeCommandRunner{
+		output: func(name string, arguments []string) ([]byte, error) {
+			switch {
+			case name == "systemctl" && containsArgument(arguments, "xochitl.service"):
+				xochitlInspections++
+				invocationID := firstInvocation
+				if xochitlInspections > 1 {
+					invocationID = secondInvocation
+				}
+				return []byte("ActiveState=active\nInvocationID=" + invocationID + "\n"), nil
+			case name == "journalctl":
+				return []byte("Changing display state from Normal to DeepSleep\n"), nil
+			case name == "systemctl" && containsArgument(arguments, guardedSystemSleepService):
+				return []byte(strings.Join([]string{
+					"ActiveState=activating",
+					"SubState=condition",
+					"ControlPID=4242",
+					"InvocationID=" + sleepInvocation,
+				}, "\n") + "\n"), nil
+			default:
+				return nil, errors.New("unexpected command")
+			}
+		},
+	}
+	inspector := &osTabletInspector{
+		mountInfoPath: "/mountinfo",
+		readFile: func(path string) ([]byte, error) {
+			if path == "/proc/4242/cmdline" {
+				return []byte("/usr/libexec/rmmirror-transport-wake\x00hold-system-sleep\x00"), nil
+			}
+			return []byte("32 25 253:0 / /home rw - ext4 /dev/mapper/home rw\n"), nil
+		},
+		readLink: expectedSleepHoldExecutable,
+		runner:   runner,
+		timeout:  time.Second,
+	}
+
+	observation, err := inspector.Inspect(context.Background())
+	if err != nil {
+		t.Fatalf("Inspect returned %v", err)
+	}
+	if observation.DisplayState != displayDeepSleep || observation.DisplayAuthoritative {
+		t.Fatalf("observation = %#v", observation)
+	}
+}
+
+func TestInspectorRejectsLookalikeSystemSleepHoldExecutable(t *testing.T) {
+	xochitlInvocation := "0123456789abcdef0123456789abcdef"
+	sleepInvocation := "fedcba9876543210fedcba9876543210"
+	runner := &fakeCommandRunner{
+		output: func(name string, arguments []string) ([]byte, error) {
+			switch {
+			case name == "systemctl" && containsArgument(arguments, "xochitl.service"):
+				return []byte("ActiveState=active\nInvocationID=" + xochitlInvocation + "\n"), nil
+			case name == "systemctl" && containsArgument(arguments, guardedSystemSleepService):
+				return []byte(strings.Join([]string{
+					"ActiveState=activating",
+					"SubState=condition",
+					"ControlPID=4242",
+					"InvocationID=" + sleepInvocation,
+				}, "\n") + "\n"), nil
+			case name == "journalctl":
+				return []byte("Changing display state from Normal to DeepSleep\n"), nil
+			default:
+				return nil, errors.New("unexpected command")
+			}
+		},
+	}
+	inspector := &osTabletInspector{
+		mountInfoPath: "/mountinfo",
+		readFile: func(string) ([]byte, error) {
+			return []byte("32 25 253:0 / /home rw - ext4 /dev/mapper/home rw\n"), nil
+		},
+		readLink: func(path string) (string, error) {
+			if path != "/proc/4242/exe" {
+				return "", errors.New("unexpected executable")
+			}
+			return "/tmp/rmmirror-transport-wake", nil
+		},
+		runner:  runner,
+		timeout: time.Second,
+	}
+
+	observation, err := inspector.Inspect(context.Background())
+	if err != nil {
+		t.Fatalf("Inspect returned %v", err)
+	}
+	if observation.DisplayState != displayDeepSleep || observation.DisplayAuthoritative {
+		t.Fatalf("observation = %#v", observation)
+	}
+}
+
+func TestSystemSleepHoldRequiresStableSystemdIdentity(t *testing.T) {
+	inspection := 0
+	runner := &fakeCommandRunner{
+		output: func(name string, arguments []string) ([]byte, error) {
+			if name != "systemctl" || !containsArgument(arguments, guardedSystemSleepService) {
+				return nil, errors.New("unexpected command")
+			}
+			inspection++
+			controlPID := "4242"
+			if inspection > 1 {
+				controlPID = "4243"
+			}
+			return []byte(strings.Join([]string{
+				"ActiveState=activating",
+				"SubState=condition",
+				"ControlPID=" + controlPID,
+				"InvocationID=fedcba9876543210fedcba9876543210",
+			}, "\n") + "\n"), nil
+		},
+	}
+	inspector := &osTabletInspector{
+		readFile: func(path string) ([]byte, error) {
+			if path != "/proc/4242/cmdline" {
+				return nil, errors.New("unexpected file")
+			}
+			return []byte("/usr/libexec/rmmirror-transport-wake\x00hold-system-sleep\x00"), nil
+		},
+		readLink: expectedSleepHoldExecutable,
+		runner:   runner,
+	}
+
+	holding, err := inspector.inspectCurrentSystemSleepHold(context.Background())
+	if err != nil {
+		t.Fatalf("inspectCurrentSystemSleepHold returned %v", err)
+	}
+	if holding {
+		t.Fatal("changed systemd control identity was accepted as a current sleep hold")
+	}
 }
 
 func TestHomeIsMountedRequiresExactMountPoint(t *testing.T) {
@@ -71,7 +316,7 @@ func TestInspectorUsesOnlyActiveXochitlInvocation(t *testing.T) {
 	if !reflect.DeepEqual(observation, want) {
 		t.Fatalf("observation = %#v, want %#v", observation, want)
 	}
-	if len(runner.calls) != 2 || runner.calls[1].name != "journalctl" {
+	if len(runner.calls) != 3 || runner.calls[1].name != "journalctl" {
 		t.Fatalf("calls = %#v", runner.calls)
 	}
 	if !containsArgument(runner.calls[1].arguments, "_SYSTEMD_INVOCATION_ID="+invocationID) {

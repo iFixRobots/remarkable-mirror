@@ -15,12 +15,15 @@ import (
 )
 
 const (
-	StatusSchema        = "rmmirror.transport-wake/v1"
-	DefaultWakeLockName = "rmmirror-usb"
+	StatusSchema               = "rmmirror.transport-wake/v1"
+	CurrentUSBConnectionPolicy = "carrier-qualified-power-hold/v1"
+	DefaultWakeLockName        = "rmmirror-usb"
 )
 
 type Config struct {
 	CarrierPath     string
+	UDCStatePattern string
+	PowerOnlinePath string
 	WakeLockPath    string
 	WakeUnlockPath  string
 	StatusPath      string
@@ -33,6 +36,8 @@ type Config struct {
 func DefaultConfig() Config {
 	return Config{
 		CarrierPath:     "/sys/class/net/usb0/carrier",
+		UDCStatePattern: DefaultUDCStatePattern,
+		PowerOnlinePath: DefaultPowerOnlinePath,
 		WakeLockPath:    "/sys/power/wake_lock",
 		WakeUnlockPath:  "/sys/power/wake_unlock",
 		StatusPath:      "/run/rmmirror-transport-wake.json",
@@ -54,6 +59,14 @@ func (config Config) Validate() error {
 			return fmt.Errorf("%s must be absolute", name)
 		}
 	}
+	for name, value := range map[string]string{
+		"USB device state pattern": config.UDCStatePattern,
+		"power online path":        config.PowerOnlinePath,
+	} {
+		if value != "" && !path.IsAbs(value) && !filepath.IsAbs(value) {
+			return fmt.Errorf("%s must be absolute", name)
+		}
+	}
 	if config.WakeLockName == "" || strings.ContainsAny(config.WakeLockName, " \t\r\n") {
 		return errors.New("wake lock name must be one non-empty word")
 	}
@@ -72,8 +85,16 @@ func (config Config) Validate() error {
 type Status struct {
 	Schema              string `json:"schema"`
 	State               string `json:"state"`
+	USBConnectionPolicy string `json:"usb_connection_policy"`
 	USBCarrier          bool   `json:"usb_carrier"`
 	CarrierKnown        bool   `json:"carrier_known"`
+	USBUDCConfigured    bool   `json:"usb_udc_configured"`
+	UDCKnown            bool   `json:"udc_known"`
+	USBPowerOnline      bool   `json:"usb_power_online"`
+	PowerKnown          bool   `json:"power_known"`
+	USBConnected        bool   `json:"usb_connected"`
+	ConnectionKnown     bool   `json:"connection_known"`
+	USBDataQualified    bool   `json:"usb_data_qualified"`
 	WakeLockActive      bool   `json:"wake_lock_active"`
 	SystemSleepBlocked  bool   `json:"system_sleep_blocked"`
 	WakeEndpointHealthy bool   `json:"wake_endpoint_healthy"`
@@ -99,6 +120,13 @@ type Service struct {
 
 	carrierKnown       bool
 	usbCarrier         bool
+	udcKnown           bool
+	usbUDCConfigured   bool
+	powerKnown         bool
+	usbPowerOnline     bool
+	connectionKnown    bool
+	usbConnected       bool
+	connectionLatch    USBConnectionLatch
 	policyKnown        bool
 	systemSleepBlocked bool
 	lastPolicyCheck    time.Time
@@ -167,22 +195,44 @@ func (service *Service) Run(ctx context.Context) error {
 }
 
 func (service *Service) reconcile(now time.Time) {
-	carrier, carrierErr := service.readCarrier()
-	service.carrierKnown = carrierErr == nil
-	service.usbCarrier = carrierErr == nil && carrier
+	signals, signalErr := ReadUSBSignals(
+		service.files.ReadFile,
+		service.config.CarrierPath,
+		service.config.UDCStatePattern,
+		service.config.PowerOnlinePath,
+	)
+	service.carrierKnown = signals.Carrier.Known
+	service.usbCarrier = signals.Carrier.Known && signals.Carrier.Active
+	service.udcKnown = signals.UDCConfigured.Known
+	service.usbUDCConfigured = signals.UDCConfigured.Known && signals.UDCConfigured.Active
+	service.powerKnown = signals.PowerOnline.Known
+	service.usbPowerOnline = signals.PowerOnline.Known && signals.PowerOnline.Active
+	service.usbConnected, service.connectionKnown = service.connectionLatch.Resolve(signals)
+	switch {
+	case signals.PowerSignalEnabled && service.powerKnown && !service.usbPowerOnline:
+		// Known charger-power loss is authoritative detach evidence. Carrier can
+		// disappear or become unreadable as part of the same teardown, so that
+		// superseded read failure must not turn a confirmed idle state degraded.
+		signalErr = nil
+	case service.usbConnected && service.usbPowerOnline &&
+		service.connectionLatch.DataQualified():
+		// Once this session was data-qualified, known charger power bridges a
+		// transient loss of either data signal without degrading the hold.
+		signalErr = nil
+	}
 
-	policyCheckDue := service.usbCarrier &&
+	policyCheckDue := service.usbConnected &&
 		(service.lastPolicyCheck.IsZero() ||
 			now.Before(service.lastPolicyCheck) ||
 			now.Sub(service.lastPolicyCheck) >= service.config.RenewInterval)
 	var policyErr error
 	if !service.policyKnown ||
-		service.systemSleepBlocked != service.usbCarrier ||
+		service.systemSleepBlocked != service.usbConnected ||
 		policyCheckDue {
-		policyErr = service.policy.SetBlocked(service.usbCarrier)
+		policyErr = service.policy.SetBlocked(service.usbConnected)
 		if policyErr == nil {
 			service.policyKnown = true
-			service.systemSleepBlocked = service.usbCarrier
+			service.systemSleepBlocked = service.usbConnected
 			service.lastPolicyCheck = now
 		} else {
 			// A failed live check cannot support a positive status claim. Keep the
@@ -193,7 +243,7 @@ func (service *Service) reconcile(now time.Time) {
 	}
 
 	var wakeLockErr error
-	if service.usbCarrier {
+	if service.usbConnected {
 		if !service.lockActive || service.lastRenewal.IsZero() ||
 			now.Before(service.lastRenewal) ||
 			now.Sub(service.lastRenewal) >= service.config.RenewInterval {
@@ -203,7 +253,7 @@ func (service *Service) reconcile(now time.Time) {
 		wakeLockErr = service.release()
 	}
 
-	service.publishStatus(now, false, errors.Join(carrierErr, policyErr, wakeLockErr))
+	service.publishStatus(now, false, errors.Join(signalErr, policyErr, wakeLockErr))
 }
 
 func (service *Service) stop(now time.Time) error {
@@ -219,21 +269,6 @@ func (service *Service) stop(now time.Time) error {
 	}
 	statusErr := service.publishStatus(now, true, errors.Join(policyErr, releaseErr))
 	return errors.Join(policyErr, releaseErr, statusErr)
-}
-
-func (service *Service) readCarrier() (bool, error) {
-	value, err := service.files.ReadFile(service.config.CarrierPath)
-	if err != nil {
-		return false, fmt.Errorf("read USB carrier: %w", err)
-	}
-	switch strings.TrimSpace(string(value)) {
-	case "1":
-		return true, nil
-	case "0":
-		return false, nil
-	default:
-		return false, fmt.Errorf("read USB carrier: unexpected value %q", strings.TrimSpace(string(value)))
-	}
 }
 
 func (service *Service) renew(now time.Time) error {
@@ -269,8 +304,16 @@ func (service *Service) publishStatus(now time.Time, stopped bool, operationErr 
 	status := Status{
 		Schema:              StatusSchema,
 		State:               state,
+		USBConnectionPolicy: CurrentUSBConnectionPolicy,
 		USBCarrier:          service.usbCarrier,
 		CarrierKnown:        service.carrierKnown,
+		USBUDCConfigured:    service.usbUDCConfigured,
+		UDCKnown:            service.udcKnown,
+		USBPowerOnline:      service.usbPowerOnline,
+		PowerKnown:          service.powerKnown,
+		USBConnected:        service.usbConnected,
+		ConnectionKnown:     service.connectionKnown,
+		USBDataQualified:    service.connectionLatch.DataQualified(),
 		WakeLockActive:      service.lockActive,
 		SystemSleepBlocked:  service.systemSleepBlocked,
 		WakeEndpointHealthy: service.wakeEndpointHealthy(),
@@ -286,8 +329,16 @@ func (service *Service) publishStatus(now time.Time, stopped bool, operationErr 
 
 	statusKey := strings.Join([]string{
 		status.State,
+		status.USBConnectionPolicy,
 		strconv.FormatBool(status.USBCarrier),
 		strconv.FormatBool(status.CarrierKnown),
+		strconv.FormatBool(status.USBUDCConfigured),
+		strconv.FormatBool(status.UDCKnown),
+		strconv.FormatBool(status.USBPowerOnline),
+		strconv.FormatBool(status.PowerKnown),
+		strconv.FormatBool(status.USBConnected),
+		strconv.FormatBool(status.ConnectionKnown),
+		strconv.FormatBool(status.USBDataQualified),
 		strconv.FormatBool(status.WakeLockActive),
 		strconv.FormatBool(status.SystemSleepBlocked),
 		strconv.FormatBool(status.WakeEndpointHealthy),

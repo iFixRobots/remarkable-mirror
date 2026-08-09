@@ -28,10 +28,11 @@ Developer Mode setup, SSH trust, and public-key installation are documented in
   Help > About > Copyrights and Licenses**.
 - SSH over Wi-Fi is off by default.
 - Mirror's installer enables reMarkable's `rm-ssh-over-wlan on` setting.
-- On the tested Paper Pro Move, neither a direct network connection nor a
-  standard wake packet woke full Linux suspend. Press the power button once and
-  let Mirror reconnect automatically. If Wi-Fi does not return after it wakes,
-  connect USB-C.
+- During an active Mirror session, the USB carrier guard prevents suspend while
+  attached. The input session holds its own wake lease and sends route-aware
+  activity across USB-to-Wi-Fi handoff. If Linux already completed suspend
+  before Mirror could reach it, there is no source-proven host wake guarantee;
+  press the power button once and let Mirror retry automatically.
 
 For the tablet's own Developer Mode steps, follow reMarkable's
 [Developer Mode documentation](https://developer.remarkable.com/documentation/developer-mode).

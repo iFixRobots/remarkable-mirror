@@ -901,6 +901,7 @@ case " `$multi_user_wants " in
   *) exit 1 ;;
 esac
 grep -q '"schema":"rmmirror.transport-wake/v1"' /run/rmmirror-transport-wake.json
+grep -q '"usb_connection_policy":"carrier-qualified-power-hold/v1"' /run/rmmirror-transport-wake.json
 grep -q '"state":"holding"' /run/rmmirror-transport-wake.json
 grep -q '"usb_carrier":true' /run/rmmirror-transport-wake.json
 grep -q '"wake_lock_active":true' /run/rmmirror-transport-wake.json
@@ -1046,13 +1047,15 @@ image_version=$(sed -n 's/^IMG_VERSION=//p' /etc/os-release | head -n 1 | tr -d 
 os_build=$(sed -n 's/^VERSION_ID=//p' /etc/os-release | head -n 1 | tr -d '"')
 kernel_release=$(uname -r)
 companion_version=$(/usr/libexec/rmmirror-transport-wake --version)
+usb_connection_policy=$(sed -n 's/.*"usb_connection_policy":"\([^"]*\)".*/\1/p' /run/rmmirror-transport-wake.json | head -n 1)
 printf '%s\n' \
   "BOOT_ID=$boot_id" \
   "ACTIVE_ROOT=$active_root" \
   "IMAGE_VERSION=$image_version" \
   "OS_BUILD=$os_build" \
   "KERNEL_RELEASE=$kernel_release" \
-  "COMPANION_VERSION=$companion_version"
+  "COMPANION_VERSION=$companion_version" \
+  "USB_CONNECTION_POLICY=$usb_connection_policy"
 '@.Replace("`r`n", "`n").Trim()
         $capabilityDiscovery = Invoke-RedactedCheckedExternalProcess `
             -FilePath $ssh `
@@ -1067,8 +1070,13 @@ printf '%s\n' \
                 'IMAGE_VERSION',
                 'OS_BUILD',
                 'KERNEL_RELEASE',
-                'COMPANION_VERSION'
+                'COMPANION_VERSION',
+                'USB_CONNECTION_POLICY'
             )
+        if ($capabilityMetadata['USB_CONNECTION_POLICY'] -cne
+            'carrier-qualified-power-hold/v1') {
+            throw 'Tablet USB connection-policy capability does not match this Mirror build.'
+        }
 
         $parsedBootId = [guid]::Empty
         if (-not [guid]::TryParseExact($capabilityMetadata['BOOT_ID'], 'D', [ref]$parsedBootId) -or
@@ -1112,6 +1120,8 @@ systemctl is-active --quiet dropbear-wlan.socket
 set -eu
 test "`$(cat /proc/sys/kernel/random/boot_id)" = '$($capabilityMetadata['BOOT_ID'])'
 test "`$(/usr/libexec/rmmirror-transport-wake --version)" = '$($capabilityMetadata['COMPANION_VERSION'])'
+usb_connection_policy=`$(sed -n 's/.*"usb_connection_policy":"\([^"]*\)".*/\1/p' /run/rmmirror-transport-wake.json | head -n 1)
+test "`$usb_connection_policy" = '$($capabilityMetadata['USB_CONNECTION_POLICY'])'
 printf '%s\n' 'RMMIRROR_WIFI=verified'
 "@).Replace("`r`n", "`n").Trim()
         $wifiVerification = Invoke-RedactedCheckedExternalProcess `

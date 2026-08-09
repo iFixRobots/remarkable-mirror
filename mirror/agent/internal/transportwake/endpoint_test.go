@@ -241,6 +241,164 @@ func TestWakeHandlerRequiresBearerTokenBeforeInspection(t *testing.T) {
 	}
 }
 
+func TestWakeHandlerAllowsTokenlessDirectCableRecoveryStatusAndWake(t *testing.T) {
+	inspector := &fakeTabletInspector{
+		observation: tabletObservation{
+			HomeKnown: true, HomeMounted: true, DisplayState: displayDeepSleep,
+			DisplayAuthoritative: true,
+		},
+	}
+	waker := &fakePowerWaker{}
+	handler := newWakeHandler("token", inspector, waker, time.Second, time.Now)
+
+	for _, peer := range []string{"10.11.99.2:49152", "10.11.99.30:49152"} {
+		status := requestAt(
+			handler,
+			http.MethodGet,
+			"/v1/status",
+			nil,
+			DefaultWakeUSBListen,
+			peer,
+			nil,
+		)
+		statusResponse := decodeWakeResponse(t, status)
+		if status.Code != http.StatusOK || statusResponse.State != "sleeping" || statusResponse.WakeSent {
+			t.Fatalf("peer %s status response = (%d, %#v)", peer, status.Code, statusResponse)
+		}
+	}
+
+	wake := requestAt(
+		handler,
+		http.MethodPost,
+		"/v1/wake",
+		nil,
+		DefaultWakeUSBListen,
+		"10.11.99.11:49153",
+		nil,
+	)
+	wakeResponse := decodeWakeResponse(t, wake)
+	if wake.Code != http.StatusOK || wakeResponse.State != "sleeping" || !wakeResponse.WakeSent {
+		t.Fatalf("wake response = (%d, %#v)", wake.Code, wakeResponse)
+	}
+	if inspector.calls != 3 || waker.calls != 1 {
+		t.Fatalf("recovery calls: inspector=%d waker=%d", inspector.calls, waker.calls)
+	}
+}
+
+func TestWakeHandlerTokenlessRecoveryRequiresExactDirectCableEndpoints(t *testing.T) {
+	tests := []struct {
+		name   string
+		local  string
+		remote string
+	}{
+		{name: "loopback listener", local: DefaultWakeLoopbackListen, remote: "127.0.0.1:49152"},
+		{name: "wrong local address", local: "10.11.99.2:51337", remote: "10.11.99.11:49152"},
+		{name: "wrong local port", local: "10.11.99.1:51338", remote: "10.11.99.11:49152"},
+		{name: "network address", local: DefaultWakeUSBListen, remote: "10.11.99.0:49152"},
+		{name: "tablet address", local: DefaultWakeUSBListen, remote: "10.11.99.1:49152"},
+		{name: "broadcast address", local: DefaultWakeUSBListen, remote: "10.11.99.31:49152"},
+		{name: "outside cable subnet", local: DefaultWakeUSBListen, remote: "10.11.99.32:49152"},
+		{name: "loopback peer", local: DefaultWakeUSBListen, remote: "127.0.0.1:49152"},
+		{name: "ipv6 peer", local: DefaultWakeUSBListen, remote: "[::1]:49152"},
+		{name: "invalid peer", local: DefaultWakeUSBListen, remote: "not-an-endpoint"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			inspector := &fakeTabletInspector{}
+			waker := &fakePowerWaker{}
+			handler := newWakeHandler("token", inspector, waker, time.Second, time.Now)
+			recorder := requestAt(
+				handler,
+				http.MethodGet,
+				"/v1/status",
+				nil,
+				test.local,
+				test.remote,
+				nil,
+			)
+			if recorder.Code != http.StatusUnauthorized {
+				t.Fatalf("status = %d, want %d", recorder.Code, http.StatusUnauthorized)
+			}
+			if inspector.calls != 0 || waker.calls != 0 {
+				t.Fatalf("rejected recovery reached device: inspector=%d waker=%d", inspector.calls, waker.calls)
+			}
+		})
+	}
+}
+
+func TestWakeHandlerTokenlessRecoveryNeverDowngradesPresentAuthorization(t *testing.T) {
+	tests := []struct {
+		name   string
+		values []string
+	}{
+		{name: "empty", values: []string{""}},
+		{name: "malformed bearer", values: []string{"Bearer"}},
+		{name: "wrong bearer", values: []string{"Bearer wrong-token"}},
+		{name: "wrong scheme", values: []string{"Basic credential"}},
+		{name: "repeated", values: []string{"Bearer correct-token", "Bearer wrong-token"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			inspector := &fakeTabletInspector{}
+			waker := &fakePowerWaker{}
+			handler := newWakeHandler("correct-token", inspector, waker, time.Second, time.Now)
+			recorder := requestAt(
+				handler,
+				http.MethodGet,
+				"/v1/status",
+				nil,
+				DefaultWakeUSBListen,
+				"10.11.99.11:49152",
+				test.values,
+			)
+			if recorder.Code != http.StatusUnauthorized {
+				t.Fatalf("status = %d, want %d", recorder.Code, http.StatusUnauthorized)
+			}
+			if inspector.calls != 0 || waker.calls != 0 {
+				t.Fatalf("wrong bearer reached device: inspector=%d waker=%d", inspector.calls, waker.calls)
+			}
+		})
+	}
+}
+
+func TestWakeHandlerTokenlessRecoveryAllowsOnlyBoundedOperations(t *testing.T) {
+	tests := []struct {
+		name   string
+		method string
+		path   string
+		body   []byte
+		status int
+	}{
+		{name: "wrong status method", method: http.MethodPost, path: "/v1/status", status: http.StatusUnauthorized},
+		{name: "wrong wake method", method: http.MethodGet, path: "/v1/wake", status: http.StatusUnauthorized},
+		{name: "unknown path", method: http.MethodGet, path: "/v1/missing", status: http.StatusUnauthorized},
+		{name: "query", method: http.MethodGet, path: "/v1/status?extra=1", status: http.StatusBadRequest},
+		{name: "body", method: http.MethodPost, path: "/v1/wake", body: []byte("x"), status: http.StatusRequestEntityTooLarge},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			inspector := &fakeTabletInspector{}
+			waker := &fakePowerWaker{}
+			handler := newWakeHandler("token", inspector, waker, time.Second, time.Now)
+			recorder := requestAt(
+				handler,
+				test.method,
+				test.path,
+				test.body,
+				DefaultWakeUSBListen,
+				"10.11.99.11:49152",
+				nil,
+			)
+			if recorder.Code != test.status {
+				t.Fatalf("status = %d, want %d", recorder.Code, test.status)
+			}
+			if inspector.calls != 0 || waker.calls != 0 {
+				t.Fatalf("invalid recovery reached device: inspector=%d waker=%d", inspector.calls, waker.calls)
+			}
+		})
+	}
+}
+
 func TestWakeHandlerReturnsUnlockRequiredWithoutLeakingInspectionError(t *testing.T) {
 	inspector := &fakeTabletInspector{
 		observation: tabletObservation{HomeKnown: true, DisplayState: displayUnknown},
@@ -405,6 +563,38 @@ func authenticatedRequest(
 	}
 	request := httptest.NewRequest(method, path, reader)
 	request.Header.Set("Authorization", "Bearer "+token)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	return recorder
+}
+
+func requestAt(
+	handler http.Handler,
+	method string,
+	path string,
+	body []byte,
+	localAddress string,
+	remoteAddress string,
+	authorizations []string,
+) *httptest.ResponseRecorder {
+	var reader *bytes.Reader
+	if body == nil {
+		reader = bytes.NewReader(nil)
+	} else {
+		reader = bytes.NewReader(body)
+	}
+	request := httptest.NewRequest(method, path, reader)
+	local, err := net.ResolveTCPAddr("tcp4", localAddress)
+	if err != nil {
+		panic(err)
+	}
+	request = request.WithContext(
+		context.WithValue(request.Context(), http.LocalAddrContextKey, local),
+	)
+	request.RemoteAddr = remoteAddress
+	for _, authorization := range authorizations {
+		request.Header.Add("Authorization", authorization)
+	}
 	recorder := httptest.NewRecorder()
 	handler.ServeHTTP(recorder, request)
 	return recorder

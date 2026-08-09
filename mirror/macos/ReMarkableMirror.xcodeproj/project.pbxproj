@@ -1,0 +1,470 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		A10000000000000000000001 /* ReMarkableMirrorApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000001 /* ReMarkableMirrorApp.swift */; };
+		A10000000000000000000002 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000002 /* AppDelegate.swift */; };
+		A10000000000000000000003 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000003 /* AppModel.swift */; };
+		A10000000000000000000004 /* MirrorWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000004 /* MirrorWindowController.swift */; };
+		A10000000000000000000005 /* WindowSizing.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000005 /* WindowSizing.swift */; };
+		A10000000000000000000006 /* FilesRevealAnimator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000006 /* FilesRevealAnimator.swift */; };
+		A10000000000000000000007 /* MirrorPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000007 /* MirrorPalette.swift */; };
+		A10000000000000000000008 /* MirrorRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000008 /* MirrorRootView.swift */; };
+		A10000000000000000000009 /* ProductHeaderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000009 /* ProductHeaderView.swift */; };
+		A1000000000000000000000A /* TabletStageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000A /* TabletStageView.swift */; };
+		A1000000000000000000000B /* FilesPaneView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000B /* FilesPaneView.swift */; };
+		A1000000000000000000000E /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000011 /* Assets.xcassets */; };
+		A10000000000000000000010 /* DeviceProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000013 /* DeviceProfile.swift */; };
+		A10000000000000000000011 /* DeviceProfileStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000014 /* DeviceProfileStore.swift */; };
+		A10000000000000000000013 /* KeychainSecretStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000016 /* KeychainSecretStore.swift */; };
+		A10000000000000000000015 /* SSHConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000018 /* SSHConnection.swift */; };
+		A10000000000000000000016 /* OwnedProcessRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000019 /* OwnedProcessRegistry.swift */; };
+		A10000000000000000000018 /* PassiveRouteProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000001B /* PassiveRouteProbe.swift */; };
+		A1000000000000000000001A /* RouteLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000001D /* RouteLifecycle.swift */; };
+		A1000000000000000000001C /* ConnectionState.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000001F /* ConnectionState.swift */; };
+		A1000000000000000000001D /* LocalPairingPreparer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000020 /* LocalPairingPreparer.swift */; };
+		A1000000000000000000001E /* ConnectionDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000021 /* ConnectionDiagnostics.swift */; };
+		A1000000000000000000001F /* DirectUSBRouteVerifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000022 /* DirectUSBRouteVerifier.swift */; };
+		A10000000000000000000020 /* ConnectionCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000023 /* ConnectionCoordinator.swift */; };
+		A10000000000000000000021 /* ProductBuild.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000024 /* ProductBuild.swift */; };
+		T31000000000000000000001 /* PerformanceSignposts.swift in Sources */ = {isa = PBXBuildFile; fileRef = T32000000000000000000001 /* PerformanceSignposts.swift */; };
+		D31000000000000000000001 /* RMM1StreamParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = D32000000000000000000001 /* RMM1StreamParser.swift */; };
+		D31000000000000000000002 /* RMM1FrameSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = D32000000000000000000002 /* RMM1FrameSurface.swift */; };
+		E31000000000000000000001 /* TabletFramePresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = E32000000000000000000001 /* TabletFramePresentation.swift */; };
+		E31000000000000000000002 /* TabletFrameSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = E32000000000000000000002 /* TabletFrameSnapshot.swift */; };
+		F31000000000000000000001 /* DisplayPreparation.swift in Sources */ = {isa = PBXBuildFile; fileRef = F32000000000000000000001 /* DisplayPreparation.swift */; };
+		G31000000000000000000001 /* RMM1FrameStreamSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = G32000000000000000000001 /* RMM1FrameStreamSession.swift */; };
+		H31000000000000000000001 /* TabletInputProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = H32000000000000000000001 /* TabletInputProtocol.swift */; };
+		H31000000000000000000002 /* TabletInputRecoveryPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = H32000000000000000000002 /* TabletInputRecoveryPolicy.swift */; };
+		H31000000000000000000003 /* TabletInputSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = H32000000000000000000003 /* TabletInputSurface.swift */; };
+		H31000000000000000000007 /* TabletInputSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = H32000000000000000000007 /* TabletInputSession.swift */; };
+		H31000000000000000000009 /* TabletInputEventBuffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = H32000000000000000000009 /* TabletInputEventBuffer.swift */; };
+		I31000000000000000000001 /* FilesSSHTunnel.swift in Sources */ = {isa = PBXBuildFile; fileRef = I32000000000000000000001 /* FilesSSHTunnel.swift */; };
+		I31000000000000000000003 /* RemarkableFilesClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = I32000000000000000000003 /* RemarkableFilesClient.swift */; };
+		I31000000000000000000005 /* FilesPanePresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = I32000000000000000000005 /* FilesPanePresentation.swift */; };
+		I31000000000000000000007 /* FinderDocumentPromise.swift in Sources */ = {isa = PBXBuildFile; fileRef = I32000000000000000000007 /* FinderDocumentPromise.swift */; };
+		L31000000000000000000001 /* FilesGenerationOperationOwner.swift in Sources */ = {isa = PBXBuildFile; fileRef = L32000000000000000000001 /* FilesGenerationOperationOwner.swift */; };
+		J31000000000000000000001 /* WiFiNetworkContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = J32000000000000000000001 /* WiFiNetworkContext.swift */; };
+		K31000000000000000000001 /* RouteSelectionPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = K32000000000000000000001 /* RouteSelectionPolicy.swift */; };
+		M31000000000000000000001 /* WiFiRepairConfirmationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = M32000000000000000000001 /* WiFiRepairConfirmationPolicy.swift */; };
+		P31000000000000000000001 /* TabletKeyAuthorizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = P32000000000000000000001 /* TabletKeyAuthorizer.swift */; };
+		P31000000000000000000003 /* AuthorizeTabletKey.expect in Resources */ = {isa = PBXBuildFile; fileRef = P32000000000000000000003 /* AuthorizeTabletKey.expect */; };
+		N31000000000000000000001 /* TabletWiFiPairingProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = N32000000000000000000001 /* TabletWiFiPairingProbe.swift */; };
+		O31000000000000000000001 /* TabletWakeClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = O32000000000000000000001 /* TabletWakeClient.swift */; };
+		Q31000000000000000000001 /* TabletPairingFinalizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = Q32000000000000000000001 /* TabletPairingFinalizer.swift */; };
+		R31000000000000000000001 /* ConnectionMonitorPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = R32000000000000000000001 /* ConnectionMonitorPolicy.swift */; };
+		B10000000000000000000001 /* TabletTransportWakeInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000001 /* TabletTransportWakeInstaller.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		A20000000000000000000001 /* ReMarkableMirrorApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReMarkableMirrorApp.swift; sourceTree = "<group>"; };
+		A20000000000000000000002 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		A20000000000000000000003 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
+		A20000000000000000000004 /* MirrorWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MirrorWindowController.swift; sourceTree = "<group>"; };
+		A20000000000000000000005 /* WindowSizing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowSizing.swift; sourceTree = "<group>"; };
+		A20000000000000000000006 /* FilesRevealAnimator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilesRevealAnimator.swift; sourceTree = "<group>"; };
+		A20000000000000000000007 /* MirrorPalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MirrorPalette.swift; sourceTree = "<group>"; };
+		A20000000000000000000008 /* MirrorRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MirrorRootView.swift; sourceTree = "<group>"; };
+		A20000000000000000000009 /* ProductHeaderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProductHeaderView.swift; sourceTree = "<group>"; };
+		A2000000000000000000000A /* TabletStageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabletStageView.swift; sourceTree = "<group>"; };
+		A2000000000000000000000B /* FilesPaneView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilesPaneView.swift; sourceTree = "<group>"; };
+		A2000000000000000000000E /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		A2000000000000000000000F /* reMarkable Mirror.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "reMarkable Mirror.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		A20000000000000000000011 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		A20000000000000000000013 /* DeviceProfile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceProfile.swift; sourceTree = "<group>"; };
+		A20000000000000000000014 /* DeviceProfileStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceProfileStore.swift; sourceTree = "<group>"; };
+		A20000000000000000000016 /* KeychainSecretStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainSecretStore.swift; sourceTree = "<group>"; };
+		A20000000000000000000018 /* SSHConnection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHConnection.swift; sourceTree = "<group>"; };
+		A20000000000000000000019 /* OwnedProcessRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OwnedProcessRegistry.swift; sourceTree = "<group>"; };
+		A2000000000000000000001B /* PassiveRouteProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PassiveRouteProbe.swift; sourceTree = "<group>"; };
+		A2000000000000000000001D /* RouteLifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteLifecycle.swift; sourceTree = "<group>"; };
+		A2000000000000000000001F /* ConnectionState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionState.swift; sourceTree = "<group>"; };
+		A20000000000000000000020 /* LocalPairingPreparer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalPairingPreparer.swift; sourceTree = "<group>"; };
+		A20000000000000000000021 /* ConnectionDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionDiagnostics.swift; sourceTree = "<group>"; };
+		A20000000000000000000022 /* DirectUSBRouteVerifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DirectUSBRouteVerifier.swift; sourceTree = "<group>"; };
+		A20000000000000000000023 /* ConnectionCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionCoordinator.swift; sourceTree = "<group>"; };
+		A20000000000000000000024 /* ProductBuild.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProductBuild.swift; sourceTree = "<group>"; };
+		T32000000000000000000001 /* PerformanceSignposts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerformanceSignposts.swift; sourceTree = "<group>"; };
+		D32000000000000000000001 /* RMM1StreamParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RMM1StreamParser.swift; sourceTree = "<group>"; };
+		D32000000000000000000002 /* RMM1FrameSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RMM1FrameSurface.swift; sourceTree = "<group>"; };
+		E32000000000000000000001 /* TabletFramePresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabletFramePresentation.swift; sourceTree = "<group>"; };
+		E32000000000000000000002 /* TabletFrameSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabletFrameSnapshot.swift; sourceTree = "<group>"; };
+		F32000000000000000000001 /* DisplayPreparation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisplayPreparation.swift; sourceTree = "<group>"; };
+		G32000000000000000000001 /* RMM1FrameStreamSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RMM1FrameStreamSession.swift; sourceTree = "<group>"; };
+		H32000000000000000000001 /* TabletInputProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabletInputProtocol.swift; sourceTree = "<group>"; };
+		H32000000000000000000002 /* TabletInputRecoveryPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabletInputRecoveryPolicy.swift; sourceTree = "<group>"; };
+		H32000000000000000000003 /* TabletInputSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabletInputSurface.swift; sourceTree = "<group>"; };
+		H32000000000000000000007 /* TabletInputSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabletInputSession.swift; sourceTree = "<group>"; };
+		H32000000000000000000009 /* TabletInputEventBuffer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabletInputEventBuffer.swift; sourceTree = "<group>"; };
+		I32000000000000000000001 /* FilesSSHTunnel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilesSSHTunnel.swift; sourceTree = "<group>"; };
+		I32000000000000000000003 /* RemarkableFilesClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemarkableFilesClient.swift; sourceTree = "<group>"; };
+		I32000000000000000000005 /* FilesPanePresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilesPanePresentation.swift; sourceTree = "<group>"; };
+		I32000000000000000000007 /* FinderDocumentPromise.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FinderDocumentPromise.swift; sourceTree = "<group>"; };
+		L32000000000000000000001 /* FilesGenerationOperationOwner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilesGenerationOperationOwner.swift; sourceTree = "<group>"; };
+		J32000000000000000000001 /* WiFiNetworkContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WiFiNetworkContext.swift; sourceTree = "<group>"; };
+		K32000000000000000000001 /* RouteSelectionPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteSelectionPolicy.swift; sourceTree = "<group>"; };
+		M32000000000000000000001 /* WiFiRepairConfirmationPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WiFiRepairConfirmationPolicy.swift; sourceTree = "<group>"; };
+		P32000000000000000000001 /* TabletKeyAuthorizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabletKeyAuthorizer.swift; sourceTree = "<group>"; };
+		P32000000000000000000003 /* AuthorizeTabletKey.expect */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = Resources/AuthorizeTabletKey.expect; sourceTree = "<group>"; };
+		N32000000000000000000001 /* TabletWiFiPairingProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabletWiFiPairingProbe.swift; sourceTree = "<group>"; };
+		O32000000000000000000001 /* TabletWakeClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabletWakeClient.swift; sourceTree = "<group>"; };
+		Q32000000000000000000001 /* TabletPairingFinalizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabletPairingFinalizer.swift; sourceTree = "<group>"; };
+		R32000000000000000000001 /* ConnectionMonitorPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionMonitorPolicy.swift; sourceTree = "<group>"; };
+		B20000000000000000000001 /* TabletTransportWakeInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabletTransportWakeInstaller.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		A60000000000000000000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		A70000000000000000000001 = {
+			isa = PBXGroup;
+			children = (
+				A70000000000000000000002 /* ReMarkableMirror */,
+				A70000000000000000000004 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		A70000000000000000000002 /* ReMarkableMirror */ = {
+			isa = PBXGroup;
+			children = (
+				A20000000000000000000001 /* ReMarkableMirrorApp.swift */,
+				A20000000000000000000002 /* AppDelegate.swift */,
+				A20000000000000000000003 /* AppModel.swift */,
+				A2000000000000000000001F /* ConnectionState.swift */,
+				A20000000000000000000004 /* MirrorWindowController.swift */,
+				A20000000000000000000005 /* WindowSizing.swift */,
+				A20000000000000000000006 /* FilesRevealAnimator.swift */,
+				A20000000000000000000007 /* MirrorPalette.swift */,
+				A20000000000000000000008 /* MirrorRootView.swift */,
+				A20000000000000000000009 /* ProductHeaderView.swift */,
+				A2000000000000000000000A /* TabletStageView.swift */,
+				A2000000000000000000000B /* FilesPaneView.swift */,
+				A20000000000000000000013 /* DeviceProfile.swift */,
+				A20000000000000000000014 /* DeviceProfileStore.swift */,
+				A20000000000000000000016 /* KeychainSecretStore.swift */,
+				A20000000000000000000018 /* SSHConnection.swift */,
+				A20000000000000000000019 /* OwnedProcessRegistry.swift */,
+				A2000000000000000000001B /* PassiveRouteProbe.swift */,
+				A2000000000000000000001D /* RouteLifecycle.swift */,
+				A20000000000000000000020 /* LocalPairingPreparer.swift */,
+				A20000000000000000000021 /* ConnectionDiagnostics.swift */,
+				A20000000000000000000022 /* DirectUSBRouteVerifier.swift */,
+				A20000000000000000000023 /* ConnectionCoordinator.swift */,
+				A20000000000000000000024 /* ProductBuild.swift */,
+				T32000000000000000000001 /* PerformanceSignposts.swift */,
+				D32000000000000000000001 /* RMM1StreamParser.swift */,
+				D32000000000000000000002 /* RMM1FrameSurface.swift */,
+				E32000000000000000000001 /* TabletFramePresentation.swift */,
+				E32000000000000000000002 /* TabletFrameSnapshot.swift */,
+				F32000000000000000000001 /* DisplayPreparation.swift */,
+				G32000000000000000000001 /* RMM1FrameStreamSession.swift */,
+				H32000000000000000000001 /* TabletInputProtocol.swift */,
+				H32000000000000000000002 /* TabletInputRecoveryPolicy.swift */,
+				H32000000000000000000003 /* TabletInputSurface.swift */,
+				H32000000000000000000007 /* TabletInputSession.swift */,
+				H32000000000000000000009 /* TabletInputEventBuffer.swift */,
+				I32000000000000000000001 /* FilesSSHTunnel.swift */,
+				I32000000000000000000003 /* RemarkableFilesClient.swift */,
+				I32000000000000000000005 /* FilesPanePresentation.swift */,
+				I32000000000000000000007 /* FinderDocumentPromise.swift */,
+				L32000000000000000000001 /* FilesGenerationOperationOwner.swift */,
+				J32000000000000000000001 /* WiFiNetworkContext.swift */,
+				K32000000000000000000001 /* RouteSelectionPolicy.swift */,
+				M32000000000000000000001 /* WiFiRepairConfirmationPolicy.swift */,
+				N32000000000000000000001 /* TabletWiFiPairingProbe.swift */,
+				P32000000000000000000001 /* TabletKeyAuthorizer.swift */,
+				P32000000000000000000003 /* AuthorizeTabletKey.expect */,
+				O32000000000000000000001 /* TabletWakeClient.swift */,
+				Q32000000000000000000001 /* TabletPairingFinalizer.swift */,
+				R32000000000000000000001 /* ConnectionMonitorPolicy.swift */,
+				B20000000000000000000001 /* TabletTransportWakeInstaller.swift */,
+				A20000000000000000000011 /* Assets.xcassets */,
+				A2000000000000000000000E /* Info.plist */,
+			);
+			path = ReMarkableMirror;
+			sourceTree = "<group>";
+		};
+		A70000000000000000000004 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				A2000000000000000000000F /* reMarkable Mirror.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		A50000000000000000000001 /* ReMarkableMirror */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A80000000000000000000002 /* Build configuration list for PBXNativeTarget "ReMarkableMirror" */;
+			buildPhases = (
+				A90000000000000000000001 /* Sources */,
+				A60000000000000000000001 /* Frameworks */,
+				AA0000000000000000000001 /* Resources */,
+				B30000000000000000000001 /* Bundle Tablet Transport Wake */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = ReMarkableMirror;
+			productName = ReMarkableMirror;
+			productReference = A2000000000000000000000F /* reMarkable Mirror.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		A40000000000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2660;
+				LastUpgradeCheck = 2660;
+				TargetAttributes = {
+					A50000000000000000000001 = {
+						CreatedOnToolsVersion = 26.6;
+					};
+				};
+			};
+			buildConfigurationList = A80000000000000000000001 /* Build configuration list for PBXProject "ReMarkableMirror" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = A70000000000000000000001;
+			productRefGroup = A70000000000000000000004 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				A50000000000000000000001 /* ReMarkableMirror */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		AA0000000000000000000001 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A1000000000000000000000E /* Assets.xcassets in Resources */,
+				P31000000000000000000003 /* AuthorizeTabletKey.expect in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		B30000000000000000000001 /* Bundle Tablet Transport Wake */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Bundle Tablet Transport Wake";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/zsh;
+			shellScript = "set -euo pipefail\n\nif [[ -z \"${TARGET_BUILD_DIR:-}\" || -z \"${UNLOCALIZED_RESOURCES_FOLDER_PATH:-}\" || -z \"${DERIVED_FILE_DIR:-}\" ]]; then\n    print -u2 \"Required Xcode output paths are unavailable.\"\n    exit 1\nfi\n\nexport PATH=\"/opt/homebrew/bin:/usr/local/go/bin:${PATH}\"\nrepository_root=\"${SRCROOT}/../..\"\nbuilder=\"${repository_root}/scripts/Build-RemarkableTransportWakeMac.sh\"\nsource_directory=\"${repository_root}/mirror/agent/deploy\"\nresources_directory=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\ndestination=\"${resources_directory}/TabletTransportWake\"\n\nif [[ ! -x \"${builder}\" ]]; then\n    print -u2 \"The verified tablet transport builder is missing or not executable.\"\n    exit 1\nfi\n/bin/mkdir -p \"${DERIVED_FILE_DIR}\" \"${resources_directory}\"\nstage_directory=$(mktemp -d \"${DERIVED_FILE_DIR}/TabletTransportWake.XXXXXX\")\ncleanup() {\n    if [[ -n \"${stage_directory}\" && -d \"${stage_directory}\" ]]; then\n        /bin/rm -rf -- \"${stage_directory}\"\n    fi\n}\ntrap cleanup EXIT\n\n\"${builder}\" \"${stage_directory}/rmmirror-transport-wake\"\nfor name in rmmirror-transport-wake.service install-transport-wake.sh rmmirror-usb-sleep-guard.conf; do\n    source_path=\"${source_directory}/${name}\"\n    if [[ ! -f \"${source_path}\" || -L \"${source_path}\" ]]; then\n        print -u2 \"Tablet transport source asset is missing or unsafe: ${source_path}\"\n        exit 1\n    fi\n    /bin/cp -f \"${source_path}\" \"${stage_directory}/${name}\"\ndone\n/bin/chmod 0755 \"${stage_directory}/rmmirror-transport-wake\"\n/bin/chmod 0644 \"${stage_directory}/rmmirror-transport-wake.service\" \"${stage_directory}/install-transport-wake.sh\" \"${stage_directory}/rmmirror-usb-sleep-guard.conf\"\n\nif [[ -e \"${destination}\" || -L \"${destination}\" ]]; then\n    if [[ ! -d \"${destination}\" || -L \"${destination}\" ]]; then\n        print -u2 \"Refusing unsafe tablet transport resource destination: ${destination}\"\n        exit 1\n    fi\n    /bin/rm -rf -- \"${destination}\"\nfi\n/bin/mv \"${stage_directory}\" \"${destination}\"\nstage_directory=\n";
+			showEnvVarsInLog = 0;
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		A90000000000000000000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10000000000000000000001 /* ReMarkableMirrorApp.swift in Sources */,
+				A10000000000000000000002 /* AppDelegate.swift in Sources */,
+				A10000000000000000000003 /* AppModel.swift in Sources */,
+				A1000000000000000000001C /* ConnectionState.swift in Sources */,
+				A10000000000000000000004 /* MirrorWindowController.swift in Sources */,
+				A10000000000000000000005 /* WindowSizing.swift in Sources */,
+				A10000000000000000000006 /* FilesRevealAnimator.swift in Sources */,
+				A10000000000000000000007 /* MirrorPalette.swift in Sources */,
+				A10000000000000000000008 /* MirrorRootView.swift in Sources */,
+				A10000000000000000000009 /* ProductHeaderView.swift in Sources */,
+				A1000000000000000000000A /* TabletStageView.swift in Sources */,
+				A1000000000000000000000B /* FilesPaneView.swift in Sources */,
+				A10000000000000000000010 /* DeviceProfile.swift in Sources */,
+				A10000000000000000000011 /* DeviceProfileStore.swift in Sources */,
+				A10000000000000000000013 /* KeychainSecretStore.swift in Sources */,
+				A10000000000000000000015 /* SSHConnection.swift in Sources */,
+				A10000000000000000000016 /* OwnedProcessRegistry.swift in Sources */,
+				A10000000000000000000018 /* PassiveRouteProbe.swift in Sources */,
+				A1000000000000000000001A /* RouteLifecycle.swift in Sources */,
+				A1000000000000000000001D /* LocalPairingPreparer.swift in Sources */,
+				A1000000000000000000001E /* ConnectionDiagnostics.swift in Sources */,
+				A1000000000000000000001F /* DirectUSBRouteVerifier.swift in Sources */,
+				A10000000000000000000020 /* ConnectionCoordinator.swift in Sources */,
+				A10000000000000000000021 /* ProductBuild.swift in Sources */,
+				T31000000000000000000001 /* PerformanceSignposts.swift in Sources */,
+				D31000000000000000000001 /* RMM1StreamParser.swift in Sources */,
+				D31000000000000000000002 /* RMM1FrameSurface.swift in Sources */,
+				E31000000000000000000001 /* TabletFramePresentation.swift in Sources */,
+				E31000000000000000000002 /* TabletFrameSnapshot.swift in Sources */,
+				F31000000000000000000001 /* DisplayPreparation.swift in Sources */,
+				G31000000000000000000001 /* RMM1FrameStreamSession.swift in Sources */,
+				H31000000000000000000001 /* TabletInputProtocol.swift in Sources */,
+				H31000000000000000000002 /* TabletInputRecoveryPolicy.swift in Sources */,
+				H31000000000000000000003 /* TabletInputSurface.swift in Sources */,
+				H31000000000000000000007 /* TabletInputSession.swift in Sources */,
+				H31000000000000000000009 /* TabletInputEventBuffer.swift in Sources */,
+				I31000000000000000000001 /* FilesSSHTunnel.swift in Sources */,
+				I31000000000000000000003 /* RemarkableFilesClient.swift in Sources */,
+				I31000000000000000000005 /* FilesPanePresentation.swift in Sources */,
+				I31000000000000000000007 /* FinderDocumentPromise.swift in Sources */,
+				L31000000000000000000001 /* FilesGenerationOperationOwner.swift in Sources */,
+				J31000000000000000000001 /* WiFiNetworkContext.swift in Sources */,
+				K31000000000000000000001 /* RouteSelectionPolicy.swift in Sources */,
+				M31000000000000000000001 /* WiFiRepairConfirmationPolicy.swift in Sources */,
+				N31000000000000000000001 /* TabletWiFiPairingProbe.swift in Sources */,
+				P31000000000000000000001 /* TabletKeyAuthorizer.swift in Sources */,
+				O31000000000000000000001 /* TabletWakeClient.swift in Sources */,
+				Q31000000000000000000001 /* TabletPairingFinalizer.swift in Sources */,
+				R31000000000000000000001 /* ConnectionMonitorPolicy.swift in Sources */,
+				B10000000000000000000001 /* TabletTransportWakeInstaller.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		AC0000000000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = arm64;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		AC0000000000000000000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = arm64;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEPLOYMENT_POSTPROCESSING = YES;
+				ENABLE_NS_ASSERTIONS = NO;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+			};
+			name = Release;
+		};
+		AC0000000000000000000003 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 2;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_DEBUG_DYLIB = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = ReMarkableMirror/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks";
+				MARKETING_VERSION = 0.2.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.ifixrobots.ReMarkableMirror;
+				PRODUCT_MODULE_NAME = ReMarkableMirror;
+				PRODUCT_NAME = "reMarkable Mirror";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		AC0000000000000000000004 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 2;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = ReMarkableMirror/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks";
+				MARKETING_VERSION = 0.2.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.ifixrobots.ReMarkableMirror;
+				PRODUCT_MODULE_NAME = ReMarkableMirror;
+				PRODUCT_NAME = "reMarkable Mirror";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		A80000000000000000000001 /* Build configuration list for PBXProject "ReMarkableMirror" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AC0000000000000000000001 /* Debug */,
+				AC0000000000000000000002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A80000000000000000000002 /* Build configuration list for PBXNativeTarget "ReMarkableMirror" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AC0000000000000000000003 /* Debug */,
+				AC0000000000000000000004 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = A40000000000000000000001 /* Project object */;
+}

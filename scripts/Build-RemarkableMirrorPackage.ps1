@@ -28,6 +28,8 @@ $filesLoopbackArtifactHelperPath = Join-Path $PSScriptRoot 'lib\RemarkableFilesL
 $probeBuildScriptPath = Join-Path $PSScriptRoot 'Build-RemarkableMirrorAgent.ps1'
 $probeMainSourcePath = Join-Path $repositoryRoot 'mirror\agent\cmd\rmmirror-probe\main.go'
 $passiveRouteProbePath = Join-Path $repositoryRoot 'mirror\windows\ReMarkableMirror\PassiveRouteProbe.cs'
+$macPassiveRouteProbePath = Join-Path $repositoryRoot 'mirror\macos\ReMarkableMirror\PassiveRouteProbe.swift'
+$transportServiceSourcePath = Join-Path $repositoryRoot 'mirror\agent\internal\transportwake\service.go'
 $transportBuildScriptPath = Join-Path $PSScriptRoot 'Build-RemarkableTransportWake.ps1'
 $filesLoopbackBuildScriptPath = Join-Path $PSScriptRoot 'Build-RemarkableFilesLoopback.ps1'
 $transportUnitPath = Join-Path $repositoryRoot 'mirror\agent\deploy\rmmirror-transport-wake.service'
@@ -106,6 +108,8 @@ foreach ($requiredPath in @(
         $probeBuildScriptPath,
         $probeMainSourcePath,
         $passiveRouteProbePath,
+        $macPassiveRouteProbePath,
+        $transportServiceSourcePath,
         $transportBuildScriptPath,
         $filesLoopbackBuildScriptPath,
         $transportUnitPath,
@@ -174,6 +178,52 @@ $probeVersionConsumers = @(
 )
 if (@($probeVersionConsumers | Where-Object { $_ -cne $mirrorProbeVersion }).Count -ne 0) {
     throw "rmmirror-probe version drift: producer is $mirrorProbeVersion; consumers are $($probeVersionConsumers -join ', ')."
+}
+
+$usbPolicySources = [ordered]@{
+    Producer = @{
+        Text = [System.IO.File]::ReadAllText($transportServiceSourcePath)
+        Pattern = 'CurrentUSBConnectionPolicy\s*=\s*"(?<policy>[^"]+)"'
+    }
+    WindowsExpected = @{
+        Text = $passiveRouteProbeSource
+        Pattern = 'ExpectedUsbConnectionPolicy\s*=\s*"(?<policy>[^"]+)"'
+    }
+    WindowsProbe = @{
+        Text = $passiveRouteProbeSource
+        Pattern = 'test "\$usb_connection_policy" = ''(?<policy>[^'']+)'' \|\| mismatch=1'
+    }
+    WindowsInstallerPostInstall = @{
+        Text = $prerequisiteSource
+        Pattern = 'grep -q ''"usb_connection_policy":"(?<policy>[^"]+)"'' /run/rmmirror-transport-wake\.json'
+    }
+    WindowsInstallerPairing = @{
+        Text = $prerequisiteSource
+        Pattern = '\$capabilityMetadata\[''USB_CONNECTION_POLICY''\]\s+-cne\s+''(?<policy>[^'']+)'''
+    }
+    MacExpected = @{
+        Text = [System.IO.File]::ReadAllText($macPassiveRouteProbePath)
+        Pattern = 'expectedUSBConnectionPolicy\s*=\s*"(?<policy>[^"]+)"'
+    }
+    MacProbe = @{
+        Text = [System.IO.File]::ReadAllText($macPassiveRouteProbePath)
+        Pattern = 'test "\$usb_connection_policy" = ''(?<policy>[^'']+)'' \|\| mismatch=1'
+    }
+    TabletInstaller = @{
+        Text = [System.IO.File]::ReadAllText($transportInstallPath)
+        Pattern = '"usb_connection_policy":"(?<policy>[^"]+)"'
+    }
+}
+$usbPolicyValues = [System.Collections.Generic.List[string]]::new()
+foreach ($entry in $usbPolicySources.GetEnumerator()) {
+    $match = [regex]::Match($entry.Value.Text, $entry.Value.Pattern)
+    if (-not $match.Success) {
+        throw "Could not read the USB connection-policy capability from $($entry.Key)."
+    }
+    $usbPolicyValues.Add($match.Groups['policy'].Value)
+}
+if (@($usbPolicyValues | Select-Object -Unique).Count -ne 1) {
+    throw "USB connection-policy capability drift: $($usbPolicyValues -join ', ')."
 }
 
 . $releaseProvenancePath

@@ -6,6 +6,43 @@ Notable user-visible changes are recorded here.
 
 ### Highlights
 
+- Advanced the native SwiftUI/AppKit macOS candidate to `0.2.0 (2)` through the
+  Milestone 6 source boundary. It now includes secure Mac-side profile and SSH
+  ownership, owner-approved tablet key authorization and Wi-Fi SSH enablement,
+  direct Metal frame presentation, screenshots, Touch + Type, Pen and eraser
+  input, tablet Files and Finder drag-out, separate owner-started USB-C and
+  Wi-Fi connections, wake and recovery. The fixed non-resizable window is `456 x 877`
+  compact and `776 x 877` with Files open. The Files animation is accepted as
+  smooth; this is not owner acceptance. The final default-size pass over every
+  user-visible label, line break and action semantic remains on the port
+  ledger. Files now refreshes only after opening
+  reaches its endpoint, success notices dismiss after three seconds, and the
+  pane uses a native circular close action while the toolbar folder stays plain.
+  Sleeping direct USB endpoints now stay in the wake-and-unlock retry flow
+  instead of being mislabeled as cable absence, and a wake endpoint reporting
+  `starting` no longer suppresses an already authenticated ready route.
+  Authorization recovery now keeps retrying while showing the current USB state
+  instead of an indefinite setup spinner, including a distinct macOS accessory
+  approval state when Restricted Mode is blocking USB data. The
+  Mac input session now matches the Windows continuity path: it sends one
+  `KEY_POWER` only when the strict startup handshake reports `deep_sleep`, sends
+  an immediate `KEY_F12` before publishing Wi-Fi controls, repeats `KEY_F12`
+  every 10 seconds on Wi-Fi or 45 seconds on USB, resets that activity deadline
+  after acknowledged user input, and retains three-second protocol pings. The
+  Mac source now has one product target and bundle identity, with no XCTest
+  target, Preview/mock runtime, or QA app variant. It builds as a product-only
+  Debug target under stable Xcode 26.6. The last audited unsigned arm64 Release
+  ZIP has SHA-256
+  `0bb79a5331142d42a4f5d74cdf31802a660f6d8ebb1d0adb4a93a99f6fcc38cf`.
+  That archive predates the current source and does not establish parity with
+  it. On 2026-08-08, one owner-started Connect USB-C action reached Live on the
+  physical tablet with a real frame and persistent authenticated frame, input
+  and Files sessions. USB-C admission, status and wake now use only the exact
+  verified cable; the Keychain bearer is reserved for explicit Wi-Fi setup.
+  Physical touch/pen effects, unlocked Files operations, screenshots,
+  deep-sleep wake, Wi-Fi, signing, notarization, hosted artifact, release, Gold
+  and owner acceptance remain open on macOS.
+
 - Mirror now moves naturally between USB and Wi-Fi while keeping display,
   **Touch + Type**, Pen, screenshots, and Files together in one Windows app.
 - You can send PDFs and DRM-free EPUBs to the tablet and save documents back to
@@ -21,10 +58,12 @@ Notable user-visible changes are recorded here.
 - One interrupted Wi-Fi identity or capability check no longer sends the app
   to **Repair**. Wi-Fi repair now requires a repeated authenticated tablet
   mismatch, while direct USB setup failures still appear immediately.
-- After full sleep, press the tablet's power button once and Mirror reconnects
-  automatically over Wi-Fi. If Wi-Fi does not return, USB-C is the fallback
-  route after wake. A bounded TCP attempt and a standard magic packet did not
-  wake the tested tablet from deep suspend.
+- While Mirror is active, the tablet's USB data-attachment guard prevents suspend with
+  the cable attached. Its input session keeps a wake lease and sends
+  route-aware activity across USB-to-Wi-Fi handoff. If Linux has already
+  completed suspend before Mirror can reach it, there is still no source-proven
+  host wake guarantee: press the tablet's power button once, enter its passcode
+  and leave Mirror open for automatic retry.
 - The first-run guides, package checks, privacy boundaries, and release-source
   requirements are now part of the build itself.
 

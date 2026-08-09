@@ -36,6 +36,9 @@
 Thumbs.db
 Desktop.ini
 .DS_Store
+**/xcuserdata/
+*.xcuserstate
+DerivedData/
 
 # Language caches
 __pycache__/

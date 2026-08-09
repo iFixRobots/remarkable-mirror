@@ -331,10 +331,12 @@ native RMDOC to Windows.
 Close Files and stop interacting with the tablet. Reconnect USB-C, wait for
 **Live over USB**, then confirm that **Touch + Type** and Files still work.
 
-A fully sleeping tablet drops off Wi-Fi. On the tested Paper Pro Move, neither
-a direct network connection nor a standard wake packet brought it back. Press
-the tablet's power button once. Mirror reconnects automatically over Wi-Fi when
-it wakes. If Wi-Fi does not return after it wakes, connect USB-C.
+During an active Mirror session, the USB carrier guard prevents suspend while
+attached. The input session then holds its own wake lease and sends activity
+across the move to Wi-Fi, so normal handoff does not require a manual wake. If
+Linux already completed suspend before Mirror could reach it, there is no
+source-proven host wake guarantee. Press the tablet's power button once and
+leave Mirror open for automatic retry; connect USB-C if Wi-Fi does not return.
 
 ## If something fails
 

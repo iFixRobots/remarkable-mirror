@@ -12,6 +12,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"path"
 	"path/filepath"
@@ -26,10 +27,18 @@ const (
 	WakeSchema                = "rmmirror.wake/v1"
 	DefaultWakeLoopbackListen = "127.0.0.1:51337"
 	DefaultWakeUSBListen      = "10.11.99.1:51337"
+	DefaultWakeUSBDevice      = "usb0"
 	DefaultWakeTokenPath      = "/data/rmmirror/wake-token"
 	defaultMaxHeaderBytes     = 4 << 10
 	defaultMaxRequests        = 8
 	defaultWakeSuppression    = 3 * time.Second
+)
+
+var (
+	directCableRecoveryListener  = netip.MustParseAddrPort(DefaultWakeUSBListen)
+	directCableRecoverySubnet    = netip.MustParsePrefix("10.11.99.0/27")
+	directCableRecoveryTablet    = netip.MustParseAddr("10.11.99.1")
+	directCableRecoveryBroadcast = netip.MustParseAddr("10.11.99.31")
 )
 
 type WakeEndpointConfig struct {
@@ -102,9 +111,9 @@ type tabletObservation struct {
 	HomeKnown    bool
 	HomeMounted  bool
 	DisplayState displayState
-	// Xochitl's journal is buffered, so its latest transition is useful for
-	// diagnostics but cannot safely authorize a power-key toggle. A future
-	// direct state source must opt in explicitly.
+	// Xochitl's journal alone remains diagnostic. Authority also requires the
+	// live, identity-checked system sleep hold owned by the installed transport
+	// service.
 	DisplayAuthoritative bool
 }
 
@@ -164,9 +173,12 @@ func newWakeEndpoint(
 }
 
 func (endpoint *WakeEndpoint) Run(ctx context.Context) error {
-	listenConfig := net.ListenConfig{KeepAlive: endpoint.config.IdleTimeout}
 	listeners := make([]net.Listener, 0, len(endpoint.config.ListenAddresses))
 	for _, listenAddress := range endpoint.config.ListenAddresses {
+		listenConfig := wakeListenConfig(
+			listenAddress,
+			endpoint.config.IdleTimeout,
+		)
 		listener, err := listenConfig.Listen(ctx, "tcp4", listenAddress)
 		if err != nil {
 			for _, boundListener := range listeners {
@@ -271,7 +283,7 @@ func (handler *wakeHandler) ServeHTTP(writer http.ResponseWriter, request *http.
 		return
 	}
 
-	if !handler.authenticate(request.Header.Get("Authorization")) {
+	if !handler.authorize(request) {
 		writer.Header().Set("WWW-Authenticate", "Bearer")
 		writeWakeJSON(writer, http.StatusUnauthorized, WakeStatus{Schema: WakeSchema, Error: "unauthorized"})
 		return
@@ -325,6 +337,59 @@ func (handler *wakeHandler) ServeHTTP(writer http.ResponseWriter, request *http.
 	handler.lastWake = handler.now()
 	response.WakeSent = true
 	writeWakeJSON(writer, http.StatusOK, response)
+}
+
+func (handler *wakeHandler) authorize(request *http.Request) bool {
+	authorization, present := authorizationHeader(request.Header)
+	if present {
+		return handler.authenticate(authorization)
+	}
+	return isDirectCableRecoveryRequest(request)
+}
+
+func authorizationHeader(header http.Header) (string, bool) {
+	var authorization string
+	found := false
+	for name, values := range header {
+		if !strings.EqualFold(name, "Authorization") {
+			continue
+		}
+		if found || len(values) != 1 {
+			return "", true
+		}
+		found = true
+		authorization = values[0]
+	}
+	return authorization, found
+}
+
+func isDirectCableRecoveryRequest(request *http.Request) bool {
+	if !isDirectCableRecoveryOperation(request.Method, request.URL.Path) {
+		return false
+	}
+	localAddress, ok := request.Context().Value(http.LocalAddrContextKey).(net.Addr)
+	if !ok {
+		return false
+	}
+	local, err := netip.ParseAddrPort(localAddress.String())
+	if err != nil || local != directCableRecoveryListener {
+		return false
+	}
+	remote, err := netip.ParseAddrPort(request.RemoteAddr)
+	if err != nil || remote.Port() == 0 {
+		return false
+	}
+	peer := remote.Addr()
+	return peer.Is4() &&
+		directCableRecoverySubnet.Contains(peer) &&
+		peer != directCableRecoverySubnet.Addr() &&
+		peer != directCableRecoveryTablet &&
+		peer != directCableRecoveryBroadcast
+}
+
+func isDirectCableRecoveryOperation(method string, requestPath string) bool {
+	return (method == http.MethodGet && requestPath == "/v1/status") ||
+		(method == http.MethodPost && requestPath == "/v1/wake")
 }
 
 func (handler *wakeHandler) authenticate(header string) bool {

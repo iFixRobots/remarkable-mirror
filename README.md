@@ -18,6 +18,53 @@ no cloud relay and no iFixRobots account.
 > This is independent community software. It is not affiliated with, endorsed
 > by, or supported by reMarkable AS.
 
+> [!NOTE]
+> A native SwiftUI/AppKit macOS port is now in active development under
+> `mirror/macos`. The `0.2.0 (2)` source now covers secure pairing, RMM1 frame
+> display and screenshots, Touch + Type and Pen, the complete Files transport,
+> owner-initiated USB-C and Wi-Fi connections, direct-cable wake and recovery,
+> and active-session continuity. The fixed,
+> non-resizable window is `456 x 877` compact and `776 x 877` with Files open.
+> On Mac, launch and cable appearance do not contact the tablet. Setup,
+> authorization, and Wi-Fi verification begin only after an explicit owner
+> action. One **Connect USB-C** click owns a bounded session that wakes the
+> tablet through that cable, waits for its services, authenticates, and connects.
+> It never selects or falls back to Wi-Fi. If the tablet requires its passcode,
+> the owner unlocks it and the same USB-C session continues. A Live session stays
+> on the connection the owner selected without automatic fallback, promotion,
+> or reconnection. Active-session keep-awake remains enabled.
+> The Files animation is accepted as smooth. The default-size product-surface
+> pass is complete in source across compact and Files-open states: connection
+> status remains metadata, Touch + Type and Pen remain adjacent one-click
+> modes, action labels and icons stay stable while transient results use toasts,
+> USB-C and Wi-Fi remain unbroken tokens, and internal Files failures map to
+> user-facing copy. This is implementation plus a product-only local build and
+> inspection boundary, not final owner acceptance. The Mac source has one
+> production target and bundle identity; it contains no XCTest target, Preview
+> menu, command-line mock states, or QA app variant. The last audited unsigned
+> arm64 Release package is
+> `artifacts/macos/package/reMarkable-Mirror-0.2.0-macOS-arm64-unsigned.zip`
+> (SHA-256 `0bb79a5331142d42a4f5d74cdf31802a660f6d8ebb1d0adb4a93a99f6fcc38cf`).
+> That checksum and archive audit apply only to the older package; it predates
+> the current recovery and presentation changes and does not prove parity with
+> the current product source. On 2026-08-08, current-worktree product runs
+> completed owner-started **Connect USB-C** sessions to **Live** on the physical
+> tablet and rendered its real frame. Files loaded seven root items, navigated
+> into a folder and back, recovered after an owner-authorized unlock within the
+> same owner window, and exported a valid PDF and native RMDOC archive with one
+> `.rmdoc` suffix. Clipboard copy and Save As each produced a valid `954 x 1696`
+> PNG. Touch and Pen taps changed the tablet, committed keyboard text appeared
+> on it, and a continuous Touch + Type swipe advanced a bundled tutorial page.
+> A clean **Command-Q** with active frame, input and Files children retired every
+> owned process without an orphan or AppKit exception. A separate explicit USB-C
+> connection brought a previously unreachable locked tablet back to its passcode;
+> that is wake/recovery evidence, not proof of the exact fully-deep-sleep power
+> event. No Wi-Fi or Keychain bearer was involved in these USB-C runs. Import or
+> upload, delete, Finder drag-out, pen stroke, eraser/right-click, Wi-Fi, a signed
+> current-source package, notarization, hosting, and owner acceptance remain open.
+> See
+> [macOS Getting Started](docs/macos/GETTING_STARTED.md) for the exact boundary.
+
 ## Start here
 
 The full setup is in [Getting started](docs/GETTING_STARTED.md). Read it once
@@ -43,6 +90,8 @@ check in one path.
   and back to USB-C when it is reconnected
 - Recovers from ordinary lock and short-sleep states, and only shows **Live**
   when the display and controls are both ready
+- Prevents ordinary suspend while USB remains attached and keeps an active
+  input session awake across the move to Wi-Fi
 - Keeps the window shaped like the tablet, with a smooth reversible Files drawer
 
 <p align="center">
@@ -103,13 +152,17 @@ guide once on a clean Windows account and a freshly reset supported tablet.
 
 - Dragging a document out of Files creates a PDF. Native RMDOC export remains in
   the document's right-click menu, and native RMDOC import is not implemented.
-- Native RMDOC export has produced a valid file, but its normal hands-on review
-  is still open before the first public release.
+- Native RMDOC Save As on Mac produced a single-suffix archive whose ZIP
+  integrity was verified. Native RMDOC import remains unimplemented.
 - Mirror accepts PDFs and DRM-free EPUBs. DRM-protected and malformed EPUBs may
   fail without enough explanation in the app.
-- A fully sleeping tablet drops off Wi-Fi. Press its power button once; Mirror
-  reconnects automatically over Wi-Fi. If Wi-Fi does not return after it wakes,
-  connect USB-C. Network wake did not work on the tested Paper Pro Move.
+- During an active Mirror session, the tablet's USB data-attachment guard prevents
+  suspend while the cable is attached. The input session then holds its own
+  wake lease and sends route-aware activity so USB-to-Wi-Fi handoff can
+  continue without manual intervention. If Linux has already completed suspend
+  before Mirror can reach it, there is no source-proven host wake guarantee.
+  Press the tablet's power button once, enter its passcode and leave Mirror open
+  for automatic retry; connect USB-C if Wi-Fi does not return.
 - A firmware update can switch the tablet to a root slot without Mirror's
   components. Run `Install.cmd` again over unlocked USB when the app shows
   **Repair** and the release supports the new tablet software.
@@ -141,8 +194,8 @@ Nothing is added to tablet startup for input.
 Files stays separate. A packaged GPL-3.0-only loopback extension makes
 Xochitl's stock Files service available on tablet loopback, and Windows reaches
 it only through SSH forwarding. The transport wake endpoint also stays on
-tablet loopback and the direct USB interface. It does not listen on the tablet's
-Wi-Fi address.
+tablet loopback and the direct USB-C cable connection. It does not listen on
+the tablet's Wi-Fi address.
 
 Read [Architecture](docs/ARCHITECTURE.md) for the component and lifecycle map.
 
@@ -150,8 +203,8 @@ Read [Architecture](docs/ARCHITECTURE.md) for the component and lifecycle map.
 
 Start with [Development](docs/DEVELOPMENT.md) and
 [Contributing](CONTRIBUTING.md). The repository includes the WinUI host, ARM64
-Go companions, the Xovi Files extension source, packaging and install scripts,
-and focused policy checks.
+Go companions, the Xovi Files extension source, the in-progress native Mac
+host, packaging and install scripts, and focused policy checks.
 
 Release packaging omits Mirror-owned PDB/CodeView output and stops if the app
 DLL or EXE embeds a rooted application build path or the current repository or
@@ -161,6 +214,8 @@ set is missing; there is no shorter private-guide fallback.
 ## Documentation
 
 - [Getting started](docs/GETTING_STARTED.md)
+- [macOS connection candidate](docs/macos/GETTING_STARTED.md)
+- [macOS packaging status](docs/macos/PACKAGING.md)
 - [Package onboarding](docs/PACKAGE_ONBOARDING.md)
 - [Device setup reference](docs/DEVICE_SETUP.md)
 - [Troubleshooting](docs/TROUBLESHOOTING.md)

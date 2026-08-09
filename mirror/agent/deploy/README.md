@@ -53,23 +53,47 @@ The transport policy uses three product assets:
 - `install-transport-wake.sh`
 - `rmmirror-usb-sleep-guard.conf`
 
-The noncritical root-slot service renews a timed kernel wake lock while the USB
-network carrier is present. It does not mask sleep targets. The guard is an
-`ExecCondition` drop-in only for
-`systemd-suspend-then-hibernate.service`; it holds that executor while USB
-carrier is exactly `1`.
+The noncritical root-slot service qualifies a Mirror data attachment when
+carrier is `1` or exactly one discovered USB device controller reports
+`configured`. Once qualified, MAX77818 charger power keeps the timed kernel wake
+lock through transient loss of both data signals; power loss clears the
+qualification. Power alone never qualifies a charge-only source, and unknown
+state fails open to normal sleep. It does not mask sleep targets.
+
+The power signal is
+`/sys/class/power_supply/max77818-charger/online`. reMarkable's published
+Chiappa kernel source wires the USB-C controller to that MAX77818 power supply,
+whose `online` property reads the hardware charger-input-present state. This
+fallback has source and unit-test evidence; it has not yet been proved through
+a physical data-signal-loss cycle on the tablet.
+
+Runtime status keeps the existing `rmmirror.transport-wake/v1` schema and the
+`0.6.0` binary version for older-host compatibility. It additively publishes
+`usb_connection_policy` as the historical compatibility label
+`carrier-qualified-power-hold/v1`. Current behavior also includes UDC
+qualification; the label must not be read as the complete policy. A future
+cross-platform release can rename it only when Mac and Windows consumers move
+together.
+
+The guard is an `ExecCondition` drop-in only for
+`systemd-suspend-then-hibernate.service`. Each guard invocation uses the same
+carrier-or-exactly-one-configured-UDC qualification before charger power may
+extend its hold.
 
 Xochitl waits synchronously for the systemd transaction and has a 60-second
 watchdog. While the sleep executor is held, the guard renews that watchdog every
 20 seconds. Each renewal is bounded to five seconds and pins the same
 active/running `MainPID` and `InvocationID` before and after notification. USB
-detach or an unreadable carrier fails open to stock sleep. Cancellation skips
-the executor, while a watchdog or identity failure blocks the uncertain action.
-The service has no `/home`, Mirror-input, or personal-content dependency.
+power loss releases the hold. Before qualification, or whenever the connection
+state cannot be proved, the policy fails open to stock sleep. Cancellation
+skips the executor, while a watchdog or identity failure blocks the uncertain
+action. The service has no `/home`, Mirror-input, or personal-content
+dependency.
 
 ## Wake endpoint boundary
 
-The same service exposes a bearer-authenticated HTTP API on TCP 51337:
+The same service exposes an HTTP API on TCP 51337. Normal access remains
+bearer-authenticated:
 
 - `GET /v1/status` returns schema `rmmirror.wake/v1` with
   `unlock_required`, `sleeping`, `starting`, or `ready`;
@@ -79,18 +103,40 @@ The same service exposes a bearer-authenticated HTTP API on TCP 51337:
   never written to logs.
 
 The endpoint opens an all-or-nothing listener pair on `127.0.0.1:51337` and
-`10.11.99.1:51337`. If either bind fails, the other listener is closed and
-endpoint health remains false. It must never bind `0.0.0.0` or the tablet's
-Wi-Fi address. The Windows pre-SSH client pins its connection to the direct USB
-adapter. The loopback listener is used for local installation checks and can be
-reached remotely only through an authenticated SSH forward. The endpoint uses
-plain HTTP because neither allowed listener is exposed directly to the LAN.
+`10.11.99.1:51337`. On Linux, the direct-cable socket is additionally bound to
+`usb0` with `SO_BINDTODEVICE`; if that binding or either listener fails, the
+other listener is closed and endpoint health remains false. It must never bind
+`0.0.0.0` or the tablet's Wi-Fi address. The Windows pre-SSH client pins its
+connection to the direct USB adapter. The loopback listener is used for local
+installation checks and can be reached remotely only through an authenticated
+SSH forward. The endpoint uses plain HTTP because neither allowed listener is
+exposed directly to the LAN.
+
+The direct USB-C listener authorizes bounded cable status and wake without a
+bearer. It accepts only `GET /v1/status` and `POST /v1/wake`, only on the
+`usb0`-bound socket, and only when the server-observed local address is exactly
+`10.11.99.1:51337` and the peer is a safe host inside the fixed
+`10.11.99.0/27` cable range. Loopback always requires the bearer. A present but
+invalid authorization value is rejected instead of falling back. This cable
+capability can inspect bounded display state and request the same
+authoritatively gated single power click; it cannot unlock the tablet, read a
+credential or reach any content API.
 
 This endpoint exists before `/home` and Dropbear. `unlock_required` proves only
 that encrypted `/home` is unavailable and the tablet needs its passcode; it does
 not identify the cause or bypass the passcode. A normal screen lock with SSH
 available remains a valid Mirror state. If the status source cannot
 authoritatively prove `DeepSleep`, no power event is sent.
+
+The authoritative `DeepSleep` source combines Xochitl's latest transition from
+its current systemd invocation with the current systemd-owned sleep hold. The
+inspector requires the stock
+`systemd-suspend-then-hibernate.service` to be running its `condition` phase,
+verifies through `/proc` that its live control PID is the packaged
+`rmmirror-transport-wake` executable running `hold-system-sleep`, and then
+revalidates the same PID, sleep-unit invocation, and Xochitl invocation before
+allowing one power click. A journal transition without that live hold remains
+non-authoritative status diagnostics.
 
 ## Installation and recovery
 
@@ -118,11 +164,13 @@ Install, rollback, and removal are transactional. The script snapshots the
 prior files and enablement, acquires a distinct timed kernel wake lock, and
 stops pending `suspend-then-hibernate` work before mutation. It verifies the
 published asset hashes, loaded drop-in, service health, endpoint health, and
-read-only active root before success. A failed install restores the prior files
-and service state, including the exact prior package-owned boot link. Removal
-validates that link before its first mutation and preserves
-`/data/rmmirror/wake-token` so reinstalling does not silently invalidate the
-paired Windows host.
+restored pre-install root-mount state before success. A failed install restores the prior files
+and service state, including the exact prior package-owned boot link. Candidate
+health always requires the current USB connection-policy marker; rollback also
+accepts the marker-free carrier-only `0.6.0` health contract when that is the
+service it restored. Removal validates that link before its first mutation and
+preserves `/data/rmmirror/wake-token` so reinstalling does not silently
+invalidate the paired Windows host.
 
 The host-side entry point is
 `scripts/Install-RemarkableMirrorPrerequisites.ps1`. It stages and verifies the
@@ -178,8 +226,17 @@ at an explicit `Retry` instead of another hidden handoff.
 
 The current source supports USB and Wi-Fi display, `Touch + Type`, Pen,
 short-sleep recovery, Files through SSH, Files recovery after unlock, and normal
-sleep after USB detach. On the tested tablet, a direct network connection and a
-standard wake packet did not wake full Linux suspend. Press the physical power
-button once; Mirror reconnects automatically when the tablet returns. Automatic
-A/B slot repair and recovery from every possible live connection failure are
-not supported.
+sleep after USB detach. On the tested tablet, the Windows product did not wake
+full Linux suspend with its direct-network request or standard wake packet. Its
+existing recovery remains: press the tablet's physical power button once, then
+Mirror reconnects automatically when the tablet returns.
+
+The Mac contract is separate. Launch and cable appearance do not communicate
+with the tablet. One explicit **Connect USB-C** click owns a bounded direct-cable
+wake, service-recovery, authentication, and connection session. That session
+never selects or falls back to Wi-Fi. Entering the tablet passcode is the only
+owner intervention authorized USB use may require; **Connect Wi-Fi** is a
+separate owner action.
+
+Automatic A/B slot repair and recovery from every possible live connection
+failure are not supported.

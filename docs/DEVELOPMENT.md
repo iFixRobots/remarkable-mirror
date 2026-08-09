@@ -1,13 +1,14 @@
 # Development
 
-The Windows host is WinUI 3 on .NET 10. Tablet companions are dependency-free
-Go programs built for Linux ARM64. The Files loopback extension uses a pinned
-reMarkable cross-toolchain container and Xovi generator commit.
+The Windows host is WinUI 3 on .NET 10. The in-progress native Mac host is
+SwiftUI plus AppKit. Tablet companions are dependency-free Go programs built
+for Linux ARM64. The Files loopback extension uses a pinned reMarkable
+cross-toolchain container and Xovi generator commit.
 
 This page is for contributors. If you only want to install and use Mirror, start
 with [Getting started](GETTING_STARTED.md).
 
-## Development machine
+## Windows development machine
 
 Use Windows 11 x64. The app itself targets Windows build `22621` or later. The
 current Docker Desktop WSL 2 requirements make Windows 11 `23H2` or later the
@@ -156,6 +157,134 @@ dotnet build mirror\windows\ReMarkableMirror\ReMarkableMirror.csproj `
     --no-restore `
     -p:Platform=x64
 ```
+
+## Build the native macOS candidate
+
+The app's deployment target is Apple silicon on macOS 14 or newer. That minimum
+runtime has not yet been exercised. The packaging toolchain remains Xcode 26.6,
+Swift 6.3.3 and the macOS 26.5 SDK. The Milestone 6 source builds as one
+product-only target under stable Xcode 26.6. The last audited unsigned arm64
+Release build and package predate the current
+recovery and presentation changes. The build script selects
+`/Applications/Xcode.app` explicitly so a globally selected beta Xcode does not
+silently change a Release candidate.
+
+```zsh
+scripts/Build-RemarkableMirrorMac.sh
+
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+  xcodebuild \
+  -project mirror/macos/ReMarkableMirror.xcodeproj \
+  -scheme ReMarkableMirror \
+  -configuration Debug \
+  -derivedDataPath artifacts/macos/DerivedData \
+  CODE_SIGNING_ALLOWED=NO \
+  build
+```
+
+Create the unsigned arm64 review ZIP after a Release build:
+
+```zsh
+scripts/Package-RemarkableMirrorMac.sh
+```
+
+The last audited unsigned package is
+`artifacts/macos/package/reMarkable-Mirror-0.2.0-macOS-arm64-unsigned.zip`,
+SHA-256
+`0bb79a5331142d42a4f5d74cdf31802a660f6d8ebb1d0adb4a93a99f6fcc38cf`.
+That checksum and archive audit apply only to the older package; it does not
+prove parity with the current source or product-only build. On 2026-08-08,
+current-worktree product runs reached **Live** over owner-started USB-C with the
+real frame and owned frame, input and Files processes. They physically exercised
+Files recovery and navigation, PDF and native RMDOC export, screenshot copy and
+save, touch and Pen taps, committed keyboard text, a continuous swipe, and clean
+owned-process shutdown. Import or upload, delete, Finder drag-out, pen stroke,
+eraser/right-click, Wi-Fi and the exact fully-deep-sleep power event remain open.
+A signed current-source package, notarization, hosting and owner acceptance also
+remain open.
+
+The native Mac project deliberately contains no XCTest target, Preview menu,
+command-line mock states or QA bundle identity. Review its behavior in the real
+product at the fixed window dimensions, and treat only an exercised physical
+tablet path as evidence for pairing, mirroring, input, Files, or owner-started
+connection. See
+[macOS Getting Started](macos/GETTING_STARTED.md) before installing the
+candidate.
+
+Production Points of Interest use fixed names and no payload for connection
+activation, first-frame delivery, PNG encoding and Finder promise fulfillment.
+Capture those intervals with Instruments when measuring a real device path;
+compilation alone is not product-performance evidence.
+
+Building the Mac product does not contact or change a tablet. Local preparation
+is opt-in and first proves that the same reMarkable remains attached directly
+through one data-capable USB-C cable before it captures a host key or creates
+local credentials. The persistent **Add This Mac…** action is separately
+owner-approved. It repeats the exact direct-USB checks before appending the
+dedicated public key and installing or upgrading the tablet-side USB keep-awake
+service, including its wake lock and sleep guard. Its one-time root password is
+never saved. **Connection > Set Up Wi‑Fi…** separately verifies the current
+Wi-Fi connection without Location Services; it does not repeat the key append.
+A profile waiting for that Wi-Fi step can already make an explicit
+**Connect USB‑C** attempt; USB use does not silently finish or bypass Wi-Fi
+verification.
+
+Launching the Mac app, attaching USB, or observing a network change must not
+communicate with the tablet. **Set Up**, **Add This Mac…**,
+**Check Authorization**, and **Connection > Set Up Wi‑Fi…** are explicit bounded
+operations. **Connect USB‑C** starts one bounded session that stays on the same
+direct cable while it wakes the tablet, waits for its services, authenticates,
+and connects. It must never inspect, select, or fall back to Wi-Fi. If the tablet
+requires its passcode, the owner unlocks it and that USB-C session continues.
+**Connect Wi‑Fi** is a separate owner action. An accepted password submission is
+not followed by background recovery. If its outcome is uncertain,
+**Check Authorization** performs one
+bounded key-only check on a freshly revalidated direct USB context. Mirror does
+not save the password or reopen its prompt by itself; only a current-context
+key rejection makes another owner-started password attempt eligible.
+
+A successful **Connect USB‑C** or **Connect Wi‑Fi** session pins that selected
+connection to the new generation. Cable and network changes retire the
+generation and return the app to its disconnected surface. They never cause
+automatic fallback, promotion, or reconnection. Active-session keep-awake
+remains part of a Live owner-started connection.
+
+Files visibility is a separate owner intent. Opening the pane creates one exact
+request for a 60-second same-generation readiness window; its full deadline
+begins only after an eligible Files capability claims it. Closing the pane or
+reaching the deadline stops retry work. While unavailable, **Try Files Again**
+renews that explicit owner window without closing the pane; after readiness the
+same control becomes **Refresh**. Preserve request, capability and visibility
+identity checks so stale work cannot rearm a closed pane or consume a later
+request.
+
+Normal Mac termination first cancels the AppKit quit, then starts Finder-promise
+admission closure, cancellation and drain concurrently with generation shutdown.
+It awaits both before evaluating the shutdown result, so generation retirement
+can unblock a promise queued behind an earlier Files operation without allowing
+the process to exit before the promise drain finishes. It issues a second
+immediate termination only after a clean result. Do not read
+`charactersIgnoringModifiers` from modifier-only
+`flagsChanged` events; AppKit permits that accessor only for key-down and key-up
+events. Modifier routing should continue to use key code, flags and location.
+
+Pending Wi-Fi setup offers **Connect USB‑C** without silently completing Wi-Fi
+setup. Wi-Fi setup starts from **Connection > Set Up Wi‑Fi…**, and sanitized
+diagnostics are available under **Help > Copy Connection Diagnostics**.
+Progress presentation is deferred for
+brief attempts so an immediate result does not flash a transient spinner card.
+
+Keep Swift 6 complete strict concurrency enabled. Mutable connection state
+belongs to actors; UI state belongs to `MainActor`. Do not weaken checks with
+`@unchecked Sendable`, `nonisolated(unsafe)`, `@preconcurrency`, or detached
+tasks. A generation must be tombstoned before process retirement, and a failed
+retirement must retain ownership for retry.
+
+Only explicit Wi-Fi setup uses the Data Protection Keychain for the paired
+Wi-Fi context secret and wake token. Direct USB-C admission, status, wake and
+connection never require that bearer. Persistence and access-group behavior
+must be inspected in an authorized signed product; the unsigned local build
+does not establish either property.
 
 ## Run focused checks
 
