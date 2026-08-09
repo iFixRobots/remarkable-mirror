@@ -60,11 +60,16 @@ internal static class Program
         var sshPolicy = new SshRoute("192.0.2.53").CreateProcessStartInfo();
         Require(HasSshOption(sshPolicy, "ServerAliveInterval=3"));
         Require(HasSshOption(sshPolicy, "ServerAliveCountMax=3"));
+        const string windowsMultilineCommand = "printf first\r\nprintf second\r\n";
+        var multilinePolicy = new SshRoute("192.0.2.53").CreateProcessStartInfo(
+            windowsMultilineCommand);
+        Require(multilinePolicy.ArgumentList[^1] == "printf first\nprintf second\n");
         Console.WriteLine("Result: PASS");
         Console.WriteLine("USB command unchanged: PASS");
         Console.WriteLine("Legacy Files fallback command remains parseable: PASS");
         Console.WriteLine("Files tunnel targets tablet loopback: PASS");
         Console.WriteLine("Persistent SSH sessions tolerate two missed keepalives: PASS");
+        Console.WriteLine("POSIX remote commands normalize Windows line endings: PASS");
         return 0;
     }
 
@@ -142,23 +147,23 @@ try {
     }
     Write-Host 'Route-specific activity cadence: PASS'
 
-    $usbFilesProbe = [regex]::new(
-        'if \(next\.Kind is DeviceRouteKind\.Usb\)\s*\{\s*' +
-        '_ = ProbeFilesRouteAsync\(next\);\s*\}',
-        [System.Text.RegularExpressions.RegexOptions]::Singleline)
-    if (-not $usbFilesProbe.IsMatch($mainPage)) {
-        throw 'USB Files probing no longer begins with route publication.'
+    if ($mainPage.Contains(
+            '_ = ProbeFilesRouteAsync(next);',
+            [StringComparison]::Ordinal)) {
+        throw 'Route publication still opens Files without an explicit Files action.'
     }
-
-    $wifiFilesProbe = [regex]::new(
-        '_inputSession = candidate;.*?' +
-        'if \(generation\.Kind is DeviceRouteKind\.Wifi\)\s*\{\s*' +
+    $openFilesProbe = [regex]::new(
+        'if \(open\).*?_ = ProbeFilesRouteAsync\(generation\);',
+        [System.Text.RegularExpressions.RegexOptions]::Singleline)
+    $alreadyOpenFilesProbe = [regex]::new(
+        'if \(_filesPaneOpen\)\s*\{\s*' +
         '_ = ProbeFilesRouteAsync\(generation\);\s*\}',
         [System.Text.RegularExpressions.RegexOptions]::Singleline)
-    if (-not $wifiFilesProbe.IsMatch($mainPage)) {
-        throw 'Wi-Fi Files probing does not begin after same-generation input publication.'
+    if (-not $openFilesProbe.IsMatch($mainPage) -or
+        -not $alreadyOpenFilesProbe.IsMatch($mainPage)) {
+        throw 'Files probing is no longer owned by an explicit/open Files pane.'
     }
-    Write-Host 'Files probe publication order: PASS'
+    Write-Host 'Files probing begins only after an explicit Files action: PASS'
 }
 finally {
     Remove-Item -LiteralPath $temporaryRoot -Recurse -Force -ErrorAction SilentlyContinue

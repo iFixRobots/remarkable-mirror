@@ -31,20 +31,13 @@ public sealed partial class MainPage : Page
     private const double FilesPaneOpenDurationSeconds = 0.250;
     private const double FilesPaneCloseDurationSeconds = 0.167;
     private const float StageCornerRadius = 24;
-    private const int AutomaticFrameRetryLimit = 4;
-    private static readonly TimeSpan UsbPromotionReadyTimeout = TimeSpan.FromSeconds(35);
-    private static readonly TimeSpan CoupledInputRecoveryWindow = TimeSpan.FromSeconds(15);
-    private static readonly TimeSpan InputStopObservationWindow = TimeSpan.FromMilliseconds(500);
+    private static readonly TimeSpan ManualConnectionAttemptLimit = TimeSpan.FromSeconds(45);
+    private static readonly TimeSpan ManualWifiRepairConfirmationDelay =
+        TimeSpan.FromMilliseconds(500);
     private static readonly TimeSpan CompletedDocumentDragRetention = TimeSpan.FromMinutes(15);
     private static readonly TimeSpan StaleDocumentDragRetention = TimeSpan.FromDays(1);
     private const int ClipboardCannotOpenHResult = unchecked((int)0x800401D0);
     private static readonly StartupRouteConfiguration StartupRoutes = ResolveStartupRoutes();
-    private readonly DeviceConnectionMonitor _connectionMonitor = new(
-        StartupRoutes.UsbRoute,
-        StartupRoutes.WifiRoute,
-        StartupRoutes.Profile,
-        StartupRoutes.WifiRequiresProfileMatch,
-        22);
     private readonly MirrorInputRecoveryPolicy _inputRecoveryPolicy = new();
     private readonly MirrorDiagnostics _diagnostics = new();
     private readonly WriteableBitmap _displayBitmap = new(
@@ -55,49 +48,45 @@ public sealed partial class MainPage : Page
     private readonly DispatcherQueueTimer _toastTimer;
     private readonly SemaphoreSlim _frameRetrySignal = new(0, 1);
     private readonly SemaphoreSlim _lifecycleGate = new(1, 1);
+    private readonly SemaphoreSlim _connectionAttemptGate = new(1, 1);
     private readonly SemaphoreSlim _routeLifecycleGate = new(1, 1);
     private readonly SemaphoreSlim _inputLifecycleGate = new(1, 1);
     private readonly object _routeAdmissionGate = new();
     private TaskCompletionSource<bool> _displayPreparation = CreatePreparation();
     private TaskCompletionSource<bool> _inputPreparation = CreatePreparation();
     private CancellationTokenSource? _connectionCancellation;
-    private Task? _connectionMonitorTask;
+    private CancellationTokenSource? _connectionAttemptCancellation;
+    private Task? _connectionAttemptTask;
     private Task? _frameDisplayTask;
     private Task? _inputSessionTask;
     private volatile DeviceConnectionStatus _deviceConnectionStatus = DeviceConnectionStatus.Disconnected;
     private PassiveRouteProbeDetail _deviceConnectionProbeDetail = PassiveRouteProbeDetail.None;
-    private int _disconnectedProbeStreak;
     private volatile bool _tabletReachable;
     private volatile SshInputSession? _inputSession;
     private MirrorRouteGeneration? _routeGeneration;
     private long _nextRouteGeneration;
+    private long _nextConnectionAttempt;
+    private long _activeConnectionAttempt;
+    private long _retiringRouteGeneration;
     private long _inputSessionGeneration;
-    private long _usbPromotionCandidateGeneration;
-    private bool _usbPromotionCandidateHasFrame;
-    private bool _usbPromotionCandidateHasInput;
     private bool _haveFrame;
     private volatile MirrorConnectionState _mirrorState = MirrorConnectionState.Waiting;
     private string _connectionDetail = string.Empty;
-    private FrameStreamFailureKind? _lastFrameFailure;
-    private volatile bool _actionRequiredFailure;
     private bool _inputAvailable;
     private volatile bool _pageIsLoaded;
     private RemoteInputMode _inputMode = RemoteInputMode.Touch;
     private uint? _activePointerId;
-    private int _activePointerOperation;
     private bool _activePenEraser;
     private long _lastPointerMoveTimestamp;
     private long _lastInputActivityTimestamp = Stopwatch.GetTimestamp();
     private long _lastInputHeartbeatTimestamp = Stopwatch.GetTimestamp();
     private volatile bool _inputRetryLatched;
     private volatile bool _inputRestoreUncertain;
-    private int _inputRetryAttempt;
     private readonly Stack<(string? Id, string Name)> _folderHistory = new();
     private string? _currentFolderId;
     private string _currentFolderName = "My files";
     private int _libraryRefreshGeneration;
     private readonly SemaphoreSlim _exportGate = new(1, 1);
-    private int _activeFilesOperations;
     private long _filesReadyGeneration;
     private long _filesProbeGeneration;
     private CompositionRoundedRectangleGeometry? _stageClipGeometry;
@@ -106,8 +95,8 @@ public sealed partial class MainPage : Page
     private TaskCompletionSource? _filesPaneTransitionCompletion;
     private double _filesPaneProgress;
     private bool _filesPaneRenderingSubscribed;
-    private bool _filesPaneOpen;
-    private bool _filesPaneDesiredOpen;
+    private volatile bool _filesPaneOpen;
+    private volatile bool _filesPaneDesiredOpen;
     private bool _filesPaneTransitioning;
     private bool _filesPaneDisposed;
     private bool _filesPaneInitialized;
@@ -180,8 +169,7 @@ public sealed partial class MainPage : Page
                 usbRoute,
                 null,
                 null,
-                DeviceProfileLoadStatus.Unavailable,
-                WifiRequiresProfileMatch: false);
+                DeviceProfileLoadStatus.Unavailable);
         }
 
         var profile = loadResult.Status is DeviceProfileLoadStatus.Ready
@@ -201,8 +189,7 @@ public sealed partial class MainPage : Page
                 usbRoute,
                 null,
                 null,
-                loadResult.Status,
-                WifiRequiresProfileMatch: false);
+                loadResult.Status);
         }
 
         try
@@ -215,8 +202,7 @@ public sealed partial class MainPage : Page
                 usbRoute,
                 wifiRoute,
                 profile,
-                loadResult.Status,
-                WifiRequiresProfileMatch: true);
+                loadResult.Status);
         }
         catch (ArgumentException)
         {
@@ -224,8 +210,7 @@ public sealed partial class MainPage : Page
                 usbRoute,
                 null,
                 null,
-                DeviceProfileLoadStatus.Corrupt,
-                WifiRequiresProfileMatch: false);
+                DeviceProfileLoadStatus.Corrupt);
         }
     }
 
@@ -267,16 +252,13 @@ public sealed partial class MainPage : Page
             DrainFrameRetrySignal();
             ResetDisplayPreparation();
             ResetInputPreparation();
-            _connectionMonitor.SetActiveRouteKind(null);
             _deviceConnectionStatus = DeviceConnectionStatus.Disconnected;
             _deviceConnectionProbeDetail = PassiveRouteProbeDetail.None;
-            _disconnectedProbeStreak = 0;
             _tabletReachable = false;
-            _actionRequiredFailure = false;
-            _lastFrameFailure = null;
             _haveFrame = false;
             _inputRecoveryPolicy.Reset();
             ResetInputRetryPolicy();
+            Interlocked.Exchange(ref _activeConnectionAttempt, 0);
             SetMirrorState(MirrorConnectionState.Waiting);
 
             var cancellation = new CancellationTokenSource();
@@ -287,7 +269,7 @@ public sealed partial class MainPage : Page
                 StartupRoutes.WifiRoute is null
                     ? $"Unavailable ({StartupRoutes.ProfileStatus})"
                     : "Ready");
-            _connectionMonitorTask = MonitorConnectionAsync(cancellation.Token);
+            _diagnostics.Record("connection", "Waiting for owner connection choice");
             _frameDisplayTask = DisplayFramesAsync(cancellation.Token);
             _inputSessionTask = MaintainInputSessionAsync(cancellation.Token);
         }
@@ -316,19 +298,23 @@ public sealed partial class MainPage : Page
                 return;
             }
 
-            var monitorTask = _connectionMonitorTask;
+            var connectionAttemptCancellation = _connectionAttemptCancellation;
+            var connectionAttemptTask = _connectionAttemptTask;
             var frameTask = _frameDisplayTask;
             var inputTask = _inputSessionTask;
             var generation = Interlocked.Exchange(ref _routeGeneration, null);
             _tabletReachable = false;
-            _connectionMonitor.SetActiveRouteKind(null);
             generation?.Cancel();
+            Interlocked.Exchange(ref _activeConnectionAttempt, 0);
+            connectionAttemptCancellation?.Cancel();
             cancellation.Cancel();
-            _connectionMonitor.RequestProbe();
             SignalFrameRetry();
             try
             {
-                await AwaitWorkerShutdownAsync(monitorTask, frameTask, inputTask);
+                await AwaitWorkerShutdownAsync(
+                    connectionAttemptTask,
+                    frameTask,
+                    inputTask);
             }
             finally
             {
@@ -367,8 +353,10 @@ public sealed partial class MainPage : Page
                 }
 
                 cancellation.Dispose();
+                connectionAttemptCancellation?.Dispose();
                 _connectionCancellation = null;
-                _connectionMonitorTask = null;
+                _connectionAttemptCancellation = null;
+                _connectionAttemptTask = null;
                 _frameDisplayTask = null;
                 _inputSessionTask = null;
                 _diagnostics.Record("lifecycle", "Mirror window closed");
@@ -384,19 +372,29 @@ public sealed partial class MainPage : Page
         ReferenceEquals(Volatile.Read(ref _routeGeneration), generation) &&
         !generation.CancellationToken.IsCancellationRequested;
 
-    private async Task<RouteTransitionResult> TransitionRouteAsync(
+    private async Task<RouteTransitionOutcome> TransitionRouteAsync(
         SshRoute? nextRoute,
         DeviceRouteKind? nextKind,
-        CancellationToken applicationCancellationToken)
+        CancellationToken applicationCancellationToken,
+        MirrorRouteGeneration? expectedCurrent = null,
+        Func<bool>? transitionAllowed = null)
     {
         await _routeLifecycleGate.WaitAsync(applicationCancellationToken).ConfigureAwait(false);
         try
         {
             MirrorRouteGeneration? current;
-            var beginsUsbPromotion = false;
             lock (_routeAdmissionGate)
             {
                 current = Volatile.Read(ref _routeGeneration);
+                if (expectedCurrent is not null &&
+                    !ReferenceEquals(current, expectedCurrent))
+                {
+                    return RouteTransitionOutcome.Unchanged;
+                }
+                if (transitionAllowed is not null && !transitionAllowed())
+                {
+                    return RouteTransitionOutcome.Unchanged;
+                }
                 if (current is not null &&
                     nextRoute is not null &&
                     nextKind == current.Kind &&
@@ -404,41 +402,21 @@ public sealed partial class MainPage : Page
                     !current.CancellationToken.IsCancellationRequested)
                 {
                     _tabletReachable = true;
-                    return RouteTransitionResult.Unchanged;
+                    return RouteTransitionOutcome.Unchanged;
                 }
                 if (current is null && nextRoute is null)
                 {
                     _tabletReachable = false;
-                    return RouteTransitionResult.Unchanged;
+                    return RouteTransitionOutcome.Unchanged;
                 }
-
-                // USB preference is deliberately idle-only. Admission and the
-                // break step share this lock, so no pointer/files operation can
-                // enter after the check but before the Wi-Fi generation closes.
-                if (current?.Kind is DeviceRouteKind.Wifi &&
-                    nextKind is DeviceRouteKind.Usb &&
-                    (_activePointerOperation != 0 || _activeFilesOperations != 0))
-                {
-                    return RouteTransitionResult.Deferred;
-                }
-
                 _tabletReachable = false;
                 _inputRetryLatched = true;
-                beginsUsbPromotion = current?.Kind is DeviceRouteKind.Wifi &&
-                    nextKind is DeviceRouteKind.Usb;
                 current = Interlocked.Exchange(ref _routeGeneration, null);
                 if (current is not null)
                 {
                     _inputRecoveryPolicy.AbandonGeneration(current.Id);
                 }
                 _filesReadyGeneration = 0;
-                if (current?.Id == _usbPromotionCandidateGeneration)
-                {
-                    _usbPromotionCandidateGeneration = 0;
-                    _usbPromotionCandidateHasFrame = false;
-                    _usbPromotionCandidateHasInput = false;
-                }
-                _connectionMonitor.SetActiveRouteKind(null);
                 current?.Cancel();
             }
             Interlocked.Increment(ref _libraryRefreshGeneration);
@@ -450,10 +428,6 @@ public sealed partial class MainPage : Page
             try
             {
                 _activePointerId = null;
-                lock (_routeAdmissionGate)
-                {
-                    _activePointerOperation = 0;
-                }
                 inputRemoval = await RemoveInputSessionUnderGateAsync(
                     expected: null,
                     requireExpected: false,
@@ -502,7 +476,12 @@ public sealed partial class MainPage : Page
                 applicationCancellationToken.ThrowIfCancellationRequested();
                 if (nextRoute is null || nextKind is null)
                 {
-                    return RouteTransitionResult.Changed;
+                    _haveFrame = false;
+                    return RouteTransitionOutcome.Retired;
+                }
+                if (!inputRemoval.RestoreConfirmed || _inputRestoreUncertain)
+                {
+                    return RouteTransitionOutcome.Unchanged;
                 }
 
                 var next = new MirrorRouteGeneration(
@@ -511,26 +490,28 @@ public sealed partial class MainPage : Page
                     nextRoute,
                     applicationCancellationToken);
                 _inputRecoveryPolicy.BeginGeneration(next.Id);
+                var published = false;
                 lock (_routeAdmissionGate)
                 {
-                    Volatile.Write(ref _routeGeneration, next);
-                    _connectionMonitor.SetActiveRouteKind(next.Kind);
-                    _tabletReachable = true;
+                    if (transitionAllowed is null || transitionAllowed())
+                    {
+                        Volatile.Write(ref _routeGeneration, next);
+                        _tabletReachable = true;
+                        published = true;
+                    }
                 }
-                if (beginsUsbPromotion)
+                if (!published)
                 {
-                    BeginUsbPromotionCandidate(next);
-                }
-                if (next.Kind is DeviceRouteKind.Usb)
-                {
-                    _ = ProbeFilesRouteAsync(next);
+                    _inputRecoveryPolicy.AbandonGeneration(next.Id);
+                    await next.DisposeAsync().ConfigureAwait(false);
+                    return RouteTransitionOutcome.Unchanged;
                 }
                 _haveFrame = false;
                 _diagnostics.Record(
                     "route",
                     next.Kind is DeviceRouteKind.Usb ? "USB selected" : "Wi-Fi selected");
                 SignalFrameRetry();
-                return RouteTransitionResult.Changed;
+                return RouteTransitionOutcome.Published(next);
             }
             finally
             {
@@ -552,267 +533,371 @@ public sealed partial class MainPage : Page
         {
             await generation.DisposeAsync().ConfigureAwait(false);
         }
-        catch (Exception exception) when (exception is
-            FileTransferException or ObjectDisposedException)
+        catch (Exception exception)
         {
             _diagnostics.Record("route cleanup", exception.GetType().Name);
         }
     }
 
-    private void BeginUsbPromotionCandidate(MirrorRouteGeneration generation)
-    {
-        lock (_routeAdmissionGate)
-        {
-            if (!ReferenceEquals(Volatile.Read(ref _routeGeneration), generation) ||
-                generation.Kind is not DeviceRouteKind.Usb)
-            {
-                return;
-            }
-            _usbPromotionCandidateGeneration = generation.Id;
-            _usbPromotionCandidateHasFrame = false;
-            _usbPromotionCandidateHasInput = false;
-        }
-        _ = MonitorUsbPromotionCandidateAsync(generation);
-    }
+    private bool IsCurrentConnectionAttempt(long attemptId) =>
+        attemptId != 0 &&
+        Interlocked.Read(ref _activeConnectionAttempt) == attemptId &&
+        _pageIsLoaded;
 
-    private async Task MonitorUsbPromotionCandidateAsync(MirrorRouteGeneration generation)
+    private async Task StartManualConnectionAsync(ManualConnectionRequest request)
     {
+        var applicationCancellation = _connectionCancellation;
+        if (!_pageIsLoaded || applicationCancellation is null)
+        {
+            return;
+        }
+        if (_inputRestoreUncertain)
+        {
+            ShowInfo(
+                "Restart the tablet and reopen Mirror before using controls again.",
+                InfoBarSeverity.Warning);
+            return;
+        }
+
+        Task? attemptTask = null;
+        CancellationTokenSource? attemptCancellation = null;
+        long attemptId = 0;
+        await _connectionAttemptGate.WaitAsync();
         try
         {
-            await Task.Delay(UsbPromotionReadyTimeout, generation.CancellationToken)
-                .ConfigureAwait(false);
-            FailUsbPromotionCandidate(generation, "readiness timeout");
-        }
-        catch (OperationCanceledException) when (generation.CancellationToken.IsCancellationRequested)
-        {
-        }
-    }
-
-    private void MarkUsbPromotionFrameReady(MirrorRouteGeneration generation) =>
-        MarkUsbPromotionReady(generation, frameReady: true);
-
-    private void MarkUsbPromotionInputReady(MirrorRouteGeneration generation) =>
-        MarkUsbPromotionReady(generation, frameReady: false);
-
-    private void MarkUsbPromotionReady(
-        MirrorRouteGeneration generation,
-        bool frameReady)
-    {
-        var confirmed = false;
-        lock (_routeAdmissionGate)
-        {
-            if (_usbPromotionCandidateGeneration != generation.Id ||
-                !ReferenceEquals(Volatile.Read(ref _routeGeneration), generation))
+            if (_connectionAttemptTask is { IsCompleted: false })
             {
+                ShowInfo(
+                    "A connection attempt is already in progress.",
+                    InfoBarSeverity.Informational);
                 return;
             }
-            if (frameReady)
-            {
-                _usbPromotionCandidateHasFrame = true;
-            }
-            else
-            {
-                _usbPromotionCandidateHasInput = true;
-            }
-            if (_usbPromotionCandidateHasFrame && _usbPromotionCandidateHasInput)
-            {
-                _usbPromotionCandidateGeneration = 0;
-                _usbPromotionCandidateHasFrame = false;
-                _usbPromotionCandidateHasInput = false;
-                confirmed = true;
-            }
-        }
-        if (confirmed)
-        {
-            _connectionMonitor.ConfirmUsbPromotionSucceeded();
-            _diagnostics.Record("route", "USB promotion confirmed");
-        }
-    }
 
-    private void FailUsbPromotionCandidate(
-        MirrorRouteGeneration generation,
-        string safeReason)
-    {
-        var failed = false;
-        lock (_routeAdmissionGate)
-        {
-            if (_usbPromotionCandidateGeneration == generation.Id &&
-                ReferenceEquals(Volatile.Read(ref _routeGeneration), generation))
-            {
-                _usbPromotionCandidateGeneration = 0;
-                _usbPromotionCandidateHasFrame = false;
-                _usbPromotionCandidateHasInput = false;
-                failed = true;
-            }
+            attemptId = Interlocked.Increment(ref _nextConnectionAttempt);
+            Interlocked.Exchange(ref _activeConnectionAttempt, attemptId);
+            attemptCancellation = CancellationTokenSource.CreateLinkedTokenSource(
+                applicationCancellation.Token);
+            attemptCancellation.CancelAfter(ManualConnectionAttemptLimit);
+            attemptTask = RunManualConnectionAttemptAsync(
+                request,
+                attemptId,
+                attemptCancellation.Token,
+                applicationCancellation.Token);
+            _connectionAttemptCancellation = attemptCancellation;
+            _connectionAttemptTask = attemptTask;
         }
-        if (failed)
+        finally
         {
-            _diagnostics.Record("route", $"USB promotion failed: {safeReason}");
-            _connectionMonitor.ReportUsbPromotionFailed();
+            _connectionAttemptGate.Release();
         }
-    }
 
-    private async Task MonitorConnectionAsync(CancellationToken cancellationToken)
-    {
+        if (attemptTask is null || attemptCancellation is null)
+        {
+            return;
+        }
+
         try
         {
-            await foreach (var state in _connectionMonitor.WatchAsync(cancellationToken))
+            await attemptTask;
+        }
+        catch (OperationCanceledException) when (
+            attemptCancellation.IsCancellationRequested &&
+            !applicationCancellation.IsCancellationRequested)
+        {
+            if (IsCurrentConnectionAttempt(attemptId))
             {
-                if (cancellationToken.IsCancellationRequested)
+                SetMirrorState(
+                    MirrorConnectionState.Error,
+                    request.Kind is DeviceRouteKind.Usb
+                        ? "Couldn’t connect over USB-C. Check the cable and tablet, then choose Connect USB-C to try again."
+                        : "Couldn’t connect over Wi-Fi. Check the tablet and network, then choose Connect Wi-Fi to try again.");
+            }
+        }
+        catch (OperationCanceledException) when (applicationCancellation.IsCancellationRequested)
+        {
+        }
+        catch (Exception exception)
+        {
+            _diagnostics.Record("connection attempt", exception.GetType().Name);
+            if (IsCurrentConnectionAttempt(attemptId))
+            {
+                SetMirrorState(
+                    MirrorConnectionState.Error,
+                    "Mirror couldn’t finish that connection attempt. Copy the connection details, then choose USB-C or Wi-Fi to try again.");
+            }
+        }
+        finally
+        {
+            await _connectionAttemptGate.WaitAsync();
+            try
+            {
+                if (ReferenceEquals(_connectionAttemptTask, attemptTask))
+                {
+                    _connectionAttemptTask = null;
+                    _connectionAttemptCancellation = null;
+                    Interlocked.CompareExchange(ref _activeConnectionAttempt, 0, attemptId);
+                }
+            }
+            finally
+            {
+                _connectionAttemptGate.Release();
+                attemptCancellation.Dispose();
+            }
+        }
+    }
+
+    private async Task RunManualConnectionAttemptAsync(
+        ManualConnectionRequest request,
+        long attemptId,
+        CancellationToken attemptCancellationToken,
+        CancellationToken applicationCancellationToken)
+    {
+        await TransitionRouteAsync(
+                null,
+                null,
+                applicationCancellationToken,
+                transitionAllowed: () =>
+                    IsCurrentConnectionAttempt(attemptId) &&
+                    !attemptCancellationToken.IsCancellationRequested)
+            .ConfigureAwait(false);
+        if (!IsCurrentConnectionAttempt(attemptId) ||
+            attemptCancellationToken.IsCancellationRequested)
+        {
+            attemptCancellationToken.ThrowIfCancellationRequested();
+            return;
+        }
+
+        _deviceConnectionStatus = DeviceConnectionStatus.Disconnected;
+        _deviceConnectionProbeDetail = PassiveRouteProbeDetail.None;
+        await RunOnUIThreadAsync(
+            () =>
+            {
+                if (!IsCurrentConnectionAttempt(attemptId) ||
+                    attemptCancellationToken.IsCancellationRequested)
                 {
                     return;
                 }
+                SetMirrorState(
+                    MirrorConnectionState.Preparing,
+                    request.Kind is DeviceRouteKind.Usb
+                        ? "Checking only the USB-C connection you selected."
+                        : "Checking only the Wi-Fi address you entered.");
+            },
+            applicationCancellationToken).ConfigureAwait(false);
+        _diagnostics.Record(
+            "action",
+            request.Kind is DeviceRouteKind.Usb
+                ? "Manual USB-C connection requested"
+                : "Manual Wi-Fi connection requested");
 
-                var hadActiveGeneration = Volatile.Read(ref _routeGeneration) is not null;
-                if (!hadActiveGeneration &&
-                    state.Status is DeviceConnectionStatus.Disconnected &&
-                    _deviceConnectionStatus is DeviceConnectionStatus.PortOpenWithoutSshBanner or
-                        DeviceConnectionStatus.UnlockRequired or
-                        DeviceConnectionStatus.Sleeping or
-                        DeviceConnectionStatus.Waking or
-                        DeviceConnectionStatus.Starting or
-                        DeviceConnectionStatus.WakeSetupRequired)
+        using var monitor = request.Kind is DeviceRouteKind.Usb
+            ? new DeviceConnectionMonitor(
+                StartupRoutes.UsbRoute,
+                null,
+                StartupRoutes.Profile,
+                wifiRequiresProfileMatch: false,
+                port: 22)
+            : new DeviceConnectionMonitor(
+                StartupRoutes.UsbRoute,
+                request.Route,
+                StartupRoutes.Profile,
+                wifiRequiresProfileMatch: true,
+                port: 22);
+
+        var wifiProbeCount = 0;
+        DeviceConnectionStatus? lastPublishedStatus = null;
+        await foreach (var state in monitor
+            .WatchSelectedAsync(request.Kind, attemptCancellationToken)
+            .ConfigureAwait(false))
+        {
+            if (request.Kind is DeviceRouteKind.Wifi)
+            {
+                wifiProbeCount++;
+            }
+            if (!IsCurrentConnectionAttempt(attemptId))
+            {
+                return;
+            }
+
+            RecordConnectionObservation(state);
+            if (state.IsSshReady &&
+                state.SelectedRoute is not null &&
+                state.RouteKind == request.Kind)
+            {
+                var transition = await TransitionRouteAsync(
+                        state.SelectedRoute,
+                        state.RouteKind,
+                        applicationCancellationToken,
+                        transitionAllowed: () =>
+                            IsCurrentConnectionAttempt(attemptId) &&
+                            !attemptCancellationToken.IsCancellationRequested)
+                    .ConfigureAwait(false);
+                var publishedGeneration = transition.PublishedGeneration;
+                if (publishedGeneration is null)
                 {
-                    _disconnectedProbeStreak++;
-                    if (_disconnectedProbeStreak < 3)
+                    attemptCancellationToken.ThrowIfCancellationRequested();
+                    if (IsCurrentConnectionAttempt(attemptId))
                     {
-                        continue;
+                        await RunOnUIThreadAsync(
+                            () => SetMirrorState(
+                                MirrorConnectionState.Error,
+                                _inputRestoreUncertain
+                                    ? "Mirror could not confirm that physical tablet input was restored. Restart the tablet and reopen Mirror before using controls again."
+                                    : "Mirror couldn’t start the selected connection. Choose USB-C or Wi-Fi to try again."),
+                            applicationCancellationToken).ConfigureAwait(false);
                     }
+                    return;
                 }
-                else if (state.Status is not DeviceConnectionStatus.Disconnected)
+                if (attemptCancellationToken.IsCancellationRequested ||
+                    !IsCurrentConnectionAttempt(attemptId))
                 {
-                    _disconnectedProbeStreak = 0;
-                }
-
-                var previousStatus = _deviceConnectionStatus;
-                var previousProbeDetail = _deviceConnectionProbeDetail;
-                var routeChanged = false;
-                if (state.IsSshReady &&
-                    state.SelectedRoute is not null &&
-                    state.RouteKind is not null)
-                {
-                    var transition = await TransitionRouteAsync(
-                            state.SelectedRoute,
-                            state.RouteKind,
-                            cancellationToken)
+                    await TransitionRouteAsync(
+                            null,
+                            null,
+                            applicationCancellationToken,
+                            expectedCurrent: publishedGeneration)
                         .ConfigureAwait(false);
-                    if (transition is RouteTransitionResult.Deferred)
-                    {
-                        continue;
-                    }
-                    routeChanged = transition is RouteTransitionResult.Changed;
+                    attemptCancellationToken.ThrowIfCancellationRequested();
                 }
-                else if (hadActiveGeneration)
-                {
-                    routeChanged = await TransitionRouteAsync(
-                            null,
-                            null,
-                            cancellationToken)
-                        .ConfigureAwait(false) is RouteTransitionResult.Changed;
-                }
+                return;
+            }
 
-                _deviceConnectionStatus = state.Status;
-                _deviceConnectionProbeDetail = state.ProbeDetail;
-                if (previousStatus != state.Status)
-                {
-                    _diagnostics.Record("connection", state.Status.ToString());
-                }
-                if (state.ProbeDetail is not PassiveRouteProbeDetail.None &&
-                    (previousStatus != state.Status || previousProbeDetail != state.ProbeDetail))
-                {
-                    _diagnostics.Record("connection detail", state.ProbeDetail.ToString());
-                }
+            if (lastPublishedStatus != state.Status)
+            {
+                await PublishManualConnectionObservationAsync(
+                        state,
+                        request.Kind,
+                        applicationCancellationToken)
+                    .ConfigureAwait(false);
+                lastPublishedStatus = state.Status;
+            }
 
-                if (_actionRequiredFailure && _mirrorState is MirrorConnectionState.Error)
+            if (request.Kind is DeviceRouteKind.Wifi)
+            {
+                if (wifiProbeCount == 1 &&
+                    state.Status is DeviceConnectionStatus.Disconnected &&
+                    state.ProbeDetail is PassiveRouteProbeDetail.TabletPrerequisiteMismatch)
                 {
-                    if (state.Status is not DeviceConnectionStatus.UnlockRequired and
-                        not DeviceConnectionStatus.WakeSetupRequired)
-                    {
-                        continue;
-                    }
-                    _actionRequiredFailure = false;
+                    await Task.Delay(
+                            ManualWifiRepairConfirmationDelay,
+                            attemptCancellationToken)
+                        .ConfigureAwait(false);
+                    monitor.RequestProbe();
+                    continue;
                 }
 
                 await RunOnUIThreadAsync(
-                    () =>
-                    {
-                        if (_inputRestoreUncertain)
-                        {
-                            SetMirrorState(
-                                MirrorConnectionState.Error,
-                                "Mirror could not confirm that physical tablet input was restored. Restart the tablet and reopen Mirror before using controls again.");
-                            SignalFrameRetry();
-                            return;
-                        }
-                        switch (state.Status)
-                        {
-                            case DeviceConnectionStatus.Disconnected:
-                                SetMirrorState(MirrorConnectionState.Waiting);
-                                SignalFrameRetry();
-                                break;
-                            case DeviceConnectionStatus.PortOpenWithoutSshBanner:
-                                SetMirrorState(MirrorConnectionState.WakeAndUnlock);
-                                SignalFrameRetry();
-                                break;
-                            case DeviceConnectionStatus.UnlockRequired:
-                                SetMirrorState(MirrorConnectionState.AwaitingUnlock);
-                                SignalFrameRetry();
-                                break;
-                            case DeviceConnectionStatus.Sleeping:
-                                SetMirrorState(MirrorConnectionState.Sleeping);
-                                SignalFrameRetry();
-                                break;
-                            case DeviceConnectionStatus.Waking:
-                                SetMirrorState(MirrorConnectionState.Waking);
-                                SignalFrameRetry();
-                                break;
-                            case DeviceConnectionStatus.Starting:
-                                SetMirrorState(MirrorConnectionState.Starting);
-                                SignalFrameRetry();
-                                break;
-                            case DeviceConnectionStatus.WakeSetupRequired:
-                                SetMirrorState(MirrorConnectionState.WakeSetupRequired);
-                                SignalFrameRetry();
-                                break;
-                            case DeviceConnectionStatus.WifiNetworkMismatch:
-                                SetMirrorState(
-                                    MirrorConnectionState.Error,
-                                    "Connect this PC to the Wi-Fi network paired with this reMarkable, or connect the tablet by USB-C to repair Wi-Fi pairing, then choose Retry.");
-                                SignalFrameRetry();
-                                break;
-                            case DeviceConnectionStatus.SshReady:
-                                if (routeChanged ||
-                                    previousStatus is not DeviceConnectionStatus.SshReady ||
-                                    _mirrorState is MirrorConnectionState.Waiting or
-                                        MirrorConnectionState.WakeAndUnlock or
-                                        MirrorConnectionState.AwaitingUnlock or
-                                        MirrorConnectionState.Sleeping or
-                                        MirrorConnectionState.Waking or
-                                        MirrorConnectionState.Starting or
-                                        MirrorConnectionState.WakeSetupRequired or
-                                        MirrorConnectionState.Preparing)
-                                {
-                                    SetMirrorState(MirrorConnectionState.Preparing);
-                                }
-                                if (routeChanged ||
-                                    previousStatus is not DeviceConnectionStatus.SshReady)
-                                {
-                                    SignalFrameRetry();
-                                }
-                                break;
-                        }
-                    },
-                    cancellationToken).ConfigureAwait(false);
+                    () => SetMirrorState(
+                        MirrorConnectionState.Error,
+                        ManualConnectionFailureMessage(request.Kind, state.Status)),
+                    applicationCancellationToken).ConfigureAwait(false);
+                return;
+            }
+
+            if (state.Status is DeviceConnectionStatus.WakeSetupRequired)
+            {
+                await RunOnUIThreadAsync(
+                    () => SetMirrorState(
+                        MirrorConnectionState.Error,
+                        ManualConnectionFailureMessage(request.Kind, state.Status)),
+                    applicationCancellationToken).ConfigureAwait(false);
+                return;
             }
         }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+
+        attemptCancellationToken.ThrowIfCancellationRequested();
+    }
+
+    private void RecordConnectionObservation(DeviceConnectionState state)
+    {
+        var previousStatus = _deviceConnectionStatus;
+        var previousDetail = _deviceConnectionProbeDetail;
+        _deviceConnectionStatus = state.Status;
+        _deviceConnectionProbeDetail = state.ProbeDetail;
+        if (previousStatus != state.Status)
         {
+            _diagnostics.Record("connection", state.Status.ToString());
+        }
+        if (state.ProbeDetail is not PassiveRouteProbeDetail.None &&
+            (previousStatus != state.Status || previousDetail != state.ProbeDetail))
+        {
+            _diagnostics.Record("connection detail", state.ProbeDetail.ToString());
         }
     }
 
+    private Task PublishManualConnectionObservationAsync(
+        DeviceConnectionState state,
+        DeviceRouteKind routeKind,
+        CancellationToken cancellationToken) =>
+        RunOnUIThreadAsync(
+            () =>
+            {
+                switch (state.Status)
+                {
+                    case DeviceConnectionStatus.Disconnected:
+                        SetMirrorState(
+                            MirrorConnectionState.Preparing,
+                            routeKind is DeviceRouteKind.Usb
+                                ? "Waiting for the USB-C connection you selected."
+                                : "Waiting for the Wi-Fi address you entered.");
+                        break;
+                    case DeviceConnectionStatus.PortOpenWithoutSshBanner:
+                        if (routeKind is DeviceRouteKind.Usb)
+                        {
+                            SetMirrorState(MirrorConnectionState.WakeAndUnlock);
+                        }
+                        else
+                        {
+                            SetMirrorState(
+                                MirrorConnectionState.Error,
+                                ManualConnectionFailureMessage(routeKind, state.Status));
+                        }
+                        break;
+                    case DeviceConnectionStatus.UnlockRequired:
+                        SetMirrorState(MirrorConnectionState.AwaitingUnlock);
+                        break;
+                    case DeviceConnectionStatus.Sleeping:
+                        SetMirrorState(MirrorConnectionState.Sleeping);
+                        break;
+                    case DeviceConnectionStatus.Waking:
+                        SetMirrorState(MirrorConnectionState.Waking);
+                        break;
+                    case DeviceConnectionStatus.Starting:
+                        SetMirrorState(MirrorConnectionState.Starting);
+                        break;
+                    case DeviceConnectionStatus.WakeSetupRequired:
+                        SetMirrorState(MirrorConnectionState.WakeSetupRequired);
+                        break;
+                    case DeviceConnectionStatus.WifiNetworkMismatch:
+                        SetMirrorState(
+                            MirrorConnectionState.Error,
+                            ManualConnectionFailureMessage(
+                                DeviceRouteKind.Wifi,
+                                state.Status));
+                        break;
+                    case DeviceConnectionStatus.SshReady:
+                        SetMirrorState(MirrorConnectionState.Preparing);
+                        break;
+                }
+            },
+            cancellationToken);
+
+    private static string ManualConnectionFailureMessage(
+        DeviceRouteKind routeKind,
+        DeviceConnectionStatus status) => status switch
+        {
+            DeviceConnectionStatus.WifiNetworkMismatch =>
+                "Connect this PC to the Wi-Fi network paired with this reMarkable, then choose Connect Wi-Fi again.",
+            DeviceConnectionStatus.WakeSetupRequired =>
+                "Mirror cannot use its tablet setup. Re-run Install.cmd over USB-C, then choose the connection again.",
+            _ when routeKind is DeviceRouteKind.Usb =>
+                "Couldn’t connect over USB-C. Check the cable and tablet, then choose Connect USB-C to try again.",
+            _ =>
+                "Couldn’t connect to that Wi-Fi address. Check the tablet and network, then choose Connect Wi-Fi to try again.",
+        };
+
     private async Task DisplayFramesAsync(CancellationToken cancellationToken)
     {
-        var retryAttempt = 0;
         await WaitForFrameRetryAsync(Timeout.InfiniteTimeSpan, cancellationToken).ConfigureAwait(false);
 
         while (!cancellationToken.IsCancellationRequested)
@@ -820,7 +905,6 @@ public sealed partial class MainPage : Page
             var generation = Volatile.Read(ref _routeGeneration);
             if (!_tabletReachable || generation is null)
             {
-                retryAttempt = 0;
                 await WaitForFrameRetryAsync(Timeout.InfiniteTimeSpan, cancellationToken)
                     .ConfigureAwait(false);
                 continue;
@@ -868,11 +952,10 @@ public sealed partial class MainPage : Page
                     {
                         continue;
                     }
-                    retryAttempt = await HandleFrameFailureAsync(
+                    await HandleFrameFailureAsync(
                             exception,
-                            retryAttempt,
                             generation,
-                            routeToken)
+                            cancellationToken)
                         .ConfigureAwait(false);
                     continue;
                 }
@@ -942,22 +1025,10 @@ public sealed partial class MainPage : Page
                 {
                     continue;
                 }
-                var preparationRecoveryStarted = await BeginDisplayRecoveryAsync(
-                    displayPreparation,
-                    inputPreparation,
-                    generation,
-                    allowScreenOnlyFallback:
-                        exception.Kind is FrameStreamFailureKind.CompanionNotReady).ConfigureAwait(false);
-                if (exception.Kind is FrameStreamFailureKind.CompanionNotReady &&
-                    !preparationRecoveryStarted)
-                {
-                    continue;
-                }
-                retryAttempt = await HandleFrameFailureAsync(
+                await HandleFrameFailureAsync(
                         exception,
-                        retryAttempt,
                         generation,
-                        routeToken)
+                        cancellationToken)
                     .ConfigureAwait(false);
                 continue;
             }
@@ -991,7 +1062,6 @@ public sealed partial class MainPage : Page
                         receivedFirstFrame = true;
                         attemptCancellation.CancelAfter(Timeout.InfiniteTimeSpan);
                         DrainFrameRetrySignal();
-                        MarkUsbPromotionFrameReady(generation);
                     }
                     await RunOnUIThreadAsync(
                         () =>
@@ -1001,10 +1071,7 @@ public sealed partial class MainPage : Page
                                 return;
                             }
                             ApplyFrameUpdate(update);
-                            _actionRequiredFailure = false;
-                            _lastFrameFailure = null;
                             SetLiveState(generation);
-                            retryAttempt = 0;
                         },
                         routeToken).ConfigureAwait(false);
                 }
@@ -1021,7 +1088,7 @@ public sealed partial class MainPage : Page
             {
                 failure = new FrameStreamException(
                     FrameStreamFailureKind.CompanionNotReady,
-                    "The secure connection opened, but the tablet display did not start. Mirror will reconnect automatically.",
+                    "The secure connection opened, but the tablet display did not start.",
                     canAutoRetry: true);
             }
             catch (FrameStreamException exception)
@@ -1033,7 +1100,6 @@ public sealed partial class MainPage : Page
             {
                 if (!IsCurrentGeneration(generation))
                 {
-                    retryAttempt = 0;
                     await WaitForFrameRetryAsync(Timeout.InfiniteTimeSpan, cancellationToken)
                         .ConfigureAwait(false);
                     continue;
@@ -1041,7 +1107,7 @@ public sealed partial class MainPage : Page
 
                 failure = new FrameStreamException(
                     FrameStreamFailureKind.StreamInterrupted,
-                    "The tablet display connection stopped. Mirror will reconnect automatically.",
+                    "The tablet display connection stopped.",
                     canAutoRetry: true);
             }
 
@@ -1052,207 +1118,92 @@ public sealed partial class MainPage : Page
                 continue;
             }
 
-            var streamRecoveryStarted = await BeginDisplayRecoveryAsync(
-                displayPreparation,
-                inputPreparation,
-                generation,
-                allowScreenOnlyFallback:
-                    failure.Kind is FrameStreamFailureKind.CompanionNotReady).ConfigureAwait(false);
-            if (failure.Kind is FrameStreamFailureKind.CompanionNotReady &&
-                !streamRecoveryStarted)
-            {
-                continue;
-            }
-
-            retryAttempt = await HandleFrameFailureAsync(
+            await HandleFrameFailureAsync(
                     failure,
-                    retryAttempt,
                     generation,
-                    routeToken)
+                    cancellationToken)
                 .ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (
                 routeToken.IsCancellationRequested &&
                 !cancellationToken.IsCancellationRequested)
             {
-                retryAttempt = 0;
             }
         }
     }
 
-    private async Task<bool> BeginDisplayRecoveryAsync(
-        TaskCompletionSource<bool> expectedDisplayPreparation,
-        TaskCompletionSource<bool> expectedInputPreparation,
-        MirrorRouteGeneration generation,
-        bool allowScreenOnlyFallback)
-    {
-        await _inputLifecycleGate.WaitAsync().ConfigureAwait(false);
-        try
-        {
-            if (!IsCurrentGeneration(generation) ||
-                !ReferenceEquals(expectedDisplayPreparation, Volatile.Read(ref _displayPreparation)) ||
-                !ReferenceEquals(expectedInputPreparation, Volatile.Read(ref _inputPreparation)))
-            {
-                return false;
-            }
-
-            var session = _inputSession;
-            var interruptionTimestamp = Stopwatch.GetTimestamp();
-            _inputRecoveryPolicy.RecordFrameInterruption(
-                generation.Id,
-                interruptionTimestamp);
-            var automaticInputRecovery = _inputRecoveryPolicy.TryConsumeScheduled(
-                generation.Id,
-                interruptionTimestamp,
-                CoupledInputRecoveryWindow);
-
-            // The frame worker can observe the Xochitl restart before the input
-            // heartbeat observes the dead SSH process. Classify that stopped,
-            // previously published session here so either observer can reserve
-            // the same one-shot recovery budget.
-            if (!automaticInputRecovery &&
-                session is not null &&
-                Interlocked.Read(ref _inputSessionGeneration) == generation.Id &&
-                _haveFrame &&
-                !_inputRestoreUncertain)
-            {
-                var stopped = await session
-                    .InspectStoppedAsync(
-                        InputStopObservationWindow,
-                        generation.CancellationToken)
-                    .ConfigureAwait(false);
-                if (stopped is { IsPersistent: false } &&
-                    IsCurrentGeneration(generation) &&
-                    ReferenceEquals(session, _inputSession) &&
-                    ReferenceEquals(expectedDisplayPreparation, Volatile.Read(ref _displayPreparation)) &&
-                    ReferenceEquals(expectedInputPreparation, Volatile.Read(ref _inputPreparation)))
-                {
-                    automaticInputRecovery =
-                        _inputRecoveryPolicy.TryReserveStoppedSessionRecovery(generation.Id);
-                    if (automaticInputRecovery)
-                    {
-                        _diagnostics.Record(
-                            "input recovery",
-                            "Reserved one automatic control handoff after the coupled display interruption");
-                    }
-                }
-            }
-
-            if (!automaticInputRecovery && !allowScreenOnlyFallback)
-            {
-                return false;
-            }
-
-            // An ordinary display failure remains screen-only. Input owns a
-            // deliberate Xochitl restart, so never clear its latch unless this
-            // exact coupled recovery consumed the generation's one-shot budget.
-            if (session is not null && !automaticInputRecovery && !_inputRetryLatched)
-            {
-                _inputRecoveryPolicy.RecordPublishedSessionLoss(
-                    generation.Id,
-                    Stopwatch.GetTimestamp(),
-                    CoupledInputRecoveryWindow,
-                    allowAutomaticRecovery: false);
-                RegisterInputFailure();
-            }
-            var removal = await RemoveInputSessionUnderGateAsync(
-                expected: null,
-                requireExpected: false,
-                latchForRetry: false).ConfigureAwait(false);
-            if (automaticInputRecovery)
-            {
-                if (removal.RestoreConfirmed && (session is null || removal.Removed))
-                {
-                    RearmCoupledInputRecoveryUnderGate(generation);
-                    _diagnostics.Record(
-                        "input recovery",
-                        "Rearmed one control handoff behind the fresh display preparation barrier");
-                    return true;
-                }
-                else
-                {
-                    _inputRecoveryPolicy.AbandonGeneration(generation.Id);
-                }
-            }
-            ResetDisplayPreparation();
-            if (session is not null)
-            {
-                SetControlRecoveryStateFromAnyThread(MirrorInputRecoveryDisposition.None);
-            }
-            return true;
-        }
-        finally
-        {
-            _inputLifecycleGate.Release();
-        }
-    }
-
-    private void RearmCoupledInputRecoveryUnderGate(MirrorRouteGeneration generation)
-    {
-        _activePointerId = null;
-        _activePenEraser = false;
-        lock (_routeAdmissionGate)
-        {
-            _activePointerOperation = 0;
-        }
-        ResetInputPreparation();
-        ResetInputRetryPolicy();
-        ResetDisplayPreparation();
-        SetControlRecoveryStateFromAnyThread(MirrorInputRecoveryDisposition.BeginNow);
-        SignalFrameRetry();
-    }
-
-    private async Task<int> HandleFrameFailureAsync(
+    private async Task HandleFrameFailureAsync(
         FrameStreamException failure,
-        int retryAttempt,
         MirrorRouteGeneration generation,
         CancellationToken cancellationToken)
     {
         if (!IsCurrentGeneration(generation))
         {
-            return 0;
+            return;
         }
         var diagnostic = string.IsNullOrWhiteSpace(failure.TechnicalDetail)
             ? $"{failure.Kind}: {failure.Message}"
             : $"{failure.Kind}: {failure.TechnicalDetail}";
-        _lastFrameFailure = failure.Kind;
         _diagnostics.Record("mirror failure", diagnostic);
-        FailUsbPromotionCandidate(generation, "display setup failed");
-
-        if (failure.Kind is FrameStreamFailureKind.SecureConnectionUnavailable)
-        {
-            _connectionMonitor.RequestProbe();
-        }
-
-        var nextAttempt = failure.CanAutoRetry ? retryAttempt + 1 : 0;
-        var automaticRetryExhausted = nextAttempt >= AutomaticFrameRetryLimit;
-        _actionRequiredFailure = !failure.CanAutoRetry || automaticRetryExhausted;
-        var state = _actionRequiredFailure
-            ? MirrorConnectionState.Error
-            : MirrorConnectionState.Preparing;
-        var message = automaticRetryExhausted
-            ? "Mirror couldn’t keep the tablet display connected. Copy the connection details, then choose Retry."
+        var hadFrame = _haveFrame;
+        var message = failure.CanAutoRetry
+            ? hadFrame
+                ? "The selected connection ended. Choose USB-C or Wi-Fi to connect again."
+                : "Mirror couldn’t start the display on the selected connection. Choose USB-C or Wi-Fi to try again."
             : failure.Message;
-        await RunOnUIThreadAsync(
-            () =>
-            {
-                if (IsCurrentGeneration(generation))
-                {
-                    SetMirrorState(state, message);
-                }
-            },
-            cancellationToken).ConfigureAwait(false);
-
-        if (_actionRequiredFailure)
-        {
-            await WaitForFrameRetryAsync(Timeout.InfiniteTimeSpan, cancellationToken)
-                .ConfigureAwait(false);
-            return 0;
-        }
-
-        await WaitForFrameRetryAsync(RetryDelayFor(nextAttempt), cancellationToken)
+        await RetireSelectedConnectionAsync(
+                generation,
+                message,
+                cancellationToken)
             .ConfigureAwait(false);
-        return nextAttempt;
+    }
+
+    private async Task RetireSelectedConnectionAsync(
+        MirrorRouteGeneration generation,
+        string message,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            if (!IsCurrentGeneration(generation))
+            {
+                return;
+            }
+
+            var transition = await TransitionRouteAsync(
+                    null,
+                    null,
+                    cancellationToken,
+                    expectedCurrent: generation)
+                .ConfigureAwait(false);
+            if (!transition.Changed)
+            {
+                return;
+            }
+            await RunOnUIThreadAsync(
+                () =>
+                {
+                    if (cancellationToken.IsCancellationRequested ||
+                        !_pageIsLoaded ||
+                        _connectionCancellation is null ||
+                        _connectionCancellation.Token != cancellationToken ||
+                        Volatile.Read(ref _routeGeneration) is not null)
+                    {
+                        return;
+                    }
+                    _haveFrame = false;
+                    SetInputAvailability(false);
+                    SetMirrorState(
+                        MirrorConnectionState.Error,
+                        _inputRestoreUncertain
+                            ? "Mirror could not confirm that physical tablet input was restored. Restart the tablet and reopen Mirror before using controls again."
+                            : message);
+                },
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
     }
 
     private void ApplyFrameUpdate(FrameUpdate update)
@@ -1275,7 +1226,7 @@ public sealed partial class MainPage : Page
     {
         var previousState = _mirrorState;
         var previousDetail = _connectionDetail;
-        var (connection, title, body, color, showProgress, showAction, actionText, showDetails) = state switch
+        var (connection, title, body, color, showProgress, showChoices, showDetails) = state switch
         {
             MirrorConnectionState.Preparing => (
                 "Connecting",
@@ -1284,7 +1235,6 @@ public sealed partial class MainPage : Page
                 Windows.UI.Color.FromArgb(255, 226, 163, 58),
                 true,
                 false,
-                string.Empty,
                 false),
             MirrorConnectionState.Live => (
                 "Live",
@@ -1293,79 +1243,70 @@ public sealed partial class MainPage : Page
                 Windows.UI.Color.FromArgb(255, 59, 186, 118),
                 false,
                 false,
-                string.Empty,
                 false),
             MirrorConnectionState.Error => (
                 "Attention",
                 "Couldn’t open mirror",
-                detail ?? "Keep the tablet awake and connected, then choose Retry.",
+                detail ?? "Choose USB-C or Wi-Fi to start another connection attempt.",
                 Windows.UI.Color.FromArgb(255, 224, 92, 92),
                 false,
                 true,
-                "Retry",
                 true),
             MirrorConnectionState.AwaitingUnlock => (
                 "Unlock",
                 "Unlock your reMarkable",
-                "Wake it if needed, then enter your passcode on the tablet. Mirror will connect automatically.",
+                "Wake it if needed and enter your passcode. This USB-C attempt will continue until its time limit.",
                 Windows.UI.Color.FromArgb(255, 112, 118, 128),
+                true,
                 false,
-                false,
-                string.Empty,
                 false),
             MirrorConnectionState.WakeAndUnlock => (
                 "Waiting",
                 "Wake and unlock your reMarkable",
-                "Press the power button once and enter your passcode. Mirror will connect automatically.",
+                "Press the power button once and enter your passcode. This USB-C attempt will keep checking the selected cable.",
                 Windows.UI.Color.FromArgb(255, 112, 118, 128),
+                true,
                 false,
-                false,
-                string.Empty,
                 false),
             MirrorConnectionState.Sleeping => (
                 "Sleeping",
                 "Waking the display",
-                "The tablet is still reachable. Mirror will wake its display and connect automatically.",
+                "The selected USB-C attempt is waking the tablet.",
                 Windows.UI.Color.FromArgb(255, 112, 118, 128),
+                true,
                 false,
-                false,
-                string.Empty,
                 false),
             MirrorConnectionState.Waking => (
                 "Waking",
                 "Waking the display",
-                "The tablet is still reachable. Mirror will connect automatically.",
+                "The selected USB-C attempt is waiting for the tablet to wake.",
                 Windows.UI.Color.FromArgb(255, 226, 163, 58),
                 true,
                 false,
-                string.Empty,
                 false),
             MirrorConnectionState.Starting => (
                 "Starting",
                 "Your reMarkable is finishing startup",
-                "Mirror will connect automatically.",
+                "The selected USB-C attempt is waiting for tablet services.",
                 Windows.UI.Color.FromArgb(255, 112, 118, 128),
                 true,
                 false,
-                string.Empty,
                 false),
             MirrorConnectionState.WakeSetupRequired => (
                 "Repair",
                 "Repair tablet wake setup",
-                "Mirror cannot use its tablet wake setup. Re-run Install.cmd with the tablet connected and past its first post-boot unlock, then choose Retry.",
+                "Mirror cannot use its tablet wake setup. Re-run Install.cmd with the tablet connected and past its first post-boot unlock.",
                 Windows.UI.Color.FromArgb(255, 224, 92, 92),
                 false,
-                true,
-                "Retry",
+                false,
                 true),
             _ => (
                 "Offline",
-                "Connect or wake your reMarkable",
-                "Press the power button once. Mirror reconnects over Wi-Fi when the tablet wakes. If Wi-Fi does not return, connect USB-C.",
+                "Connect to your reMarkable",
+                "Choose USB-C or Wi-Fi. Mirror connects only after you select a connection.",
                 Windows.UI.Color.FromArgb(255, 137, 145, 158),
                 false,
-                false,
-                string.Empty,
+                true,
                 false),
         };
 
@@ -1387,8 +1328,11 @@ public sealed partial class MainPage : Page
         ConnectionPanelDetail.Text = body;
         ConnectionProgressRing.IsActive = showProgress;
         ConnectionProgressRing.Visibility = showProgress ? Visibility.Visible : Visibility.Collapsed;
-        ConnectionActionButton.Content = actionText;
-        ConnectionActionButton.Visibility = showAction ? Visibility.Visible : Visibility.Collapsed;
+        ConnectionChoicePanel.Visibility = showChoices ? Visibility.Visible : Visibility.Collapsed;
+        if (!showChoices)
+        {
+            WifiAddressPanel.Visibility = Visibility.Collapsed;
+        }
         CopyConnectionDetailsButton.Visibility = showDetails ? Visibility.Visible : Visibility.Collapsed;
         ConnectionPanel.Visibility = state is MirrorConnectionState.Live
             ? Visibility.Collapsed
@@ -1408,8 +1352,8 @@ public sealed partial class MainPage : Page
     {
         if (_inputRestoreUncertain)
         {
-            SetMirrorState(
-                MirrorConnectionState.Error,
+            RetireIncompleteConnection(
+                generation,
                 "Mirror could not confirm that physical tablet input was restored. Restart the tablet and reopen Mirror before using controls again.");
             return;
         }
@@ -1420,10 +1364,9 @@ public sealed partial class MainPage : Page
                 Interlocked.Read(ref _inputSessionGeneration) != generation.Id ||
                 !session.IsRunning)
             {
-                _actionRequiredFailure = true;
-                SetMirrorState(
-                    MirrorConnectionState.Error,
-                    "The tablet display reconnected, but controls did not. Choose Retry to restore them.");
+                RetireIncompleteConnection(
+                    generation,
+                    "The selected connection opened the display, but controls did not start. Choose USB-C or Wi-Fi to try again.");
                 return;
             }
             _inputRecoveryPolicy.MarkRecoveryComplete(generation.Id);
@@ -1432,6 +1375,45 @@ public sealed partial class MainPage : Page
         ConnectionText.Text = generation.Kind is DeviceRouteKind.Usb
             ? "Live over USB"
             : "Live over Wi-Fi";
+        if (_filesPaneOpen)
+        {
+            _ = ProbeFilesRouteAsync(generation);
+        }
+    }
+
+    private void RetireIncompleteConnection(
+        MirrorRouteGeneration generation,
+        string message)
+    {
+        if (Interlocked.CompareExchange(
+                ref _retiringRouteGeneration,
+                generation.Id,
+                0) != 0)
+        {
+            return;
+        }
+
+        _ = RetireIncompleteConnectionAsync(generation, message);
+    }
+
+    private async Task RetireIncompleteConnectionAsync(
+        MirrorRouteGeneration generation,
+        string message)
+    {
+        try
+        {
+            await RetireSelectedConnectionAsync(
+                generation,
+                message,
+                _connectionCancellation?.Token ?? new CancellationToken(true));
+        }
+        finally
+        {
+            Interlocked.CompareExchange(
+                ref _retiringRouteGeneration,
+                0,
+                generation.Id);
+        }
     }
 
     private void SetFileAvailability(bool available)
@@ -1456,6 +1438,8 @@ public sealed partial class MainPage : Page
         {
             if (!ReferenceEquals(Volatile.Read(ref _routeGeneration), generation) ||
                 generation.CancellationToken.IsCancellationRequested ||
+                !_filesPaneDesiredOpen ||
+                _filesReadyGeneration == generation.Id ||
                 _filesProbeGeneration == generation.Id)
             {
                 return;
@@ -1468,7 +1452,7 @@ public sealed partial class MainPage : Page
         var refreshOpenFilesAfterProbe = false;
         try
         {
-            while (IsCurrentGeneration(generation))
+            while (IsCurrentGeneration(generation) && _filesPaneDesiredOpen)
             {
                 try
                 {
@@ -1477,7 +1461,8 @@ public sealed partial class MainPage : Page
                     lock (_routeAdmissionGate)
                     {
                         if (!ReferenceEquals(Volatile.Read(ref _routeGeneration), generation) ||
-                            generation.CancellationToken.IsCancellationRequested)
+                            generation.CancellationToken.IsCancellationRequested ||
+                            !_filesPaneDesiredOpen)
                         {
                             return;
                         }
@@ -1574,7 +1559,9 @@ public sealed partial class MainPage : Page
             if (ReferenceEquals(Volatile.Read(ref _routeGeneration), generation))
             {
                 _filesReadyGeneration = 0;
-                restartProbe = _filesProbeGeneration != generation.Id;
+                restartProbe =
+                    _filesPaneDesiredOpen &&
+                    _filesProbeGeneration != generation.Id;
             }
         }
         if (!restartProbe)
@@ -1641,8 +1628,6 @@ public sealed partial class MainPage : Page
                 SshInputSession? publishedSession = null;
                 string? currentFailureMessage = null;
                 var attemptOwned = false;
-                var rearmSetupFailure = false;
-                var setupCleanupConfirmed = true;
                 try
                 {
                     await _inputLifecycleGate.WaitAsync(routeToken).ConfigureAwait(false);
@@ -1692,14 +1677,9 @@ public sealed partial class MainPage : Page
                                 candidate = null;
                                 ResetInputRetryPolicy();
                                 MarkInputActivity();
-                                MarkUsbPromotionInputReady(generation);
                                 _diagnostics.Record(
                                     "input",
                                     "Controls published for the current route");
-                                if (generation.Kind is DeviceRouteKind.Wifi)
-                                {
-                                    _ = ProbeFilesRouteAsync(generation);
-                                }
                             }
                         }
                         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -1717,22 +1697,7 @@ public sealed partial class MainPage : Page
                                 ReferenceEquals(preparation, Volatile.Read(ref _inputPreparation)))
                             {
                                 currentFailureMessage = exception.Message;
-                                if (!exception.IsPersistent &&
-                                    _inputRecoveryPolicy.TryReserveSetupFailureRecovery(generation.Id))
-                                {
-                                    retryDelay = TimeSpan.FromMilliseconds(500);
-                                    rearmSetupFailure = true;
-                                    _diagnostics.Record(
-                                        "input recovery",
-                                        "Reserved one automatic retry after transient control setup failure");
-                                }
-                                else
-                                {
-                                    retryDelay = RegisterInputFailure();
-                                    FailUsbPromotionCandidate(
-                                        generation,
-                                        "input setup failed");
-                                }
+                                retryDelay = RegisterInputFailure();
                             }
                         }
                     }
@@ -1747,15 +1712,10 @@ public sealed partial class MainPage : Page
                         }
                         catch (InputSessionException exception)
                         {
-                            setupCleanupConfirmed = false;
                             LatchInputRestoreUncertain(exception.Message);
-                            FailUsbPromotionCandidate(
-                                generation,
-                                "input cleanup was not confirmed");
                         }
                         catch (Exception exception)
                         {
-                            setupCleanupConfirmed = false;
                             LatchInputRestoreUncertain(
                                 "Mirror could not confirm that physical tablet input was restored after control setup failed.");
                             _diagnostics.Record(
@@ -1765,16 +1725,6 @@ public sealed partial class MainPage : Page
                     }
                     if (attemptOwned)
                     {
-                        if (rearmSetupFailure &&
-                            setupCleanupConfirmed &&
-                            !_inputRestoreUncertain &&
-                            IsCurrentGeneration(generation))
-                        {
-                            RearmCoupledInputRecoveryUnderGate(generation);
-                            _diagnostics.Record(
-                                "input recovery",
-                                "Rearmed one control setup retry behind fresh display and restoration barriers");
-                        }
                         CompleteInputPreparation(preparation);
                     }
                     _inputLifecycleGate.Release();
@@ -1796,15 +1746,11 @@ public sealed partial class MainPage : Page
                 if (currentFailureMessage is not null)
                 {
                     _diagnostics.Record("input failure", currentFailureMessage);
-                    await RunOnUIThreadAsync(
-                        () =>
-                        {
-                            if (IsCurrentGeneration(generation))
-                            {
-                                SetInputAvailability(false);
-                            }
-                        },
-                        cancellationToken).ConfigureAwait(false);
+                    await RetireSelectedConnectionAsync(
+                            generation,
+                            "The selected connection could not start tablet controls. Choose USB-C or Wi-Fi to try again.",
+                            cancellationToken)
+                        .ConfigureAwait(false);
                 }
             }
             else
@@ -1829,28 +1775,36 @@ public sealed partial class MainPage : Page
                 }
                 catch (InputSessionException exception)
                 {
-                    var removal = await DropInputSessionAfterFailureAsync(
+                    var removed = await DropInputSessionAfterFailureAsync(
                         session,
-                        generation,
-                        exception).ConfigureAwait(false);
-                    if (removal.Removed)
+                        generation).ConfigureAwait(false);
+                    if (removed)
                     {
                         _diagnostics.Record("input failure", exception.Message);
+                        await RetireSelectedConnectionAsync(
+                                generation,
+                                "The selected connection lost tablet controls. Choose USB-C or Wi-Fi to connect again.",
+                                cancellationToken)
+                            .ConfigureAwait(false);
                         retryDelay = TimeSpan.FromMilliseconds(500);
                     }
                 }
                 catch (ObjectDisposedException)
                 {
-                    // Retry and frame recovery intentionally remove and dispose the
-                    // published session. If this loop held that stale reference,
-                    // keep running without re-latching the newly requested attempt.
-                    var removal = await DropInputSessionAfterFailureAsync(
+                    // Route retirement can dispose the session before this loop
+                    // observes cancellation. Only a still-current session may end
+                    // the selected connection.
+                    var removed = await DropInputSessionAfterFailureAsync(
                         session,
-                        generation,
-                        new ObjectDisposedException(nameof(SshInputSession))).ConfigureAwait(false);
-                    if (removal.Removed)
+                        generation).ConfigureAwait(false);
+                    if (removed)
                     {
                         _diagnostics.Record("input failure", "The tablet input session closed unexpectedly.");
+                        await RetireSelectedConnectionAsync(
+                                generation,
+                                "The selected connection lost tablet controls. Choose USB-C or Wi-Fi to connect again.",
+                                cancellationToken)
+                            .ConfigureAwait(false);
                         retryDelay = TimeSpan.FromMilliseconds(500);
                     }
                 }
@@ -1869,15 +1823,12 @@ public sealed partial class MainPage : Page
     private void ResetInputRetryPolicy()
     {
         _inputRetryLatched = false;
-        Interlocked.Exchange(ref _inputRetryAttempt, 0);
     }
 
     private TimeSpan RegisterInputFailure()
     {
-        Interlocked.Increment(ref _inputRetryAttempt);
-        // Every managed input attempt can restart Xochitl. Do not run another
-        // handoff after the generation's one automatic recovery is spent;
-        // publication remains gated until explicit Retry or a new route.
+        // Every managed input attempt can restart Xochitl. Latch this
+        // generation after a failure; exact-generation retirement follows.
         _inputRetryLatched = true;
         return TimeSpan.FromMilliseconds(500);
     }
@@ -1890,34 +1841,6 @@ public sealed partial class MainPage : Page
             available
                 ? "Choose Touch or Pen for the pointer. Keyboard typing is automatic."
                 : "Your pointer choice and automatic keyboard will activate when Mirror connects");
-    }
-
-    private void SetControlRecoveryStateFromAnyThread(
-        MirrorInputRecoveryDisposition disposition)
-    {
-        DispatcherQueue.TryEnqueue(
-            DispatcherQueuePriority.High,
-            () =>
-            {
-                DeviceScreen.ReleasePointerCaptures();
-                SetInputAvailability(false);
-                if (_inputRestoreUncertain)
-                {
-                    return;
-                }
-                if (disposition is MirrorInputRecoveryDisposition.BeginNow)
-                {
-                    SetMirrorState(
-                        MirrorConnectionState.Preparing,
-                        "Reconnecting the tablet display and controls.");
-                    return;
-                }
-                SetMirrorState(
-                    MirrorConnectionState.Error,
-                    disposition is MirrorInputRecoveryDisposition.AwaitingFrameInterruption
-                        ? "Tablet controls disconnected. Mirror will reconnect them with the display, or choose Retry now."
-                        : "Tablet controls stopped. Choose Retry to restore them.");
-            });
     }
 
     private void MarkInputActivity()
@@ -1965,10 +1888,9 @@ public sealed partial class MainPage : Page
         }
     }
 
-    private async Task<InputFailureRemovalResult> DropInputSessionAfterFailureAsync(
+    private async Task<bool> DropInputSessionAfterFailureAsync(
         SshInputSession session,
-        MirrorRouteGeneration generation,
-        Exception failure)
+        MirrorRouteGeneration generation)
     {
         await _inputLifecycleGate.WaitAsync().ConfigureAwait(false);
         try
@@ -1981,33 +1903,12 @@ public sealed partial class MainPage : Page
                 session,
                 requireExpected: true,
                 latchForRetry: true).ConfigureAwait(false);
-            var disposition = MirrorInputRecoveryDisposition.None;
             if (belongsToGeneration && removal.Removed)
             {
-                disposition = _inputRecoveryPolicy.RecordPublishedSessionLoss(
-                    generation.Id,
-                    Stopwatch.GetTimestamp(),
-                    CoupledInputRecoveryWindow,
-                    allowAutomaticRecovery:
-                        removal.RestoreConfirmed &&
-                        failure is InputSessionException { IsPersistent: false });
-                if (disposition is MirrorInputRecoveryDisposition.BeginNow)
-                {
-                    RearmCoupledInputRecoveryUnderGate(generation);
-                    _diagnostics.Record(
-                        "input recovery",
-                        "Rearmed one control handoff after input joined the recent display interruption");
-                }
-                else if (disposition is MirrorInputRecoveryDisposition.AwaitingFrameInterruption)
-                {
-                    _diagnostics.Record(
-                        "input recovery",
-                        "Scheduled one control handoff if the display fails in the same interruption");
-                }
-                SetControlRecoveryStateFromAnyThread(disposition);
+                _inputRecoveryPolicy.AbandonGeneration(generation.Id);
             }
 
-            return new InputFailureRemovalResult(removal.Removed, disposition);
+            return removal.Removed;
         }
         finally
         {
@@ -2055,7 +1956,6 @@ public sealed partial class MainPage : Page
     {
         _inputRestoreUncertain = true;
         _inputRetryLatched = true;
-        _actionRequiredFailure = true;
         _diagnostics.Record("input cleanup", diagnostic);
         SetInputAvailabilityFromAnyThread(false);
         DispatcherQueue.TryEnqueue(
@@ -2079,6 +1979,7 @@ public sealed partial class MainPage : Page
 
     private async Task RunOnUIThreadAsync(Action action, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         if (DispatcherQueue.HasThreadAccess)
         {
             action();
@@ -2093,6 +1994,11 @@ public sealed partial class MainPage : Page
                 {
                     try
                     {
+                        if (cancellationToken.IsCancellationRequested)
+                        {
+                            completion.TrySetCanceled(cancellationToken);
+                            return;
+                        }
                         action();
                         completion.TrySetResult(true);
                     }
@@ -2161,15 +2067,6 @@ public sealed partial class MainPage : Page
         }
     }
 
-    private static TimeSpan RetryDelayFor(int attempt) => attempt switch
-    {
-        <= 1 => TimeSpan.FromSeconds(2),
-        2 => TimeSpan.FromSeconds(5),
-        3 => TimeSpan.FromSeconds(10),
-        4 => TimeSpan.FromSeconds(20),
-        _ => TimeSpan.FromSeconds(30),
-    };
-
     private static async Task IgnoreCancellationAsync(Task task)
     {
         try
@@ -2203,58 +2100,104 @@ public sealed partial class MainPage : Page
         }
     }
 
-    private async void ConnectionActionButton_Click(object sender, RoutedEventArgs e)
+    private async void ConnectUsbButton_Click(object sender, RoutedEventArgs e)
     {
-        if (_inputRestoreUncertain)
+        HideWifiAddressEntry();
+        await StartManualConnectionAsync(
+            ManualConnectionRequest.ForUsb(StartupRoutes.UsbRoute));
+    }
+
+    private void ConnectWifiButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_connectionAttemptTask is { IsCompleted: false })
         {
             ShowInfo(
-                "Restart the tablet and reopen Mirror before using controls again.",
-                InfoBarSeverity.Warning);
+                "A connection attempt is already in progress.",
+                InfoBarSeverity.Informational);
             return;
         }
-        _diagnostics.Record("action", "Connection retry requested");
-        _actionRequiredFailure = false;
-        SetMirrorState(MirrorConnectionState.Preparing, "Checking the tablet connection now.");
-        // Block an unpublished input handoff before waiting for lifecycle ownership.
-        _inputRetryLatched = true;
-        await _routeLifecycleGate.WaitAsync();
-        try
+
+        WifiAddressValidationText.Visibility = Visibility.Collapsed;
+        WifiAddressValidationText.Text = string.Empty;
+        if (string.IsNullOrWhiteSpace(WifiAddressTextBox.Text) &&
+            StartupRoutes.WifiRoute is { } savedRoute)
         {
-            await _inputLifecycleGate.WaitAsync();
-            try
-            {
-                // Fence the old frame/input generation and finish any in-flight
-                // Xochitl restoration before the new attempt can begin. Route
-                // ownership makes a null generation stable rather than a
-                // transient gap during publication.
-                await RemoveInputSessionUnderGateAsync(
-                    expected: null,
-                    requireExpected: false,
-                    latchForRetry: false);
-                var generation = Volatile.Read(ref _routeGeneration);
-                if (generation is null)
-                {
-                    _inputRecoveryPolicy.Reset();
-                }
-                else
-                {
-                    _inputRecoveryPolicy.RearmGeneration(generation.Id);
-                }
-                ResetDisplayPreparation();
-                ResetInputPreparation();
-                ResetInputRetryPolicy();
-            }
-            finally
-            {
-                _inputLifecycleGate.Release();
-            }
+            WifiAddressTextBox.Text = savedRoute.Host;
         }
-        finally
+        ConnectionChoicePanel.Visibility = Visibility.Collapsed;
+        WifiAddressPanel.Visibility = Visibility.Visible;
+        WifiAddressTextBox.Focus(FocusState.Programmatic);
+        WifiAddressTextBox.SelectAll();
+    }
+
+    private async void SubmitWifiAddressButton_Click(object sender, RoutedEventArgs e) =>
+        await SubmitWifiAddressAsync();
+
+    private void CancelWifiAddressButton_Click(object sender, RoutedEventArgs e) =>
+        HideWifiAddressEntry();
+
+    private async void WifiAddressTextBox_KeyDown(
+        object sender,
+        KeyRoutedEventArgs e)
+    {
+        if (e.Key is Windows.System.VirtualKey.Enter)
         {
-            _routeLifecycleGate.Release();
+            e.Handled = true;
+            await SubmitWifiAddressAsync();
         }
-        _connectionMonitor.RequestProbe();
-        SignalFrameRetry();
+        else if (e.Key is Windows.System.VirtualKey.Escape)
+        {
+            e.Handled = true;
+            HideWifiAddressEntry();
+        }
+    }
+
+    private async Task SubmitWifiAddressAsync()
+    {
+        var profile = StartupRoutes.Profile;
+        if (profile is null)
+        {
+            ShowWifiAddressValidation(
+                "Wi-Fi setup is unavailable. Run Install.cmd over USB-C before connecting over Wi-Fi.");
+            return;
+        }
+
+        if (!ManualConnectionRequest.TryCreateWifi(
+                WifiAddressTextBox.Text,
+                profile.FilesTarget.Port,
+                out var request,
+                out var error) ||
+            request is null)
+        {
+            ShowWifiAddressValidation(error switch
+            {
+                ManualWifiAddressError.AddressRequired =>
+                    "Enter the tablet’s Wi-Fi IPv4 address.",
+                ManualWifiAddressError.InvalidAddress =>
+                    "Enter a valid IPv4 address, such as 192.168.1.42.",
+                _ =>
+                    "Enter the tablet’s Wi-Fi address, not a loopback, multicast, or USB-C address.",
+            });
+            return;
+        }
+
+        HideWifiAddressEntry();
+        await StartManualConnectionAsync(request);
+    }
+
+    private void ShowWifiAddressValidation(string message)
+    {
+        WifiAddressValidationText.Text = message;
+        WifiAddressValidationText.Visibility = Visibility.Visible;
+        WifiAddressTextBox.Focus(FocusState.Programmatic);
+    }
+
+    private void HideWifiAddressEntry()
+    {
+        WifiAddressValidationText.Visibility = Visibility.Collapsed;
+        WifiAddressValidationText.Text = string.Empty;
+        WifiAddressPanel.Visibility = Visibility.Collapsed;
+        ConnectionChoicePanel.Visibility = Visibility.Visible;
     }
 
     private void CopyConnectionDetailsButton_Click(object sender, RoutedEventArgs e)
@@ -2434,7 +2377,15 @@ public sealed partial class MainPage : Page
         completion?.TrySetResult();
         if (open)
         {
-            _ = RefreshLibraryAsync();
+            var generation = Volatile.Read(ref _routeGeneration);
+            if (generation is not null && IsCurrentGeneration(generation))
+            {
+                _ = ProbeFilesRouteAsync(generation);
+            }
+            else
+            {
+                _ = RefreshLibraryAsync();
+            }
         }
     }
 
@@ -2486,6 +2437,16 @@ public sealed partial class MainPage : Page
             return;
         }
         _filesPaneDisposed = true;
+        lock (_routeAdmissionGate)
+        {
+            _filesPaneDesiredOpen = false;
+            _filesPaneOpen = false;
+            _filesReadyGeneration = 0;
+        }
+        _filesPaneTransitioning = false;
+        _filesPaneLinearProgress = 0;
+        _filesPaneProgress = 0;
+        MainFilesPane.IsHitTestVisible = false;
         MainFilesPane.IsDocumentDragEnabled = false;
         StageSurface.SizeChanged -= StageSurface_SizeChanged;
         StopFilesPaneRendering();
@@ -2616,29 +2577,7 @@ public sealed partial class MainPage : Page
                 return null;
             }
 
-            _activeFilesOperations++;
             return generation;
-        }
-    }
-
-    private void EndFilesOperation(MirrorRouteGeneration generation)
-    {
-        var requestPreferredRouteProbe = false;
-        lock (_routeAdmissionGate)
-        {
-            if (_activeFilesOperations > 0)
-            {
-                _activeFilesOperations--;
-            }
-            requestPreferredRouteProbe = _activeFilesOperations == 0 &&
-                ReferenceEquals(Volatile.Read(ref _routeGeneration), generation) &&
-                !generation.CancellationToken.IsCancellationRequested &&
-                generation.Kind is DeviceRouteKind.Wifi &&
-                _activePointerOperation == 0;
-        }
-        if (requestPreferredRouteProbe)
-        {
-            _connectionMonitor.RequestProbe();
         }
     }
 
@@ -2706,7 +2645,7 @@ public sealed partial class MainPage : Page
             }
             _filesPaneState.LibraryStatusText = exception.Failure is FileTransferFailure.Connection
                 ? routeGeneration.Kind is DeviceRouteKind.Wifi
-                    ? "Wake or unlock your reMarkable. Files will reconnect automatically."
+                    ? "Wake or unlock your reMarkable. Files will keep checking while this selected connection remains active."
                     : "Unlock your reMarkable and turn on its USB web interface, then refresh."
                 : exception.Message;
         }
@@ -2720,7 +2659,6 @@ public sealed partial class MainPage : Page
                     _filesPaneState.LibraryStatusText,
                     _folderHistory.Count > 0);
             }
-            EndFilesOperation(routeGeneration);
         }
     }
 
@@ -2835,7 +2773,6 @@ public sealed partial class MainPage : Page
                 {
                 }
             }
-            EndFilesOperation(routeGeneration);
             _exportGate.Release();
         }
     }
@@ -2949,7 +2886,6 @@ public sealed partial class MainPage : Page
             }
             if (routeGeneration is not null)
             {
-                EndFilesOperation(routeGeneration);
             }
             if (ownsExportGate)
             {
@@ -3287,7 +3223,6 @@ public sealed partial class MainPage : Page
         }
         finally
         {
-            EndPointerOperation();
         }
     }
 
@@ -3308,6 +3243,8 @@ public sealed partial class MainPage : Page
 
     internal async Task ResetRemoteInputStateAsync()
     {
+        var applicationCancellationToken =
+            _connectionCancellation?.Token ?? new CancellationToken(true);
         _activePointerId = null;
         DeviceScreen.ReleasePointerCaptures();
         var session = _inputSession;
@@ -3317,7 +3254,6 @@ public sealed partial class MainPage : Page
             Interlocked.Read(ref _inputSessionGeneration) != generation.Id ||
             !IsCurrentGeneration(generation))
         {
-            EndPointerOperation();
             return;
         }
         try
@@ -3334,23 +3270,18 @@ public sealed partial class MainPage : Page
         }
         catch (Exception exception) when (exception is InputSessionException or ObjectDisposedException)
         {
-            var removal = await DropInputSessionAfterFailureAsync(session, generation, exception);
-            if (removal.Removed)
+            var removed = await DropInputSessionAfterFailureAsync(session, generation);
+            if (removed)
             {
                 _diagnostics.Record("input failure", exception.Message);
-                if (IsCurrentGeneration(generation))
-                {
-                    ShowInfo(
-                        removal.AutomaticRecoveryScheduled
-                            ? "Reconnecting tablet controls."
-                            : "Tablet controls stopped. Choose Retry to restore them.",
-                        InfoBarSeverity.Warning);
-                }
+                await RetireSelectedConnectionAsync(
+                    generation,
+                    "The selected connection lost tablet controls. Choose USB-C or Wi-Fi to connect again.",
+                    applicationCancellationToken);
             }
         }
         finally
         {
-            EndPointerOperation();
         }
     }
 
@@ -3369,30 +3300,14 @@ public sealed partial class MainPage : Page
             }
 
             _activePointerId = pointerId;
-            _activePointerOperation = 1;
             return true;
-        }
-    }
-
-    private void EndPointerOperation()
-    {
-        var requestPreferredRouteProbe = false;
-        lock (_routeAdmissionGate)
-        {
-            _activePointerOperation = 0;
-            var generation = Volatile.Read(ref _routeGeneration);
-            requestPreferredRouteProbe = _activeFilesOperations == 0 &&
-                generation?.Kind is DeviceRouteKind.Wifi &&
-                !generation.CancellationToken.IsCancellationRequested;
-        }
-        if (requestPreferredRouteProbe)
-        {
-            _connectionMonitor.RequestProbe();
         }
     }
 
     private async Task SendPointerAsync(RemotePointerAction action, PointerPoint point)
     {
+        var applicationCancellationToken =
+            _connectionCancellation?.Token ?? new CancellationToken(true);
         var session = _inputSession;
         var generation = Volatile.Read(ref _routeGeneration);
         if (session is null ||
@@ -3446,18 +3361,14 @@ public sealed partial class MainPage : Page
         }
         catch (Exception exception) when (exception is InputSessionException or ObjectDisposedException)
         {
-            var removal = await DropInputSessionAfterFailureAsync(session, generation, exception);
-            if (removal.Removed)
+            var removed = await DropInputSessionAfterFailureAsync(session, generation);
+            if (removed)
             {
                 _diagnostics.Record("input failure", exception.Message);
-                if (IsCurrentGeneration(generation))
-                {
-                    ShowInfo(
-                        removal.AutomaticRecoveryScheduled
-                            ? "Reconnecting tablet controls."
-                            : "Tablet controls stopped. Choose Retry to restore them.",
-                        InfoBarSeverity.Warning);
-                }
+                await RetireSelectedConnectionAsync(
+                    generation,
+                    "The selected connection lost tablet controls. Choose USB-C or Wi-Fi to connect again.",
+                    applicationCancellationToken);
             }
         }
     }
@@ -3506,6 +3417,8 @@ public sealed partial class MainPage : Page
 
     private async Task SendKeyAsync(string key, bool isDown)
     {
+        var applicationCancellationToken =
+            _connectionCancellation?.Token ?? new CancellationToken(true);
         var session = _inputSession;
         var generation = Volatile.Read(ref _routeGeneration);
         if (session is null ||
@@ -3537,18 +3450,14 @@ public sealed partial class MainPage : Page
         }
         catch (Exception exception) when (exception is InputSessionException or ObjectDisposedException)
         {
-            var removal = await DropInputSessionAfterFailureAsync(session, generation, exception);
-            if (removal.Removed)
+            var removed = await DropInputSessionAfterFailureAsync(session, generation);
+            if (removed)
             {
                 _diagnostics.Record("input failure", exception.Message);
-                if (IsCurrentGeneration(generation))
-                {
-                    ShowInfo(
-                        removal.AutomaticRecoveryScheduled
-                            ? "Reconnecting tablet controls."
-                            : "Tablet controls stopped. Choose Retry to restore them.",
-                        InfoBarSeverity.Warning);
-                }
+                await RetireSelectedConnectionAsync(
+                    generation,
+                    "The selected connection lost tablet controls. Choose USB-C or Wi-Fi to connect again.",
+                    applicationCancellationToken);
             }
         }
     }
@@ -3712,7 +3621,6 @@ public sealed partial class MainPage : Page
         }
         finally
         {
-            EndFilesOperation(routeGeneration);
         }
 
         UpdateTransferCount();
@@ -3775,8 +3683,7 @@ public sealed partial class MainPage : Page
         SshRoute UsbRoute,
         SshRoute? WifiRoute,
         DeviceProfile? Profile,
-        DeviceProfileLoadStatus ProfileStatus,
-        bool WifiRequiresProfileMatch);
+        DeviceProfileLoadStatus ProfileStatus);
 
     private readonly record struct InputSessionRemovalResult(
         bool Removed,
@@ -3786,19 +3693,16 @@ public sealed partial class MainPage : Page
             new(Removed: false, RestoreConfirmed: restoreConfirmed);
     }
 
-    private readonly record struct InputFailureRemovalResult(
-        bool Removed,
-        MirrorInputRecoveryDisposition RecoveryDisposition)
+    private readonly record struct RouteTransitionOutcome(
+        bool Changed,
+        MirrorRouteGeneration? PublishedGeneration)
     {
-        public bool AutomaticRecoveryScheduled =>
-            RecoveryDisposition is not MirrorInputRecoveryDisposition.None;
-    }
+        public static RouteTransitionOutcome Unchanged => new(false, null);
 
-    private enum RouteTransitionResult
-    {
-        Unchanged,
-        Changed,
-        Deferred,
+        public static RouteTransitionOutcome Retired => new(true, null);
+
+        public static RouteTransitionOutcome Published(MirrorRouteGeneration generation) =>
+            new(true, generation);
     }
 }
 

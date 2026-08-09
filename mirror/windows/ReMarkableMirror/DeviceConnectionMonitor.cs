@@ -5,7 +5,7 @@ using System.Security;
 
 namespace ReMarkableMirror;
 
-public sealed class DeviceConnectionMonitor
+public sealed class DeviceConnectionMonitor : IDisposable
 {
     private static readonly TimeSpan DisconnectedPollInterval = TimeSpan.FromSeconds(3);
     // A bannerless USB endpoint is what this tablet exposes while waiting for
@@ -55,6 +55,7 @@ public sealed class DeviceConnectionMonitor
     private int _healthyUsbCandidateProbeCount;
     private long _healthyUsbCandidateStartedTimestamp;
     private long _usbPromotionSuppressedUntilTimestamp;
+    private int _disposed;
 
     public DeviceConnectionMonitor(string host, int port) :
         this(new SshRoute(host), port)
@@ -99,6 +100,48 @@ public sealed class DeviceConnectionMonitor
         }
     }
 
+    public async Task<DeviceConnectionState> ProbeSelectedRouteAsync(
+        DeviceRouteKind routeKind,
+        CancellationToken cancellationToken)
+    {
+        ObjectDisposedException.ThrowIf(
+            Volatile.Read(ref _disposed) != 0,
+            this);
+
+        return routeKind switch
+        {
+            DeviceRouteKind.Usb =>
+                await ProbeUsbAsync(cancellationToken).ConfigureAwait(false),
+            DeviceRouteKind.Wifi when _wifiRoute is not null =>
+                (await ProbeWifiAsync(cancellationToken).ConfigureAwait(false)).State,
+            DeviceRouteKind.Wifi => new DeviceConnectionState(
+                DeviceConnectionStatus.Disconnected,
+                string.Empty,
+                _port),
+            _ => throw new ArgumentOutOfRangeException(nameof(routeKind)),
+        };
+    }
+
+    public async IAsyncEnumerable<DeviceConnectionState> WatchSelectedAsync(
+        DeviceRouteKind routeKind,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            var state = await ProbeSelectedRouteAsync(routeKind, cancellationToken)
+                .ConfigureAwait(false);
+            yield return state;
+
+            if (!await WaitForNextProbeAsync(
+                    PollIntervalFor(state.Status),
+                    cancellationToken)
+                .ConfigureAwait(false))
+            {
+                yield break;
+            }
+        }
+    }
+
     public void RequestProbe()
     {
         Interlocked.Exchange(ref _wakeClientRefreshRequested, 1);
@@ -133,26 +176,29 @@ public sealed class DeviceConnectionMonitor
             var state = await ProbeAsync(cancellationToken).ConfigureAwait(false);
             yield return state;
 
-            var interval = state.Status switch
-            {
-                DeviceConnectionStatus.Disconnected => DisconnectedPollInterval,
-                DeviceConnectionStatus.PortOpenWithoutSshBanner => PortOpenPollInterval,
-                DeviceConnectionStatus.UnlockRequired or
-                    DeviceConnectionStatus.Sleeping or
-                    DeviceConnectionStatus.Starting or
-                    DeviceConnectionStatus.WakeSetupRequired or
-                    DeviceConnectionStatus.WifiNetworkMismatch => WakeStatePollInterval,
-                DeviceConnectionStatus.Waking => WakingPollInterval,
-                DeviceConnectionStatus.SshReady => SshReadyPollInterval,
-                _ => throw new ArgumentOutOfRangeException(nameof(state)),
-            };
-
-            if (!await WaitForNextProbeAsync(interval, cancellationToken).ConfigureAwait(false))
+            if (!await WaitForNextProbeAsync(
+                    PollIntervalFor(state.Status),
+                    cancellationToken)
+                .ConfigureAwait(false))
             {
                 yield break;
             }
         }
     }
+
+    private static TimeSpan PollIntervalFor(DeviceConnectionStatus status) => status switch
+    {
+        DeviceConnectionStatus.Disconnected => DisconnectedPollInterval,
+        DeviceConnectionStatus.PortOpenWithoutSshBanner => PortOpenPollInterval,
+        DeviceConnectionStatus.UnlockRequired or
+            DeviceConnectionStatus.Sleeping or
+            DeviceConnectionStatus.Starting or
+            DeviceConnectionStatus.WakeSetupRequired or
+            DeviceConnectionStatus.WifiNetworkMismatch => WakeStatePollInterval,
+        DeviceConnectionStatus.Waking => WakingPollInterval,
+        DeviceConnectionStatus.SshReady => SshReadyPollInterval,
+        _ => throw new ArgumentOutOfRangeException(nameof(status)),
+    };
 
     private async Task<DeviceConnectionState> ProbeAsync(CancellationToken cancellationToken)
     {
@@ -407,6 +453,12 @@ public sealed class DeviceConnectionMonitor
         }
 
         var sshStatus = await ProbeUsbSshAsync(cancellationToken).ConfigureAwait(false);
+        if (sshStatus is DeviceConnectionStatus.SshReady)
+        {
+            _hasSuccessfulWake = false;
+            return await AuthenticateUsbAsync(cancellationToken).ConfigureAwait(false);
+        }
+
         TabletWakeClient? wakeClient;
         TabletWakeClientCreationStatus wakeClientCreationStatus;
         lock (_wakeClientGate)
@@ -416,11 +468,6 @@ public sealed class DeviceConnectionMonitor
         }
         if (wakeClient is null)
         {
-            if (sshStatus is DeviceConnectionStatus.SshReady)
-            {
-                _hasSuccessfulWake = false;
-                return await AuthenticateUsbAsync(cancellationToken).ConfigureAwait(false);
-            }
             var status = wakeClientCreationStatus is
                 TabletWakeClientCreationStatus.MissingToken or
                 TabletWakeClientCreationStatus.InvalidToken or
@@ -437,9 +484,7 @@ public sealed class DeviceConnectionMonitor
             wakeStatus = await wakeClient.GetStatusAsync(cancellationToken).ConfigureAwait(false);
             if (wakeStatus is null)
             {
-                return sshStatus is DeviceConnectionStatus.SshReady
-                    ? await AuthenticateUsbAsync(cancellationToken).ConfigureAwait(false)
-                    : UsbState(sshStatus);
+                return UsbState(sshStatus);
             }
 
             if (wakeStatus.State is TabletWakeState.Sleeping &&
@@ -459,9 +504,7 @@ public sealed class DeviceConnectionMonitor
         }
         catch (TabletWakeAuthenticationException)
         {
-            return sshStatus is DeviceConnectionStatus.SshReady
-                ? await AuthenticateUsbAsync(cancellationToken).ConfigureAwait(false)
-                : UsbState(DeviceConnectionStatus.WakeSetupRequired);
+            return UsbState(DeviceConnectionStatus.WakeSetupRequired);
         }
 
         if (wakeStatus.State is TabletWakeState.Sleeping && IsWakeGraceActive())
@@ -478,15 +521,10 @@ public sealed class DeviceConnectionMonitor
         {
             TabletWakeState.UnlockRequired => DeviceConnectionStatus.UnlockRequired,
             TabletWakeState.Sleeping => DeviceConnectionStatus.Sleeping,
-            TabletWakeState.Ready or TabletWakeState.Starting =>
-                sshStatus is DeviceConnectionStatus.SshReady
-                    ? DeviceConnectionStatus.SshReady
-                    : DeviceConnectionStatus.Starting,
+            TabletWakeState.Ready or TabletWakeState.Starting => DeviceConnectionStatus.Starting,
             _ => sshStatus,
         };
-        return resolvedStatus is DeviceConnectionStatus.SshReady
-            ? await AuthenticateUsbAsync(cancellationToken).ConfigureAwait(false)
-            : UsbState(resolvedStatus);
+        return UsbState(resolvedStatus);
     }
 
     private Task<DeviceConnectionState> ProbePassiveUsbCandidateAsync(
@@ -847,6 +885,23 @@ public sealed class DeviceConnectionMonitor
         catch (OperationCanceledException)
         {
         }
+    }
+
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+        {
+            return;
+        }
+
+        TabletWakeClient? wakeClient;
+        lock (_wakeClientGate)
+        {
+            wakeClient = _wakeClient;
+            _wakeClient = null;
+        }
+        wakeClient?.Dispose();
+        _probeRequested.Dispose();
     }
 
     private sealed record WifiProbeOutcome(

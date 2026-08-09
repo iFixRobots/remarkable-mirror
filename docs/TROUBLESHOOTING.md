@@ -2,7 +2,7 @@
 
 If this is a first installation, keep [Getting started](GETTING_STARTED.md) open
 and stop at the first failed step. The visible Mirror status is more useful than
-repeatedly rerunning the installer or pressing **Retry**.
+repeatedly rerunning the installer or starting the same connection again.
 
 ## USB does not create the direct tablet network
 
@@ -65,24 +65,26 @@ If you do not know where the private key came from, stop. Move the key, its
 before starting pairing again. Never delete or publish them while diagnosing
 setup.
 
-## Connect or wake your reMarkable
+## A manual connection could not start
 
-Mirror cannot reach your tablet right now.
+Mirror checks the tablet only after you choose a connection.
 
-- Leave Mirror open; it retries automatically.
-- During an active session, the USB carrier guard and input wake lease are
-  designed to prevent the tablet from reaching full suspend across handoff.
+- For USB-C, connect a data-capable cable, wake or unlock the tablet, then choose
+  **Connect USB-C**. That bounded attempt checks only the cable.
+- For Wi-Fi, confirm the tablet and PC are on the paired Wi-Fi network, choose
+  **Connect Wi-Fi**, enter the tablet's current IPv4 address, and choose
+  **Connect**.
+- During an active selected session, the USB carrier guard and input wake lease
+  are designed to prevent the tablet from reaching full suspend.
 - If Linux already completed suspend before Mirror could reach it, press its
   power button once. There is no source-proven host wake guarantee from that
   terminal state.
-- If Wi-Fi does not return after wake, connect USB-C.
 - Complete the first post-boot passcode unlock.
-- For Wi-Fi, confirm the tablet and PC are on the same Wi-Fi network.
 
-Mirror does not turn one interrupted Wi-Fi identity or capability check into a
-tablet repair warning. It stays in this wake/offline flow unless the tablet
-authenticates and reports the same component mismatch again. A direct USB setup
-failure still appears immediately.
+Launch, cable changes, and network changes never start, switch, or reopen a
+connection. A Wi-Fi attempt confirms an authenticated component mismatch once
+inside that owner action before showing **Repair**. A direct USB setup failure
+still appears immediately.
 
 ## Repair tablet setup
 
@@ -122,9 +124,11 @@ supported by the tablet.
 
 ## Frames update but controls do not
 
-Mirror should discard the stale connection and reconnect automatically. If it
-shows **Retry**, select it once. If the controls still do not work, close
-Mirror, confirm touch works on the tablet, and reopen it.
+Mirror retires that selected session instead of reopening it. Confirm touch
+works directly on the tablet, then explicitly choose **Connect USB-C** or
+**Connect Wi-Fi** again. For Wi-Fi, submit the tablet's current IPv4 address.
+If physical input restoration could not be confirmed, restart the tablet and
+reopen Mirror before trying either route.
 
 Do not repeatedly launch multiple Mirror instances. Include the app's copied
 diagnostic details in a bug report after checking them for local network details.

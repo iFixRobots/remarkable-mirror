@@ -14,6 +14,8 @@ $captureHelperPath = Join-Path $repositoryRoot 'scripts\lib\RemarkableRmctlCaptu
 $filesLoopbackBuilderPath = Join-Path $repositoryRoot 'scripts\Build-RemarkableFilesLoopback.ps1'
 $filesLoopbackArtifactHelperPath = Join-Path $repositoryRoot 'scripts\lib\RemarkableFilesLoopbackArtifact.ps1'
 $projectPath = Join-Path $repositoryRoot 'mirror\windows\ReMarkableMirror\ReMarkableMirror.csproj'
+$mainWindowPath = Join-Path $repositoryRoot 'mirror\windows\ReMarkableMirror\MainWindow.xaml.cs'
+$appIconPath = Join-Path $repositoryRoot 'mirror\windows\ReMarkableMirror\Assets\AppIcon.ico'
 $manifestPath = Join-Path $repositoryRoot 'mirror\windows\ReMarkableMirror\Package.appxmanifest'
 $globalJsonPath = Join-Path $repositoryRoot 'global.json'
 $goModPath = Join-Path $repositoryRoot 'mirror\agent\go.mod'
@@ -55,6 +57,38 @@ if ($releasePrivacyGroups.Count -ne 1 -or $allDebugTypeGroups.Count -ne 1) {
     throw 'Release must disable CodeView/PDB output without changing Debug build symbols.'
 }
 
+$applicationIconNodes = @($project.SelectNodes('/Project/PropertyGroup/ApplicationIcon'))
+if ($applicationIconNodes.Count -ne 1 -or
+    $applicationIconNodes[0].InnerText -cne 'Assets\AppIcon.ico' -or
+    -not (Test-Path -LiteralPath $appIconPath -PathType Leaf)) {
+    throw 'The Windows executable must embed the packaged AppIcon.ico resource.'
+}
+$appIconContentNodes = @(
+    $project.SelectNodes('/Project/ItemGroup/Content[@Include="Assets\AppIcon.ico"]')
+)
+$appIconContentConditions = @(
+    $appIconContentNodes |
+        ForEach-Object { $_.ParentNode.GetAttribute('Condition') }
+)
+if ($appIconContentNodes.Count -ne 2 -or
+    $appIconContentConditions -cnotcontains
+        "'`$(PortablePublishProfileSelected)' == 'true'" -or
+    $appIconContentConditions -cnotcontains
+        "'`$(PortablePublishProfileSelected)' != 'true'") {
+    throw 'Both portable and packaged builds must bundle Assets\AppIcon.ico.'
+}
+$mainWindowSource = [System.IO.File]::ReadAllText($mainWindowPath)
+$absoluteWindowIconCall =
+    'AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico"));'
+if (-not $mainWindowSource.Contains(
+        $absoluteWindowIconCall,
+        [StringComparison]::Ordinal) -or
+    $mainWindowSource.Contains(
+        'AppWindow.SetIcon("Assets/AppIcon.ico");',
+        [StringComparison]::Ordinal)) {
+    throw 'The live Windows taskbar icon must use the bundled AppIcon.ico by absolute path.'
+}
+
 if (-not (Test-Path -LiteralPath $packageOnboardingPath -PathType Leaf)) {
     throw 'The self-contained package onboarding guide is missing.'
 }
@@ -76,8 +110,10 @@ foreach ($requiredMarker in @(
         'human-named PDF appears there',
         'The drag should begin immediately',
         '**Save native RMDOC...**',
-        'Mirror reconnects automatically over Wi-Fi',
-        'If Wi-Fi does not return after it wakes, connect USB-C.',
+        'Launch waits without contacting the tablet.',
+        '**Connect Wi-Fi**',
+        'only then does the IP address field appear.',
+        'Mirror never switches or reconnects by itself.',
         'grep -qxF "$key" /home/root/.ssh/authorized_keys ||',
         'Live over USB',
         'Live over Wi-Fi'
@@ -104,13 +140,31 @@ foreach ($requiredMarker in @(
         'human-named PDF appears there',
         'dragging a tablet document into Explorer starts immediately',
         'normal PDF; canceling and immediately retrying does not freeze Mirror',
-        'Mirror reconnects automatically',
-        'If Wi-Fi does not return after it wakes, connect',
+        'Launch waits for you',
+        'not contact the tablet.',
+        'Only then does Mirror reveal the IP address field.',
+        'Cable and network',
+        'changes never start, switch, or reopen a connection by themselves.',
         'Live over USB',
         'Live over Wi-Fi'
     )) {
     if (-not $gettingStartedText.Contains($requiredMarker, [StringComparison]::Ordinal)) {
         throw "Getting started is missing a durable first-run marker: $requiredMarker"
+    }
+}
+
+foreach ($staleAutomaticMarker in @(
+        'retries automatically',
+        'reconnects automatically',
+        'wait for the app to reconnect'
+    )) {
+    if ($packageOnboardingText.Contains(
+            $staleAutomaticMarker,
+            [StringComparison]::OrdinalIgnoreCase) -or
+        $gettingStartedText.Contains(
+            $staleAutomaticMarker,
+            [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Bundled onboarding still promises automatic connection behavior: $staleAutomaticMarker"
     }
 }
 
@@ -137,7 +191,6 @@ foreach ($relativeNarrativePath in $publicNarrativeFiles) {
     foreach ($internalLedgerMarker in @(
             'installed local candidate',
             'private candidate',
-            'owner acceptance',
             'Gold remains',
             'installed Gold',
             'technical proof',

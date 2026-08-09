@@ -6,6 +6,13 @@ Notable user-visible changes are recorded here.
 
 ### Highlights
 
+- Windows connection selection is now manual. Launch and cable or network
+  changes do not contact the tablet. Choose **Connect USB-C** for one bounded
+  direct-cable session, or choose **Connect Wi-Fi**, enter the tablet's IPv4
+  address, and submit one Wi-Fi attempt. The selected route remains pinned;
+  Mirror no longer falls back, promotes, or reconnects automatically when it
+  fails.
+
 - Advanced the native SwiftUI/AppKit macOS candidate to `0.2.0 (2)` through the
   Milestone 6 source boundary. It now includes secure Mac-side profile and SSH
   ownership, owner-approved tablet key authorization and Wi-Fi SSH enablement,
@@ -43,8 +50,8 @@ Notable user-visible changes are recorded here.
   deep-sleep wake, Wi-Fi, signing, notarization, hosted artifact, release, Gold
   and owner acceptance remain open on macOS.
 
-- Mirror now moves naturally between USB and Wi-Fi while keeping display,
-  **Touch + Type**, Pen, screenshots, and Files together in one Windows app.
+- Mirror keeps display, **Touch + Type**, Pen, screenshots, and Files together
+  on the USB-C or Wi-Fi connection the owner selected.
 - You can send PDFs and DRM-free EPUBs to the tablet and save documents back to
   Windows as PDF or native RMDOC. A document row can also be dragged straight
   into Explorer as a normal PDF file. That drag-out flow starts immediately,
@@ -59,11 +66,10 @@ Notable user-visible changes are recorded here.
   to **Repair**. Wi-Fi repair now requires a repeated authenticated tablet
   mismatch, while direct USB setup failures still appear immediately.
 - While Mirror is active, the tablet's USB data-attachment guard prevents suspend with
-  the cable attached. Its input session keeps a wake lease and sends
-  route-aware activity across USB-to-Wi-Fi handoff. If Linux has already
-  completed suspend before Mirror can reach it, there is still no source-proven
-  host wake guarantee: press the tablet's power button once, enter its passcode
-  and leave Mirror open for automatic retry.
+  the cable attached and the selected input session keeps a wake lease. If Linux
+  has already completed suspend before Mirror can reach it, there is still no
+  source-proven host wake guarantee: press the tablet's power button once, enter
+  its passcode, and explicitly connect again.
 - The first-run guides, package checks, privacy boundaries, and release-source
   requirements are now part of the build itself.
 

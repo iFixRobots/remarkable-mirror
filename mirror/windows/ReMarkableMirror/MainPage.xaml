@@ -361,67 +361,89 @@
                             FontSize="17"
                             FontWeight="SemiBold"
                             Foreground="{StaticResource InkBrush}"
-                            Text="Connect or wake your reMarkable" />
+                            Text="Connect to your reMarkable" />
                         <TextBlock
                             x:Name="ConnectionPanelDetail"
                             Margin="0,7,0,0"
                             FontSize="13"
                             Foreground="{StaticResource MutedBrush}"
                             LineHeight="19"
-                            Text="Press the power button once. Mirror reconnects over Wi-Fi when the tablet wakes. If Wi-Fi does not return, connect USB-C."
+                            Text="Choose USB-C or Wi-Fi. Mirror connects only after you select a connection."
                             TextWrapping="Wrap" />
 
-                        <StackPanel
-                            Margin="0,18,0,0"
-                            Orientation="Horizontal"
-                            Spacing="4">
-                            <Button
-                                x:Name="ConnectionActionButton"
-                                AutomationProperties.Name="Retry the tablet connection"
-                                Click="ConnectionActionButton_Click"
-                                Content="Retry"
-                                Style="{StaticResource PrimaryConnectionButtonStyle}"
+                        <StackPanel Margin="0,18,0,0" Spacing="10">
+                            <StackPanel
+                                x:Name="ConnectionChoicePanel"
+                                Orientation="Horizontal"
+                                Spacing="6">
+                                <Button
+                                    x:Name="ConnectUsbButton"
+                                    AutomationProperties.Name="Connect to your reMarkable over USB-C"
+                                    Click="ConnectUsbButton_Click"
+                                    Content="Connect USB-C"
+                                    Style="{StaticResource PrimaryConnectionButtonStyle}" />
+                                <Button
+                                    x:Name="ConnectWifiButton"
+                                    AutomationProperties.Name="Connect to your reMarkable over Wi-Fi"
+                                    Click="ConnectWifiButton_Click"
+                                    Content="Connect Wi-Fi"
+                                    Style="{StaticResource QuietConnectionButtonStyle}" />
+                            </StackPanel>
+
+                            <StackPanel
+                                x:Name="WifiAddressPanel"
+                                Spacing="7"
                                 Visibility="Collapsed">
-                                <Button.Resources>
-                                    <SolidColorBrush x:Key="ButtonBackgroundPointerOver" Color="#2A3649" />
-                                    <SolidColorBrush x:Key="ButtonBackgroundPressed" Color="#111A27" />
-                                    <SolidColorBrush x:Key="ButtonBackgroundDisabled" Color="#D9D8D3" />
-                                    <SolidColorBrush x:Key="ButtonForegroundPointerOver" Color="#FFFFFF" />
-                                    <SolidColorBrush x:Key="ButtonForegroundPressed" Color="#FFFFFF" />
-                                    <SolidColorBrush x:Key="ButtonForegroundDisabled" Color="#73767D" />
-                                    <SolidColorBrush x:Key="ButtonBorderBrushPointerOver" Color="#2A3649" />
-                                    <SolidColorBrush x:Key="ButtonBorderBrushPressed" Color="#111A27" />
-                                    <SolidColorBrush x:Key="ButtonBorderBrushDisabled" Color="#D9D8D3" />
-                                </Button.Resources>
-                            </Button>
-                            <Button
-                                x:Name="CopyConnectionDetailsButton"
-                                AutomationProperties.Name="Copy connection details"
-                                Click="CopyConnectionDetailsButton_Click"
-                                Content="Copy details"
-                                Style="{StaticResource QuietConnectionButtonStyle}"
-                                Visibility="Collapsed">
-                                <Button.Resources>
-                                    <SolidColorBrush x:Key="ButtonBackgroundPointerOver" Color="#E9E8E3" />
-                                    <SolidColorBrush x:Key="ButtonBackgroundPressed" Color="#DCDAD3" />
-                                    <SolidColorBrush x:Key="ButtonBackgroundDisabled" Color="Transparent" />
-                                    <SolidColorBrush x:Key="ButtonForegroundPointerOver" Color="#30343A" />
-                                    <SolidColorBrush x:Key="ButtonForegroundPressed" Color="#202124" />
-                                    <SolidColorBrush x:Key="ButtonForegroundDisabled" Color="#9A9CA1" />
-                                    <SolidColorBrush x:Key="ButtonBorderBrushPointerOver" Color="Transparent" />
-                                    <SolidColorBrush x:Key="ButtonBorderBrushPressed" Color="Transparent" />
-                                    <SolidColorBrush x:Key="ButtonBorderBrushDisabled" Color="Transparent" />
-                                </Button.Resources>
-                            </Button>
-                            <ProgressRing
-                                x:Name="ConnectionProgressRing"
-                                Width="20"
-                                Height="20"
-                                Margin="10,0,0,0"
-                                VerticalAlignment="Center"
-                                Foreground="#FF334052"
-                                IsActive="False"
-                                Visibility="Collapsed" />
+                                <TextBlock
+                                    FontSize="12"
+                                    FontWeight="SemiBold"
+                                    Foreground="{StaticResource InkBrush}"
+                                    Text="Tablet Wi-Fi IP address" />
+                                <TextBox
+                                    x:Name="WifiAddressTextBox"
+                                    AutomationProperties.Name="Tablet Wi-Fi IP address"
+                                    KeyDown="WifiAddressTextBox_KeyDown"
+                                    PlaceholderText="192.168.1.42" />
+                                <TextBlock
+                                    x:Name="WifiAddressValidationText"
+                                    FontSize="12"
+                                    Foreground="#FFB42318"
+                                    TextWrapping="Wrap"
+                                    Visibility="Collapsed" />
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <Button
+                                        x:Name="SubmitWifiAddressButton"
+                                        AutomationProperties.Name="Connect using this Wi-Fi IP address"
+                                        Click="SubmitWifiAddressButton_Click"
+                                        Content="Connect"
+                                        Style="{StaticResource PrimaryConnectionButtonStyle}" />
+                                    <Button
+                                        x:Name="CancelWifiAddressButton"
+                                        AutomationProperties.Name="Cancel Wi-Fi connection"
+                                        Click="CancelWifiAddressButton_Click"
+                                        Content="Cancel"
+                                        Style="{StaticResource QuietConnectionButtonStyle}" />
+                                </StackPanel>
+                            </StackPanel>
+
+                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                <Button
+                                    x:Name="CopyConnectionDetailsButton"
+                                    AutomationProperties.Name="Copy connection details"
+                                    Click="CopyConnectionDetailsButton_Click"
+                                    Content="Copy details"
+                                    Style="{StaticResource QuietConnectionButtonStyle}"
+                                    Visibility="Collapsed" />
+                                <ProgressRing
+                                    x:Name="ConnectionProgressRing"
+                                    Width="20"
+                                    Height="20"
+                                    Margin="10,0,0,0"
+                                    VerticalAlignment="Center"
+                                    Foreground="#FF334052"
+                                    IsActive="False"
+                                    Visibility="Collapsed" />
+                            </StackPanel>
                         </StackPanel>
                     </StackPanel>
                 </Border>

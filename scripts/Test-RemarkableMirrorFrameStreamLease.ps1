@@ -8,6 +8,9 @@ $repositoryRoot = Split-Path -Parent $PSScriptRoot
 $frameSourcePath = Join-Path `
     $repositoryRoot `
     'mirror\windows\ReMarkableMirror\SshFrameSource.cs'
+$mainPageSourcePath = Join-Path `
+    $repositoryRoot `
+    'mirror\windows\ReMarkableMirror\MainPage.xaml.cs'
 $routeSourcePath = Join-Path `
     $repositoryRoot `
     'mirror\windows\ReMarkableMirror\SshRoute.cs'
@@ -19,6 +22,7 @@ $installerPath = Join-Path `
     'scripts\Install-RemarkableMirrorPrerequisites.ps1'
 
 $frameSource = [System.IO.File]::ReadAllText($frameSourcePath)
+$mainPageSource = [System.IO.File]::ReadAllText($mainPageSourcePath)
 $routeSource = [System.IO.File]::ReadAllText($routeSourcePath)
 $passiveProbe = [System.IO.File]::ReadAllText($passiveProbePath)
 $installer = [System.IO.File]::ReadAllText($installerPath)
@@ -137,7 +141,7 @@ Assert-Contains `
 Assert-Contains `
     -Source $frameSource `
     -Expected 'StreamInterrupted("exit=" + exitCode + "; category=stream_heartbeat_timeout")' `
-    -Failure 'Heartbeat expiry is not mapped to sanitized automatic recovery.'
+    -Failure 'Heartbeat expiry is not mapped to a sanitized transient classification.'
 $streamInterruptedStart = Get-RequiredIndex `
     -Source $frameSource `
     -Expected 'private static FrameStreamException StreamInterrupted(' `
@@ -153,16 +157,42 @@ $streamInterruptedBlock = $frameSource.Substring(
 Assert-Contains `
     -Source $streamInterruptedBlock `
     -Expected 'FrameStreamFailureKind.StreamInterrupted,' `
-    -Failure 'The automatic frame-stream recovery classification was not found.'
+    -Failure 'The transient frame-stream classification was not found.'
 Assert-Contains `
     -Source $streamInterruptedBlock `
     -Expected 'canAutoRetry: true,' `
-    -Failure 'Frame-stream interruption is no longer automatically recoverable.'
+    -Failure 'Frame-stream interruption is no longer marked transient for sanitized copy.'
 Assert-Contains `
     -Source $frameSource `
     -Expected 'return StreamInterrupted(technicalDetail);' `
-    -Failure 'A clean or unmarked stream exit is no longer automatically recoverable.'
-Write-Host 'Marked and clean heartbeat expiry paths are automatically recoverable: PASS'
+    -Failure 'A clean or unmarked stream exit no longer shares the transient classification.'
+
+$handleFailureStart = Get-RequiredIndex `
+    -Source $mainPageSource `
+    -Expected 'private async Task HandleFrameFailureAsync(' `
+    -Failure 'The selected-route frame failure handler was not found.'
+$handleFailureEnd = Get-RequiredIndex `
+    -Source $mainPageSource `
+    -Expected 'private async Task RetireSelectedConnectionAsync(' `
+    -Failure 'The exact-generation retirement method was not found.' `
+    -StartIndex $handleFailureStart
+$handleFailureBlock = $mainPageSource.Substring(
+    $handleFailureStart,
+    $handleFailureEnd - $handleFailureStart)
+Assert-Contains `
+    -Source $handleFailureBlock `
+    -Expected 'await RetireSelectedConnectionAsync(' `
+    -Failure 'A frame failure no longer retires the owner-selected route.'
+foreach ($forbiddenRetryMarker in @(
+        'BeginDisplayRecoveryAsync(',
+        'AutomaticFrameRetryLimit',
+        'RetryDelayFor('
+    )) {
+    if ($mainPageSource.Contains($forbiddenRetryMarker, [StringComparison]::Ordinal)) {
+        throw "MainPage still reopens a failed frame route automatically: $forbiddenRetryMarker"
+    }
+}
+Write-Host 'Transient stream failures retire the selected route for a new owner action: PASS'
 
 Assert-Contains `
     -Source $passiveProbe `

@@ -550,21 +550,23 @@ On success, the installer window closes and reMarkable Mirror opens
 automatically. If the installer window stays open, setup failed and the last
 lines contain the error. Read that error before closing the window.
 
-## 9. Check the first USB connection
+## 9. Connect over USB-C
 
 Mirror should already be open after a successful install. If it was closed, open
-**reMarkable Mirror** from the Windows Start menu. Leave USB connected.
+**reMarkable Mirror** from the Windows Start menu. Launch waits for you and does
+not contact the tablet. Leave USB connected, then choose **Connect USB-C**.
 
-The normal first connection moves through **Connecting** or **Preparing your
-reMarkable**, then reaches **Live over USB**. If the tablet just rebooted, complete
-its first passcode unlock. If it is only at the ordinary lock screen, Mirror can
-stay live and let you enter the passcode through the mirrored UI.
+That action starts a bounded attempt against only the direct cable. It moves
+through **Connecting** or **Preparing your reMarkable**, then reaches **Live over
+USB**. If the tablet just rebooted, complete its first passcode unlock. If it is
+only at the ordinary lock screen, Mirror can stay live and let you enter the
+passcode through the mirrored UI.
 
 ![Mirror preparing the display and controls](images/remarkable-mirror-preparing.png)
 
-That card is a temporary progress state, not a call to keep pressing buttons. If
-it stays there, use the visible status and Troubleshooting instead of repeatedly
-restarting the tablet.
+That card is a temporary progress state. If the attempt ends, Mirror returns to
+the two manual connection choices. Use the visible status and Troubleshooting
+before choosing **Connect USB-C** again.
 
 Check each item:
 
@@ -591,42 +593,41 @@ Files waits. That is expected:
 
 ![Files waits for unlock while the mirror stays live](images/remarkable-mirror-files.png)
 
-## 10. Check Wi-Fi and return to USB
+## 10. Check each manual connection
 
 Confirm that the tablet and PC are connected to the same Wi-Fi network. Remember
-that Developer Mode's reset removed the old Wi-Fi profile.
 
-With Mirror already working over USB:
+After the USB checks, close and reopen Mirror so it returns to the manual
+connection choices. Then:
 
-1. Unplug the USB-C cable.
-2. Leave the tablet awake for this first check.
-3. Wait for the app to reconnect.
-4. Confirm the status reads **Live over Wi-Fi**.
-5. Repeat touch, keyboard, Pen, and screenshot checks.
-6. Open **Files** and confirm that the library loads over Wi-Fi. Drop one small
+1. Unplug the USB-C cable and leave the tablet awake for this first check.
+2. Find the tablet's IPv4 address in its Wi-Fi network details.
+3. Choose **Connect Wi-Fi**. Only then does Mirror reveal the IP address field.
+4. Enter the tablet's IPv4 address and choose **Connect**.
+5. Confirm the status reads **Live over Wi-Fi**.
+6. Repeat touch, keyboard, Pen, and screenshot checks.
+7. Open **Files** and confirm that the library loads over Wi-Fi. Drop one small
    PDF and one DRM-free EPUB, drag one tablet document into Explorer, then save
    one document as native RMDOC to Windows.
-7. Close Files and stop interacting with the tablet.
-8. Reconnect USB-C.
-9. Wait for **Live over USB**.
-10. Confirm that **Touch + Type** and Files still work.
+8. Close and reopen Mirror, reconnect USB-C, and choose **Connect USB-C**.
+9. Confirm **Live over USB**, **Touch + Type**, and Files still work.
 
-The app pins the tablet identity learned over the direct USB connection. It does
-not accept an arbitrary SSH host just because one appears on the network.
+The entered address selects where to make the attempt; it does not replace the
+pinned tablet identity or paired Windows network checks. An invalid address,
+another tablet, or the wrong network is rejected.
 
 > [!NOTE]
 > During an active Mirror session, the USB carrier guard prevents suspend while
-> attached. The input session then holds its own wake lease and sends activity
-> across the move to Wi-Fi, so normal USB-to-Wi-Fi continuity does not require a
-> manual wake. If Linux already completed suspend before Mirror could reach it,
-> there is no source-proven host wake guarantee. Press the tablet's power button
-> once and leave Mirror open for automatic retry; connect USB-C if Wi-Fi does
-> not return.
+> attached, and the selected input session holds its own wake lease. If Linux
+> already completed suspend before a connection starts, there is no
+> source-proven host wake guarantee. Press the tablet's power button once, enter
+> its passcode, then explicitly choose the connection again. Cable and network
+> changes never start, switch, or reopen a connection by themselves.
 
 ## You are done when
 
 - [ ] The Windows app appears in Start and opens normally
-- [ ] USB reaches **Live over USB**
+- [ ] **Connect USB-C** reaches **Live over USB**
 - [ ] **Touch + Type** accepts both mouse and keyboard without a mode switch
 - [ ] **Pen** accepts mouse-as-stylus input
 - [ ] screenshot copy and Save As both work
@@ -636,11 +637,12 @@ not accept an arbitrary SSH host just because one appears on the network.
 - [ ] dragging a tablet document into Explorer starts immediately and creates a
       normal PDF; canceling and immediately retrying does not freeze Mirror
 - [ ] a document can be saved as PDF and native RMDOC to a Windows folder
-- [ ] unplugging USB reaches **Live over Wi-Fi**
+- [ ] **Connect Wi-Fi** reveals the IP field only after it is selected
+- [ ] entering the tablet IPv4 address reaches **Live over Wi-Fi**
 - [ ] Wi-Fi touch and keyboard input work
 - [ ] Wi-Fi Pen input works
 - [ ] Wi-Fi Files loads when the tablet is unlocked
-- [ ] reconnecting USB returns to **Live over USB**
+- [ ] reopening Mirror and choosing **Connect USB-C** returns to **Live over USB**
 - [ ] **Touch + Type** and Files work after returning to USB
 
 If one box fails, do not call the setup finished. Start with
@@ -668,11 +670,12 @@ repair after every future root-slot switch is not ready yet.
 
 | App state | Meaning | What to do |
 | --- | --- | --- |
-| **Connecting** | A known route exists and the app is opening a connection | Wait briefly |
+| **Connect to your reMarkable** | Mirror is idle and has not contacted the tablet | Choose **Connect USB-C** or **Connect Wi-Fi** |
+| **Connecting** | The owner-selected route is opening | Wait for this bounded attempt |
 | **Preparing your reMarkable** | Display and input for this connection are starting | Wait; unlock if this is the first post-boot unlock |
 | **Live over USB** | Display and input are ready through the cable | Nothing |
 | **Live over Wi-Fi** | Display, touch, keyboard, and Pen are ready over Wi-Fi | Nothing |
-| **Connect or wake your reMarkable** | Mirror cannot currently reach the tablet | Leave Mirror open; if Linux already completed suspend, press its power button once, then connect USB-C if Wi-Fi does not return |
+| **Connect to your reMarkable** after a failure | The selected session ended or could not start | Fix the cable, network, address, or tablet state, then explicitly choose a route again |
 | **Repair** | The active tablet root is missing matching components | Confirm firmware support, then run the supported release's `Install.cmd` over unlocked USB |
 | Files says connect while Mirror is live | The tablet is locked or the stock Files listener is unavailable | Unlock and confirm USB web interface is enabled |
 

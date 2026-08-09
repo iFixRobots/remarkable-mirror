@@ -6,7 +6,7 @@ small. SSH is the authenticated control boundary for both USB and Wi-Fi.
 ```text
 Windows WinUI app
   |
-  +-- route monitor: USB preferred, Wi-Fi fallback
+  +-- owner-selected probe: USB-C or entered Wi-Fi IPv4
   +-- frame SSH session -------------------------+
   +-- input SSH session -----------------------+ |
   +-- Files local forward -------------------+ | |
@@ -25,24 +25,35 @@ Tablet                                   | | | |
 The WinUI 3 application owns the window, route selection, connection state,
 frame presentation, input routing, screenshots, and file-transfer UI.
 
-One route generation owns all of its child processes. Switching routes cancels
-the old generation before publishing the replacement. **Live** requires both a
-fresh frame and a running input session from that same generation.
+One route generation owns all of its child processes. Launch and cable or
+network changes do not create a generation. **Connect USB-C** starts a bounded
+attempt against only the direct-cable route and may use the cable-only wake
+endpoint during that owner window. **Connect Wi-Fi** reveals an IPv4 field;
+submitting a valid address starts one owner-bounded attempt against only that
+Wi-Fi route. A first authenticated tablet-prerequisite mismatch permits one
+confirmation probe after 500 milliseconds; other Wi-Fi outcomes end the
+attempt. The entered address is not treated as identity: the paired network
+context, pinned SSH identity, and tablet capabilities still gate publication.
 
-USB is preferred and paired Wi-Fi is the fallback. Promotion back to USB waits
-for sustained passive health and until pointer input and Files operations are
-idle.
+The chosen route is pinned to its generation. There is no automatic USB-first
+selection, fallback, promotion, or reconnection. A cable, network, frame, or
+input-session failure retires the generation and returns to the manual choices.
+**Live** requires both a fresh frame and a running input session from that same
+generation. App-owned USB sockets bind to the verified `10.11.99.11/27` source
+and exact direct-cable interface for the cable-only wake endpoint. SSH admission
+reuses the established pinned-identity probe. Wi-Fi first passes the paired
+Windows network check, then uses that same SSH admission path. Diagnostics keep
+only fixed reason enums and route kinds, never the entered address, raw SSH
+output, or credential data.
 
-A Wi-Fi identity rejection remains in the offline recovery path instead of
-being labeled as broken tablet wake setup. A tablet prerequisite mismatch must
-authenticate and repeat before Wi-Fi can publish **Repair**; direct USB token,
-authentication, and setup failures remain immediate. Diagnostics keep only the
-fixed probe-reason enum, never SSH output or credential data.
+Files is also owner-started on Windows. Publishing a Mirror route does not open
+the Files tunnel. Opening the Files pane starts its generation-bound readiness
+probe; closing Files stops further attempts, and retiring that generation
+prevents it from moving to another route.
 
 Mirror sends an SSH keepalive every three seconds and tolerates two unanswered
-probes before the third ends a persistent session. Frame and input paths treat
-that timeout as reconnectable instead of turning one brief Wi-Fi pause into a
-persistent failure.
+probes before the third ends a persistent session. That failure retires the
+selected generation; only another owner action can start a new connection.
 
 Package setup uses a gated PowerShell launcher assigned to a Windows Job Object
 before it may start the target process. Its JSON payload now travels through
@@ -192,8 +203,9 @@ termination.
 Every frame SSH generation also has its own lease. Windows writes one pulse
 immediately and then every three seconds. The probe expires the generation
 after 15 seconds without a pulse and exits without waiting for a frame write
-that may be blocked on a dead connection. Windows treats that timeout as a
-reconnectable stream interruption.
+that may be blocked on a dead connection. Windows classifies that timeout as a
+transient stream interruption for safe copy, then retires the selected
+generation and waits for another owner action.
 
 During an upgrade, the prerequisite installer retires only the exact probe
 processes running `stream`. Input and its watchdog are outside that match.
@@ -364,8 +376,10 @@ different root slot, which may need the matching components installed again.
 The Mac direct-cable session asks the wake service to recover the tablet before
 it attempts SSH and continues checking the same cable while the tablet starts.
 It never switches to Wi-Fi. Entering the tablet passcode is the only owner
-intervention this authorized USB session may require. This Mac contract does not
-change the Windows product's existing recovery behavior.
+intervention this authorized USB session may require. Windows now follows the
+same owner-started, route-pinned lifecycle. Its Wi-Fi entry differs
+intentionally: after **Connect Wi-Fi**, Windows asks for the tablet's IPv4
+address before making the single Wi-Fi attempt.
 
 ## Release package
 

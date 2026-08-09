@@ -86,12 +86,12 @@ check in one path.
 - Browses and exports documents through the tablet's stock Files service;
   document rows can be dragged straight into Explorer as normal PDFs, with no
   preparation screen before the drag begins
-- Switches automatically from USB-C to paired Wi-Fi when the cable is removed,
-  and back to USB-C when it is reconnected
+- Offers separate **Connect USB-C** and **Connect Wi-Fi** actions; Wi-Fi asks
+  for the tablet's IPv4 address only after you choose it
 - Recovers from ordinary lock and short-sleep states, and only shows **Live**
   when the display and controls are both ready
-- Prevents ordinary suspend while USB remains attached and keeps an active
-  input session awake across the move to Wi-Fi
+- Prevents ordinary suspend while USB remains attached and keeps the active,
+  owner-selected input session awake
 - Keeps the window shaped like the tablet, with a smooth reversible Files drawer
 
 <p align="center">
@@ -157,12 +157,11 @@ guide once on a clean Windows account and a freshly reset supported tablet.
 - Mirror accepts PDFs and DRM-free EPUBs. DRM-protected and malformed EPUBs may
   fail without enough explanation in the app.
 - During an active Mirror session, the tablet's USB data-attachment guard prevents
-  suspend while the cable is attached. The input session then holds its own
-  wake lease and sends route-aware activity so USB-to-Wi-Fi handoff can
-  continue without manual intervention. If Linux has already completed suspend
-  before Mirror can reach it, there is no source-proven host wake guarantee.
-  Press the tablet's power button once, enter its passcode and leave Mirror open
-  for automatic retry; connect USB-C if Wi-Fi does not return.
+  suspend while the cable is attached. The selected input session also holds a
+  wake lease. If Linux has already completed suspend before a connection starts,
+  there is no source-proven host wake guarantee. Press the tablet's power button
+  once, enter its passcode, then choose **Connect USB-C** or **Connect Wi-Fi**
+  again. Mirror does not reconnect or switch routes by itself.
 - A firmware update can switch the tablet to a root slot without Mirror's
   components. Run `Install.cmd` again over unlocked USB when the app shows
   **Repair** and the release supports the new tablet software.
@@ -186,10 +185,14 @@ sharing logs or diagnostics.
 
 ## How it works
 
-The Windows app keeps one active connection at a time and reconnects when USB or
-Wi-Fi changes. It verifies the tablet's SSH identity, reads the display through
-Xovi, and starts touch, pen, and keyboard input only while Mirror is connected.
-Nothing is added to tablet startup for input.
+The Windows app waits at launch and keeps one owner-selected connection at a
+time. **Connect USB-C** starts a bounded direct-cable attempt. **Connect Wi-Fi**
+first reveals an IPv4 field and makes one attempt only after you submit it. The
+app never falls back to, promotes, or reconnects another route automatically.
+It reuses the established direct-USB and paired-network checks, verifies the
+tablet's pinned SSH identity, reads the display through Xovi, and starts touch,
+pen, and keyboard input only for that selected session. Nothing is added to
+tablet startup for input. The Files tunnel starts only when you open Files.
 
 Files stays separate. A packaged GPL-3.0-only loopback extension makes
 Xochitl's stock Files service available on tablet loopback, and Windows reaches

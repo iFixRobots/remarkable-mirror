@@ -296,7 +296,9 @@ lines contain the error. Read that error before closing the window.
 ## Check USB first
 
 Mirror should already be open after a successful install. If it was closed, open
-it from Start. Wait for **Live over USB**.
+it from Start. Launch waits without contacting the tablet. Choose **Connect
+USB-C**, then wait for **Live over USB**. This bounded attempt checks only the
+direct cable.
 
 ![Mirror preparing the display and controls](images/remarkable-mirror-preparing.png)
 
@@ -320,23 +322,25 @@ Unlocking starts the stock Files listener again.
 
 ![Files waits for unlock while the mirror stays live](images/remarkable-mirror-files.png)
 
-## Then check Wi-Fi and return to USB
+## Then check each manual connection
 
-Confirm the tablet says Wi-Fi is connected. Unplug USB-C, leave the tablet awake,
-and wait for **Live over Wi-Fi**. Repeat touch, keyboard, Pen, and screenshot
-checks, then confirm that the Files library loads. Drop one small PDF and one
-DRM-free EPUB, drag one tablet document into Explorer, then save one document as
-native RMDOC to Windows.
+Confirm the tablet says Wi-Fi is connected and find its IPv4 address in the
+tablet's Wi-Fi network details. Close and reopen Mirror so the two manual
+connection choices are visible, unplug USB-C, and leave the tablet awake. Choose
+**Connect Wi-Fi**; only then does the IP address field appear. Enter the tablet's
+IPv4 address, choose **Connect**, and wait for **Live over Wi-Fi**. Repeat touch,
+keyboard, Pen, and screenshot checks, then confirm that the Files library loads.
+Drop one small PDF and one DRM-free EPUB, drag one tablet document into Explorer,
+then save one document as native RMDOC to Windows.
 
-Close Files and stop interacting with the tablet. Reconnect USB-C, wait for
-**Live over USB**, then confirm that **Touch + Type** and Files still work.
+Close and reopen Mirror, reconnect USB-C, choose **Connect USB-C**, and wait for
+**Live over USB**. Confirm that **Touch + Type** and Files still work.
 
 During an active Mirror session, the USB carrier guard prevents suspend while
-attached. The input session then holds its own wake lease and sends activity
-across the move to Wi-Fi, so normal handoff does not require a manual wake. If
-Linux already completed suspend before Mirror could reach it, there is no
-source-proven host wake guarantee. Press the tablet's power button once and
-leave Mirror open for automatic retry; connect USB-C if Wi-Fi does not return.
+attached and the selected input session holds its own wake lease. If Linux
+already completed suspend before a connection starts, there is no source-proven
+host wake guarantee. Press the tablet's power button once, enter its passcode,
+then choose the route again. Mirror never switches or reconnects by itself.
 
 ## If something fails
 

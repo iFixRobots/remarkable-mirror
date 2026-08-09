@@ -29,10 +29,10 @@ Developer Mode setup, SSH trust, and public-key installation are documented in
 - SSH over Wi-Fi is off by default.
 - Mirror's installer enables reMarkable's `rm-ssh-over-wlan on` setting.
 - During an active Mirror session, the USB carrier guard prevents suspend while
-  attached. The input session holds its own wake lease and sends route-aware
-  activity across USB-to-Wi-Fi handoff. If Linux already completed suspend
-  before Mirror could reach it, there is no source-proven host wake guarantee;
-  press the power button once and let Mirror retry automatically.
+  attached, and the selected input session holds its own wake lease. If Linux
+  already completed suspend before a connection starts, there is no
+  source-proven host wake guarantee; press the power button once, enter the
+  passcode, and explicitly choose the route again.
 
 For the tablet's own Developer Mode steps, follow reMarkable's
 [Developer Mode documentation](https://developer.remarkable.com/documentation/developer-mode).
@@ -74,6 +74,12 @@ Mirror requires:
 
 The stock Files service is not exposed directly on Wi-Fi. Mirror reaches the
 tablet-local listener through authenticated SSH forwarding.
+
+To connect, choose **Connect Wi-Fi**. Mirror reveals the address field only
+after that action. Confirm or edit the tablet's current IPv4 address, then
+choose **Connect**. The address selects the route for this attempt; pinned SSH
+identity and the paired Windows network still gate it. Launch and network
+changes never start a connection automatically.
 
 ## After firmware updates
 

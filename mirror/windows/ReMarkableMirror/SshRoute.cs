@@ -126,7 +126,9 @@ public sealed class SshRoute
 
         if (remoteCommand is not null)
         {
-            info.ArgumentList.Add(remoteCommand);
+            // The tablet command runs under a POSIX shell. Normalize Windows
+            // checkout line endings so multi-line commands remain valid there.
+            info.ArgumentList.Add(remoteCommand.ReplaceLineEndings("\n"));
         }
 
         return info;

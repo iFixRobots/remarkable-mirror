@@ -158,6 +158,25 @@ dotnet build mirror\windows\ReMarkableMirror\ReMarkableMirror.csproj `
     -p:Platform=x64
 ```
 
+The Windows connection lifecycle is owner-started. App launch must perform no
+tablet probe or wake. **Connect USB-C** owns a bounded attempt against only
+`10.11.99.1`; **Connect Wi-Fi** first reveals an IPv4 field and submission makes
+one attempt against only that address. The selected route stays pinned until
+its generation retires. Reuse the existing direct-USB adapter, cable-only wake,
+paired Windows network, and pinned SSH identity checks; manual admission must
+not replace those transport mechanics. Windows builds normalize multiline SSH
+commands to POSIX line endings before sending them to the tablet. Do not add
+background connection monitors, route
+fallback or promotion, or automatic reconnection. Do not open the Files tunnel
+until the owner opens Files. Keep entered Wi-Fi addresses out of diagnostics
+and persistent profile writes.
+
+Run the focused source and policy check after changing this lifecycle:
+
+```powershell
+.\scripts\Test-RemarkableMirrorManualConnectionPolicy.ps1
+```
+
 ## Build the native macOS candidate
 
 The app's deployment target is Apple silicon on macOS 14 or newer. That minimum

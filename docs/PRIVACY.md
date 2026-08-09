@@ -42,6 +42,12 @@ The device profile is stored for the current Windows user. It contains connectio
 settings and paths to Mirror's credential files. It never stores the Wi-Fi
 password. The tablet and Windows manage that password themselves.
 
+After **Connect Wi-Fi**, Windows may prefill the installer-verified tablet IPv4
+address from that profile. An address you edit is held only for the explicit
+attempt and resulting session; this connection path does not write the edited
+address back to the profile. Diagnostics record only a Wi-Fi route kind and
+fixed result categories, not the entered address.
+
 On macOS, the profile and OpenSSH files live under the current user's
 Application Support directory. The profile stores fixed relative credential
 filenames, the pinned SSH fingerprint, pairing state and bounded capability
@@ -106,10 +112,10 @@ their symbols and should not be distributed as release packages.
 ## Network boundary
 
 Setup enables Developer Mode root SSH over WLAN and creates a dedicated SSH key
-so Mirror can reconnect without prompting. The key lives under the current
-Windows user's `.ssh` directory. Windows limits the device profile and wake token
-to that user. Anyone who obtains the SSH key can access the paired tablet as
-root, so keep it private.
+so explicit owner-started connections can authenticate without requesting the
+root password. The key lives under the current Windows user's `.ssh` directory.
+Windows limits the device profile and wake token to that user. Anyone who
+obtains the SSH key can access the paired tablet as root, so keep it private.
 
 Mac setup creates a separate app-owned SSH key only after the direct USB-C cable
 check passes, then pins the tablet host key with system OpenSSH. The same
