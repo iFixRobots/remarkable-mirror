@@ -38,6 +38,13 @@ jobs:
           xcodebuild -version
           swift --version
 
+      - name: Set up Go
+        uses: actions/setup-go@4dc6199c7b1a012772edbd06daecab0f50c9053c # v6.1.0
+        with:
+          go-version: 1.26.5
+          check-latest: false
+          cache: false
+
       - name: Build and package unsigned arm64 app
         id: package
         shell: zsh {0}
