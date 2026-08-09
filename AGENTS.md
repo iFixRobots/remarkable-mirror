@@ -26,8 +26,7 @@ component README.
 
 ## Validation
 
-Run Go tests and vet, a Debug x64 Windows build, and the focused PowerShell checks
-for changed policy. Live tablet scripts are opt-in and must be named clearly in
-the handoff.
+Run Go tests and vet plus a Debug x64 Windows build. Live tablet validation is
+opt-in and must be named clearly in the handoff.
 
 Update user-facing documentation in the same change when behavior changes.

@@ -167,21 +167,6 @@ transport-wake prerequisite, not the probe and Xovi stack. Follow
 [macOS Getting started](macos/GETTING_STARTED.md), and keep this installer gap
 separate from claims about the app itself.
 
-## Non-live policy checks
-
-PowerShell scripts named `Test-RemarkableMirror*.ps1` are source and packaging
-checks unless their name includes `Live`. Run checks relevant to the changed
-policy. For the Windows connection lifecycle, run:
-
-```powershell
-.\scripts\Test-RemarkableMirrorManualConnectionPolicy.ps1
-.\scripts\Test-RemarkableMirrorPassiveRouteProbe.ps1
-.\scripts\Test-RemarkableMirrorPackageMetadata.ps1
-```
-
-Never run a `Live` script as routine validation. Live scripts may contact or
-change a tablet and require explicit owner intent.
-
 ## Connection invariants
 
 Keep these behaviors shared:
@@ -222,9 +207,9 @@ stack.
 
 ## Continuous integration
 
-The Windows CI job runs Go tests and vet, a locked Debug x64 Windows build,
-PowerShell parsing, and the focused host policy checks. The macOS package job
-builds and audits the unsigned arm64 app on the configured macOS runner.
+The Windows CI job runs Go tests and vet, a locked Debug x64 Windows build, and
+PowerShell parsing. The macOS package job builds and audits the unsigned arm64
+app on the configured macOS runner.
 
 CI proves source and artifact construction. It does not prove a fresh-tablet
 install, authentication, physical input, suspend recovery, or user acceptance.

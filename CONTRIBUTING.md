@@ -53,9 +53,9 @@ Build the macOS host on Apple silicon:
 scripts/Build-RemarkableMirrorMac.sh
 ```
 
-Run the non-live policy checks relevant to your change. A PowerShell script with
-`Live` in its name may contact or change a tablet; never run
-one as a routine check.
+Run the build for every host you changed. For Go changes, run `go test ./...`
+and `go vet ./...`. Tablet validation is separate and must be explicitly named
+in the pull request when it was actually performed.
 
 ## Pull requests
 

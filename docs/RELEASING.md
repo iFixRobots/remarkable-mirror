@@ -65,9 +65,9 @@ dotnet build mirror\windows\ReMarkableMirror\ReMarkableMirror.csproj `
     -p:Platform=x64
 ```
 
-Run every non-live policy check, then build the ARM64 companions and Files
-extension twice and compare their hashes. Build the Windows Release package and
-the macOS Release package from the same public commit.
+Build the ARM64 companions and Files extension twice and compare their hashes.
+Build the Windows Release package and the macOS Release package from the same
+public commit.
 
 The official Windows package command uses an explicit four-part MSIX version:
 

@@ -139,7 +139,7 @@ Start with [Development](docs/DEVELOPMENT.md) and
 - the native SwiftUI/AppKit macOS host;
 - dependency-free Go companions built as static Linux ARM64 binaries;
 - the Xovi Files loopback extension;
-- installer, packaging, and policy checks; and
+- installer and packaging tooling; and
 - public onboarding, architecture, privacy, and release documentation.
 
 Build commands and evidence boundaries are recorded in
