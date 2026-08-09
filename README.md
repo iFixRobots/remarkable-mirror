@@ -30,9 +30,23 @@ no cloud relay and no iFixRobots account.
 > action. One **Connect USB-C** click owns a bounded session that wakes the
 > tablet through that cable, waits for its services, authenticates, and connects.
 > It never selects or falls back to Wi-Fi. If the tablet requires its passcode,
-> the owner unlocks it and the same USB-C session continues. A Live session stays
-> on the connection the owner selected without automatic fallback, promotion,
-> or reconnection. Active-session keep-awake remains enabled.
+> the owner unlocks it and the same USB-C session continues.
+> The connection card always places **Connect via Wi‑Fi** directly below
+> **Connect USB-C**. Choosing it opens a local prompt that asks for the tablet’s
+> IPv4 address and reminds the owner that the tablet must be awake but may remain
+> locked. Submitting the address starts one Wi-Fi-only attempt to that address,
+> bound to the Mac’s current Wi-Fi context and authenticated with the saved
+> pinned SSH identity. Mirror may recheck a transiently offline route every
+> three seconds during a 45-second retry window; a bounded check already
+> admitted may finish after that window closes.
+> The manual Wi-Fi attempt does not auto-discover or save an address, inspect or
+> use USB, wake the tablet, fall back to another transport, use the wake HTTP
+> service, request a password, or require an unlock. Failure returns to the same
+> two manual connection choices. Files remains separate and may still require
+> the tablet to be unlocked. A Live session stays on the
+> connection the owner selected without automatic fallback, promotion, or
+> reconnection.
+> Active-session keep-awake remains enabled.
 > The Files animation is accepted as smooth. The default-size product-surface
 > pass is complete in source across compact and Files-open states: connection
 > status remains metadata, Touch + Type and Pen remain adjacent one-click

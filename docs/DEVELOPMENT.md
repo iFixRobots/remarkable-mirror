@@ -236,15 +236,28 @@ operations. **Connect USB‑C** starts one bounded session that stays on the sam
 direct cable while it wakes the tablet, waits for its services, authenticates,
 and connects. It must never inspect, select, or fall back to Wi-Fi. If the tablet
 requires its passcode, the owner unlocks it and that USB-C session continues.
-**Connect Wi‑Fi** is a separate owner action. An accepted password submission is
-not followed by background recovery. If its outcome is uncertain,
+The connection card must place **Connect via Wi‑Fi** directly below
+**Connect USB‑C**. Choosing the Wi-Fi action is local presentation only: it must
+not inspect the network or contact the tablet. The prompt asks for the tablet’s
+IPv4 address and says the tablet must be awake but may remain locked. Submitting
+starts one Wi-Fi-only attempt to the entered address, bound to the current Wi-Fi
+context and authenticated with the saved pinned SSH identity. That attempt may
+check a transiently offline route every three seconds during a 45-second retry
+window; a bounded check admitted before expiry may finish afterward. It must not
+auto-discover or persist an address, inspect or use USB, wake the tablet, fall
+back to another transport, use the wake HTTP endpoint, request a password, or
+require an unlock. Failure returns to both manual connection choices. Files
+remains separate and may still require an unlock.
+
+An accepted authorization password submission is not followed by background
+recovery. If its outcome is uncertain,
 **Check Authorization** performs one
 bounded key-only check on a freshly revalidated direct USB context. Mirror does
 not save the password or reopen its prompt by itself; only a current-context
 key rejection makes another owner-started password attempt eligible.
 
-A successful **Connect USB‑C** or **Connect Wi‑Fi** session pins that selected
-connection to the new generation. Cable and network changes retire the
+A successful **Connect USB‑C** or **Connect via Wi‑Fi** session pins that
+selected connection to the new generation. Cable and network changes retire the
 generation and return the app to its disconnected surface. They never cause
 automatic fallback, promotion, or reconnection. Active-session keep-awake
 remains part of a Live owner-started connection.
@@ -268,9 +281,12 @@ immediate termination only after a clean result. Do not read
 `flagsChanged` events; AppKit permits that accessor only for key-down and key-up
 events. Modifier routing should continue to use key code, flags and location.
 
-Pending Wi-Fi setup offers **Connect USB‑C** without silently completing Wi-Fi
-setup. Wi-Fi setup starts from **Connection > Set Up Wi‑Fi…**, and sanitized
-diagnostics are available under **Help > Copy Connection Diagnostics**.
+Pending Wi-Fi setup offers both manual connection choices without silently
+completing Wi-Fi setup: **Connect USB‑C**, then **Connect via Wi‑Fi**. A manual
+Wi-Fi attempt uses the entered address only for that owner-started session.
+Persistent Wi-Fi setup remains a separate explicit operation under
+**Connection > Set Up Wi‑Fi…**, and sanitized diagnostics are available under
+**Help > Copy Connection Diagnostics**.
 Progress presentation is deferred for
 brief attempts so an immediate result does not flash a transient spinner card.
 

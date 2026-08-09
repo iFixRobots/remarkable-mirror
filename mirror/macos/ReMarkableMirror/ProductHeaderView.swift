@@ -89,18 +89,18 @@ struct ProductHeaderView: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(
-            "Paper Pro Move. Connection status: \(model.connectionState.statusText)"
+            "Paper Pro Move. Connection status: \(model.displayedConnectionState.statusText)"
         )
     }
 
     private var statusLine: some View {
         HStack(spacing: 5) {
             Circle()
-                .fill(MirrorPalette.status(model.connectionState.tone))
+                .fill(MirrorPalette.status(model.displayedConnectionState.tone))
                 .frame(width: 6, height: 6)
                 .accessibilityHidden(true)
 
-            Text(model.connectionState.statusText)
+            Text(model.displayedConnectionState.statusText)
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(.white.opacity(0.78))
                 .lineLimit(1)

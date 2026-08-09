@@ -27,7 +27,7 @@ protocol LocalPairingPreparing: Actor {
 extension LocalPairingPreparer: LocalPairingPreparing { }
 
 actor ConnectionCoordinator {
-    private static let directCableWakeRecoveryLimit: TimeInterval = 45
+    private static let initialConnectionRecoveryLimit: TimeInterval = 45
     private static let directCableInitialRetryDelay: Duration = .milliseconds(250)
     private static let filesOpenRecoveryLimit: TimeInterval = 60
     private static let filesReadinessRetryDelay: Duration = .milliseconds(250)
@@ -297,7 +297,7 @@ actor ConnectionCoordinator {
     private var revision: UInt64 = 0
     private var manualStep = ConnectionManualStep.none
     private var manualConnectionSessionEnded = false
-    private var manualUSBConnectionDeadline: TimeInterval?
+    private var manualInitialConnectionDeadline: TimeInterval?
     private var didStart = false
     private var isStoppingActiveWork = false
     private var isShuttingDown = false
@@ -481,25 +481,25 @@ actor ConnectionCoordinator {
     }
 
     @discardableResult
-    func connect(route: ConnectionRoute) async -> Bool {
+    func connect(target: ManualConnectionTarget) async -> Bool {
         guard !isShuttingDown, !isStoppingActiveWork else { return false }
-        let connectionDeadline = route == .usb
-            ? monitorServices.monotonicNow() + Self.directCableWakeRecoveryLimit
-            : nil
+        let route = target.route
+        let connectionDeadline = monitorServices.monotonicNow() +
+            Self.initialConnectionRecoveryLimit
         isStoppingActiveWork = true
         do {
             try await stopActiveWork()
         } catch {
-            manualUSBConnectionDeadline = nil
+            manualInitialConnectionDeadline = nil
             isStoppingActiveWork = false
             await publishApplication(.attention)
             return true
         }
-        manualUSBConnectionDeadline = connectionDeadline
+        manualInitialConnectionDeadline = connectionDeadline
 
         let profileState = await profileStore.load()
         guard !isShuttingDown else {
-            manualUSBConnectionDeadline = nil
+            manualInitialConnectionDeadline = nil
             isStoppingActiveWork = false
             return false
         }
@@ -507,23 +507,45 @@ actor ConnectionCoordinator {
         switch profileState {
         case let .ready(profile)
             where profile.pairingState == .ready ||
-                (profile.pairingState == .pendingWiFiVerification && route == .usb):
-            if profile.pairingState == .pendingWiFiVerification {
-                manualStep = .connectUSBBeforeWiFi
-            } else {
-                manualStep = route == .usb ? .connectUSB : .connectWiFi
+                profile.pairingState == .pendingWiFiVerification:
+            let manualWiFi: ManualWiFiConnection?
+            switch target {
+            case .usb:
+                manualWiFi = nil
+            case let .wifi(host):
+                guard TabletWiFiPairingProbe.isGlobalIPv4Host(host),
+                      let context = try? monitorServices.currentWiFiSessionContext() else {
+                    manualInitialConnectionDeadline = nil
+                    isStoppingActiveWork = false
+                    manualStep = .chooseConnection
+                    await publishApplication(.offline)
+                    return true
+                }
+                manualWiFi = ManualWiFiConnection(
+                    host: host,
+                    context: context
+                )
+            }
+            manualStep = switch route {
+            case .usb:
+                profile.pairingState == .pendingWiFiVerification
+                    ? .connectUSBBeforeWiFi
+                    : .connectUSB
+            case .wifi:
+                .connectWiFi
             }
             let started = await beginMonitoring(
                 profile: profile,
-                requestedRoute: route
+                requestedRoute: route,
+                manualWiFi: manualWiFi
             )
             if !started {
-                manualUSBConnectionDeadline = nil
+                manualInitialConnectionDeadline = nil
             }
             isStoppingActiveWork = false
             return started
         case .ready, .missing, .invalid:
-            manualUSBConnectionDeadline = nil
+            manualInitialConnectionDeadline = nil
             isStoppingActiveWork = false
             await loadProfileAndContinue()
             return true
@@ -1370,16 +1392,15 @@ actor ConnectionCoordinator {
 
     private func beginMonitoring(
         profile: DeviceProfile,
-        requestedRoute: ConnectionRoute
+        requestedRoute: ConnectionRoute,
+        manualWiFi: ManualWiFiConnection?
     ) async -> Bool {
         guard !isShuttingDown, monitorOperation == nil else {
-            manualUSBConnectionDeadline = nil
+            manualInitialConnectionDeadline = nil
             return false
         }
-        let initialConnectionDeadline = requestedRoute == .usb
-            ? manualUSBConnectionDeadline
-            : nil
-        manualUSBConnectionDeadline = nil
+        let initialConnectionDeadline = manualInitialConnectionDeadline
+        manualInitialConnectionDeadline = nil
         manualConnectionSessionEnded = false
         ensureLifecycle()
         let operationID = UUID()
@@ -1387,6 +1408,7 @@ actor ConnectionCoordinator {
             await runMonitorOperation(
                 profile: profile,
                 requestedRoute: requestedRoute,
+                manualWiFi: manualWiFi,
                 initialConnectionDeadline: initialConnectionDeadline,
                 id: operationID
             )
@@ -1399,6 +1421,7 @@ actor ConnectionCoordinator {
     private func runMonitorOperation(
         profile: DeviceProfile,
         requestedRoute: ConnectionRoute,
+        manualWiFi: ManualWiFiConnection?,
         initialConnectionDeadline: TimeInterval?,
         id: UUID
     ) async {
@@ -1419,6 +1442,7 @@ actor ConnectionCoordinator {
         await runMonitor(
             profile: profile,
             requestedRoute: requestedRoute,
+            manualWiFi: manualWiFi,
             initialConnectionDeadline: initialConnectionDeadline,
             operationID: id
         )
@@ -1427,14 +1451,14 @@ actor ConnectionCoordinator {
     private func runMonitor(
         profile initialProfile: DeviceProfile,
         requestedRoute: ConnectionRoute,
+        manualWiFi: ManualWiFiConnection?,
         initialConnectionDeadline: TimeInterval?,
         operationID: UUID
     ) async {
         var profile = initialProfile
         let paths = await profileStore.paths()
         let initialRecoveryLimit: Duration
-        if requestedRoute == .usb,
-           let deadline = initialConnectionDeadline {
+        if let deadline = initialConnectionDeadline {
             let remaining = max(
                 0,
                 deadline - monitorServices.monotonicNow()
@@ -1454,8 +1478,7 @@ actor ConnectionCoordinator {
               !manualConnectionSessionEnded,
               !Task.isCancelled,
               !isShuttingDown {
-            if requestedRoute == .usb,
-               activeRouteBinding == nil,
+            if activeRouteBinding == nil,
                let deadline = initialConnectionDeadline,
                monitorServices.monotonicNow() >= deadline {
                 await retireActiveRouteAndPublish(.offline)
@@ -1474,6 +1497,7 @@ actor ConnectionCoordinator {
                     profile: profile,
                     paths: paths,
                     requestedRoute: requestedRoute,
+                    manualWiFi: manualWiFi,
                     initialConnectionDeadline: preActivationDeadline,
                     allowUSBWake: true,
                     allowUSBHoldConfirmation: true
@@ -1507,11 +1531,10 @@ actor ConnectionCoordinator {
                 outcome: observation.selectionOutcome(
                     activeBinding: activeRouteBinding
                 ),
-                canWaitForInitialRecovery:
-                    requestedRoute == .usb &&
-                    Self.canWaitForUSBConnectionRecovery(
-                        observation.evidence
-                    )
+                canWaitForInitialRecovery: Self.canWaitForInitialConnectionRecovery(
+                    requestedRoute: requestedRoute,
+                    evidence: observation.evidence
+                )
             )
 
             switch decision {
@@ -1608,7 +1631,8 @@ actor ConnectionCoordinator {
                     }
                 }
 
-                if observation.outcome == .ready,
+                if manualWiFi == nil,
+                   observation.outcome == .ready,
                    let capability = observation.capability {
                     do {
                         profile = try await refreshedProfileIfNeeded(
@@ -1637,6 +1661,18 @@ actor ConnectionCoordinator {
         }
     }
 
+    private static func canWaitForInitialConnectionRecovery(
+        requestedRoute: ConnectionRoute,
+        evidence: ConnectionEvidence
+    ) -> Bool {
+        switch requestedRoute {
+        case .usb:
+            canWaitForUSBConnectionRecovery(evidence)
+        case .wifi:
+            evidence == .offline
+        }
+    }
+
     private static func canWaitForUSBConnectionRecovery(
         _ evidence: ConnectionEvidence
     ) -> Bool {
@@ -1655,6 +1691,7 @@ actor ConnectionCoordinator {
         profile: DeviceProfile,
         paths: DeviceProfilePaths,
         requestedRoute: ConnectionRoute,
+        manualWiFi: ManualWiFiConnection?,
         initialConnectionDeadline: TimeInterval?,
         allowUSBWake: Bool,
         allowUSBHoldConfirmation: Bool
@@ -1680,7 +1717,11 @@ actor ConnectionCoordinator {
         case .wifi:
             return (
                 usbUnavailable,
-                try await observeWiFi(profile: profile, paths: paths)
+                try await observeWiFi(
+                    profile: profile,
+                    paths: paths,
+                    manualWiFi: manualWiFi
+                )
             )
         }
     }
@@ -2081,41 +2122,65 @@ actor ConnectionCoordinator {
 
     private func observeWiFi(
         profile: DeviceProfile,
-        paths: DeviceProfilePaths
+        paths: DeviceProfilePaths,
+        manualWiFi: ManualWiFiConnection?
     ) async throws -> MonitorRouteObservation {
-        guard let wifiRoute = profile.wifi else {
-            wifiRepairPolicy.reset()
-            return .unavailable(.offline)
-        }
-
-        let context: WiFiNetworkContextMatch
-        do {
-            context = try await monitorServices.matchWiFi(
-                wifiRoute.contextDigest
-            )
-        } catch is CancellationError {
-            throw CancellationError()
-        } catch {
-            wifiRepairPolicy.reset()
-            return .unavailable(.offline)
-        }
-        guard context.isMatch else {
-            wifiRepairPolicy.reset()
-            return .unavailable(.offline)
-        }
-
         let candidate: MonitorRouteCandidate
-        do {
-            candidate = try .make(
-                binding: .wifi(
-                    route: wifiRoute,
-                    interfaceName: context.interfaceName
-                ),
-                paths: paths
-            )
-        } catch {
-            wifiRepairPolicy.reset()
-            return .unavailable(.profileAttention)
+        let repairRoute: VerifiedWiFiRoute?
+        if let manualWiFi {
+            guard (try? monitorServices.currentWiFiSessionContext()) ==
+                    manualWiFi.context else {
+                wifiRepairPolicy.reset()
+                return .unavailable(.offline)
+            }
+            do {
+                candidate = try .make(
+                    binding: .manualWiFi(
+                        host: manualWiFi.host,
+                        context: manualWiFi.context
+                    ),
+                    paths: paths
+                )
+            } catch {
+                wifiRepairPolicy.reset()
+                return .unavailable(.profileAttention)
+            }
+            repairRoute = nil
+        } else {
+            guard let wifiRoute = profile.wifi else {
+                wifiRepairPolicy.reset()
+                return .unavailable(.offline)
+            }
+
+            let context: WiFiNetworkContextMatch
+            do {
+                context = try await monitorServices.matchWiFi(
+                    wifiRoute.contextDigest
+                )
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                wifiRepairPolicy.reset()
+                return .unavailable(.offline)
+            }
+            guard context.isMatch else {
+                wifiRepairPolicy.reset()
+                return .unavailable(.offline)
+            }
+
+            do {
+                candidate = try .make(
+                    binding: .wifi(
+                        route: wifiRoute,
+                        interfaceName: context.interfaceName
+                    ),
+                    paths: paths
+                )
+            } catch {
+                wifiRepairPolicy.reset()
+                return .unavailable(.profileAttention)
+            }
+            repairRoute = wifiRoute
         }
 
         var result = try await monitorServices.probe(
@@ -2123,19 +2188,11 @@ actor ConnectionCoordinator {
             probeGeneration(for: candidate)
         )
         try Task.checkCancellation()
-        let currentContext: WiFiNetworkContextMatch
-        do {
-            currentContext = try await monitorServices.matchWiFi(
-                wifiRoute.contextDigest
-            )
-        } catch is CancellationError {
-            throw CancellationError()
-        } catch {
-            wifiRepairPolicy.reset()
-            return .unavailable(.offline)
-        }
-        guard currentContext.isMatch,
-              currentContext.interfaceName == context.interfaceName else {
+        guard await wifiConnectionIsCurrent(
+            manualWiFi: manualWiFi,
+            savedRoute: repairRoute,
+            expectedInterface: candidate.binding.boundInterface
+        ) else {
             wifiRepairPolicy.reset()
             return .unavailable(.offline)
         }
@@ -2146,7 +2203,7 @@ actor ConnectionCoordinator {
                 (result.state == .authenticated &&
                     result.capability?.isCurrent != true)) {
             let firstDisposition = wifiRepairPolicy.record(
-                route: wifiRoute,
+                route: repairRoute,
                 result: .authenticatedTabletPrerequisiteMismatch
             )
             if firstDisposition != .repair {
@@ -2154,11 +2211,11 @@ actor ConnectionCoordinator {
                 // explicit Connect attempt. A cold route otherwise ends after
                 // its first transient observation and could never reach Repair.
                 try await Task.sleep(for: .milliseconds(500))
-                let confirmingContext = try await monitorServices.matchWiFi(
-                    wifiRoute.contextDigest
-                )
-                guard confirmingContext.isMatch,
-                      confirmingContext.interfaceName == context.interfaceName else {
+                guard await wifiConnectionIsCurrent(
+                    manualWiFi: manualWiFi,
+                    savedRoute: repairRoute,
+                    expectedInterface: candidate.binding.boundInterface
+                ) else {
                     wifiRepairPolicy.reset()
                     return .unavailable(.offline)
                 }
@@ -2167,11 +2224,11 @@ actor ConnectionCoordinator {
                     probeGeneration(for: candidate)
                 )
                 try Task.checkCancellation()
-                let confirmedContext = try await monitorServices.matchWiFi(
-                    wifiRoute.contextDigest
-                )
-                guard confirmedContext.isMatch,
-                      confirmedContext.interfaceName == context.interfaceName else {
+                guard await wifiConnectionIsCurrent(
+                    manualWiFi: manualWiFi,
+                    savedRoute: repairRoute,
+                    expectedInterface: candidate.binding.boundInterface
+                ) else {
                     wifiRepairPolicy.reset()
                     return .unavailable(.offline)
                 }
@@ -2181,7 +2238,7 @@ actor ConnectionCoordinator {
 
         switch result.state {
         case .authenticated where result.capability?.isCurrent == true:
-            _ = wifiRepairPolicy.record(route: wifiRoute, result: .success)
+            _ = wifiRepairPolicy.record(route: repairRoute, result: .success)
             return MonitorRouteObservation(
                 outcome: .ready,
                 candidate: candidate,
@@ -2190,7 +2247,7 @@ actor ConnectionCoordinator {
             )
 
         case .noRoute, .portOpenNoBanner:
-            _ = wifiRepairPolicy.record(route: wifiRoute, result: .other)
+            _ = wifiRepairPolicy.record(route: repairRoute, result: .other)
             return MonitorRouteObservation(
                 outcome: .transientFailure,
                 candidate: candidate,
@@ -2200,7 +2257,7 @@ actor ConnectionCoordinator {
 
         case .identityRejected:
             _ = wifiRepairPolicy.record(
-                route: wifiRoute,
+                route: repairRoute,
                 result: .identityRejected
             )
             await diagnostics.record(
@@ -2212,7 +2269,7 @@ actor ConnectionCoordinator {
                 outcome: .unavailable,
                 candidate: candidate,
                 capability: nil,
-                evidence: .repair
+                evidence: manualWiFi == nil ? .repair : .offline
             )
 
         case .prerequisiteMismatch, .authenticated:
@@ -2221,7 +2278,7 @@ actor ConnectionCoordinator {
                result.detail == .tabletPrerequisiteMismatch ||
                     result.state == .authenticated {
                 let disposition = wifiRepairPolicy.record(
-                    route: wifiRoute,
+                    route: repairRoute,
                     result: .authenticatedTabletPrerequisiteMismatch
                 )
                 return MonitorRouteObservation(
@@ -2234,7 +2291,7 @@ actor ConnectionCoordinator {
                 )
             }
 
-            _ = wifiRepairPolicy.record(route: wifiRoute, result: .other)
+            _ = wifiRepairPolicy.record(route: repairRoute, result: .other)
             let evidence: ConnectionEvidence
             let outcome: RouteProbeOutcome
             switch result.detail {
@@ -2255,6 +2312,31 @@ actor ConnectionCoordinator {
                 evidence: evidence
             )
         }
+    }
+
+    private func wifiConnectionIsCurrent(
+        manualWiFi: ManualWiFiConnection?,
+        savedRoute: VerifiedWiFiRoute?,
+        expectedInterface: String
+    ) async -> Bool {
+        if let manualWiFi {
+            guard manualWiFi.context.interfaceName == expectedInterface else {
+                return false
+            }
+            return (try? monitorServices.currentWiFiSessionContext()) ==
+                manualWiFi.context
+        }
+
+        guard let savedRoute else { return false }
+        let context: WiFiNetworkContextMatch
+        do {
+            context = try await monitorServices.matchWiFi(
+                savedRoute.contextDigest
+            )
+        } catch {
+            return false
+        }
+        return context.isMatch && context.interfaceName == expectedInterface
     }
 
     private func probeGeneration(
@@ -2395,6 +2477,10 @@ actor ConnectionCoordinator {
             return context.isMatch &&
                 context.interfaceName == expectedInterface &&
                 profile.wifi == wifiRoute
+
+        case let .manualWiFi(_, expectedContext):
+            return (try? monitorServices.currentWiFiSessionContext()) ==
+                expectedContext
         }
     }
 
@@ -2505,9 +2591,7 @@ actor ConnectionCoordinator {
     }
 
     private func manualConnectionRecoveryStep() -> ConnectionManualStep {
-        manualStep == .connectUSBBeforeWiFi
-            ? .connectUSBBeforeWiFi
-            : .chooseConnection
+        .chooseConnection
     }
 
     private func recordProbeMismatch(_ detail: PassiveRouteProbeDetail) async {

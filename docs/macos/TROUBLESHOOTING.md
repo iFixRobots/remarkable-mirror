@@ -97,13 +97,14 @@ returns to an action instead of continuing in the background.
 ## Wi‑Fi setup is still pending
 
 The dedicated key was authorized and the tablet-side USB keep-awake service was
-installed or upgraded and validated. Wi‑Fi is intentionally a separate step.
-You can use **Connect USB‑C** while Wi‑Fi setup remains pending. To enable Wi‑Fi
-connections, keep USB connected, enter the tablet passcode if requested, and keep both devices
-on the intended Wi‑Fi network. Choose **Connection > Set Up Wi‑Fi…**. That
-bounded operation verifies the connection, then enables and verifies Wi‑Fi without
-appending the public key, requesting Location Services, or requesting the
-password again. **Connect Wi‑Fi** becomes available only after it succeeds.
+installed or upgraded and validated. Persistent Wi‑Fi setup is intentionally a
+separate step, but it does not gate the manual IP connection path. The current
+connection card still shows **Connect USB‑C** followed by
+**Connect via Wi‑Fi**. The latter asks for an IPv4 address and uses it only for
+that owner-started attempt; it does not complete or persist Wi-Fi setup. To
+complete the separate persistent setup, keep USB connected, enter the tablet
+passcode if requested, keep both devices on the intended Wi‑Fi network, and
+choose **Connection > Set Up Wi‑Fi…**.
 
 ## The app says the saved setup needs attention
 
@@ -121,7 +122,23 @@ session from the same active connection. If either owned process stops or that
 session ends, the app removes Live and returns to the disconnected
 surface instead of leaving stale controls enabled. Choose
 **Help > Copy Connection Diagnostics** if needed, then explicitly choose
-**Connect USB‑C** or **Connect Wi‑Fi**.
+**Connect USB‑C** or **Connect via Wi‑Fi**.
+
+## Connect via Wi‑Fi asks for the tablet IP address
+
+This is intentional. **Connect via Wi‑Fi** sits directly below
+**Connect USB‑C**. Its first click changes only the local Mac presentation and
+sends no tablet or network traffic. The prompt says the tablet must be awake but
+may remain locked and asks for its IPv4 address. Submitting starts one bounded
+Wi-Fi-only attempt to that exact address, bound to the current Wi-Fi context and
+authenticated with the saved pinned SSH identity. Mirror checks a transiently
+offline route every three seconds during a 45-second retry window. A bounded
+check already admitted may finish afterward, but no new retry starts. The
+attempt does not auto-discover or save an address, inspect or use USB, wake the
+tablet, fall back to another transport, call the wake HTTP endpoint, request a
+password, or require an unlock. If it ends without connecting, Mirror returns to
+the same two manual choices. Files remains separate and may still require the
+tablet to be unlocked.
 
 ## Files does not show tablet documents
 
@@ -142,8 +159,10 @@ boundaries.
 ## USB disconnected
 
 Disconnecting USB ends that USB session. Mirror does not switch to Wi-Fi
-automatically. To continue over Wi-Fi, keep the Mac and tablet on the approved
-network and choose **Connect Wi‑Fi**. A Wi-Fi identity mismatch does not bypass
+automatically. To continue over Wi-Fi, keep the Mac and tablet on the same local
+network, make sure the tablet is awake, and choose **Connect via Wi‑Fi**. The
+first click is local only; enter the tablet’s IPv4 address and submit it to start
+the bounded Wi-Fi-only attempt. The tablet may stay locked. A Wi-Fi identity mismatch does not bypass
 the trust checks. To continue over USB, reconnect the cable and choose
 **Connect USB-C**. That one click owns the bounded direct-cable wake, recovery,
 authentication, and connection session; the owner intervenes only if the tablet
@@ -158,8 +177,10 @@ tablet as needed, authenticates, and connects without selecting Wi-Fi.
 
 ## Keychain access fails
 
-Only explicit Wi-Fi setup stores the protected Wi-Fi context secret and wake
-token in the Data Protection Keychain. USB-C never requires them. The current
+Only explicit persistent Wi-Fi setup stores the protected Wi-Fi context secret
+and wake token in the Data Protection Keychain. The address entered through
+**Connect via Wi‑Fi** is session-only and is not saved; USB-C never requires
+either Keychain value. The current
 app is unsigned and has no proved Team Identifier or
 access-group policy, so service scoping and signed-package persistence remain
 unproven. If Keychain cleanup fails, Mirror blocks local setup reset rather than

@@ -235,8 +235,17 @@ The Mac contract is separate. Launch and cable appearance do not communicate
 with the tablet. One explicit **Connect USB-C** click owns a bounded direct-cable
 wake, service-recovery, authentication, and connection session. That session
 never selects or falls back to Wi-Fi. Entering the tablet passcode is the only
-owner intervention authorized USB use may require; **Connect Wi-Fi** is a
-separate owner action.
+owner intervention authorized USB use may require. The connection card places
+**Connect via Wi‑Fi** directly below **Connect USB-C**. Choosing the Wi-Fi action
+first opens a local prompt for the tablet’s IPv4 address and says the tablet must
+be awake but may stay locked. Submitting starts one Wi-Fi-only attempt to that
+address, bound to the current Wi-Fi context and authenticated with the saved
+pinned SSH identity. It may recheck a transiently offline route every three
+seconds during a 45-second retry window; a bounded check admitted before expiry
+may finish afterward. It does not auto-discover or persist an address, inspect
+or use USB, wake the tablet, fall back to another transport, use the wake HTTP
+endpoint, request a password, or require an unlock. Failure returns to the two
+manual connection choices. Files remains separate and may still require one.
 
 Automatic A/B slot repair and recovery from every possible live connection
 failure are not supported.

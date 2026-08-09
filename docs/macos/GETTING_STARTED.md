@@ -57,6 +57,10 @@ Candidate `0.2.0 (2)` includes:
 - explicit setup, authorization, verification, USB connection, and Wi-Fi
   connection actions; one **Connect USB‑C** click owns a bounded same-cable
   wake, recovery, authentication, and connection session;
+- a connection card that stacks **Connect USB‑C** above
+  **Connect via Wi‑Fi**; the Wi-Fi action first asks locally for the tablet’s
+  IPv4 address and says the tablet must be awake but may remain locked, then
+  starts one bounded Wi-Fi-only attempt to that address;
 - active-session keep-awake without automatic fallback, promotion, or
   reconnection; and
 - generation-safe cancellation, retirement and service-scoped local reset.
@@ -112,17 +116,29 @@ Wi-Fi connection.
    asks for its passcode, type it immediately; the mirrored tablet takes
    keyboard focus as soon as it is ready for input, and the USB-C session
    continues.
-8. Choose **Connection > Set Up Wi‑Fi…** when both devices are on the Wi-Fi
-   network you want to use. Mirror makes one Wi-Fi setup check, then enables and verifies
-   Developer Mode SSH over Wi-Fi without requesting the tablet password again.
-   **Connect Wi‑Fi** becomes available only after that succeeds.
+8. On the connection card, **Connect via Wi‑Fi** appears directly below
+   **Connect USB‑C**, including while persistent Wi-Fi setup is pending. Choose
+   it to open a local prompt; this first click does not inspect the network or
+   contact the tablet. Make sure the tablet is awake, although it may remain
+   locked, and enter the tablet’s IPv4 address.
+9. Submit the address to start one Wi-Fi-only attempt to that exact address,
+   bound to the Mac’s current Wi-Fi context and authenticated with the saved
+   pinned SSH identity. Mirror may recheck a transiently offline route every
+   three seconds during a 45-second retry window. A bounded check already
+   admitted may finish afterward, but no new retry starts. The attempt does not
+   auto-discover or save an address, inspect or use USB, wake the tablet, fall
+   back to another transport, use the wake HTTP service, request a password, or
+   require an unlock. Failure returns to the two manual connection choices.
+10. **Connection > Set Up Wi‑Fi…** remains a separate optional persistent setup
+    action. It is not required to show or start the manual IP connection path.
 
-Before contacting the tablet, Mirror requires a data-capable USB-C cable that
-connects the reMarkable directly to this Mac. It then confirms that the same
-cable-attached device remains present throughout the check. Disconnecting the
-cable or replacing the device stops the attempt. Cable detection alone does not
+Initial setup and authorization require a data-capable USB-C cable that connects
+the reMarkable directly to this Mac. Mirror confirms that the same cable-attached
+device remains present throughout those checks. Disconnecting the cable or
+replacing the device stops that operation. Cable detection alone does not
 authenticate the tablet; the pinned Ed25519 SSH host key supplies that identity
-proof after first-use approval.
+proof after first-use approval. The later manual Wi-Fi connection does not
+inspect or use USB.
 
 If those checks succeed, Mirror creates a dedicated local key and pinned host
 file and saves a pending profile. No tablet file or setting has changed at that
@@ -168,9 +184,14 @@ trigger or guarantee that prompt and does not change the Mac's accessory policy.
 ## Implemented connection behavior
 
 With an authorized profile, the source waits without tablet communication until
-the owner chooses **Connect USB‑C** or **Connect Wi‑Fi**. The chosen action then:
+the owner chooses **Connect USB‑C** or **Connect via Wi‑Fi**. The connection card
+stacks those actions in that order. **Connect via Wi‑Fi** first opens only the
+local awake-and-address prompt; it does not begin the following work until the
+owner submits an IPv4 address. The submitted Wi-Fi action or the direct USB-C
+action then:
 
-1. admits only the exact direct cable or approved Wi-Fi connection;
+1. admits only the exact direct cable or the entered Wi-Fi address bound to the
+   current Wi-Fi context;
 2. authenticates with the pinned host identity;
 3. prepares Xovi without bypassing the reset-before-start rule;
 4. opens the session-owned input process and the leased RMM1 frame stream;
@@ -201,6 +222,18 @@ chosen connection disappears or the session fails, Mirror returns to the
 disconnected surface and waits for another owner action. It does not fall back
 to Wi-Fi, move to USB, or reconnect automatically.
 
+One **Connect via Wi‑Fi** click opens a local prompt with no tablet or network
+traffic. It says the tablet must be awake but may remain locked and asks for its
+IPv4 address. Submitting starts one attempt to that exact address, bound to the
+current Wi-Fi context and authenticated with the saved pinned SSH identity.
+Mirror can recheck a transiently offline route every three seconds during a
+45-second retry window. A bounded check already admitted may finish afterward,
+but no new retry starts. The attempt does not auto-discover or save an address,
+inspect or use USB, wake the tablet, fall back to another transport, call the
+wake HTTP endpoint, request a password, or require an unlock. Failure returns to
+the two manual connection choices. Files is independent and may still wait for
+the tablet to be unlocked.
+
 One **Connect USB-C** click starts a bounded session on that cable. Mirror asks
 the direct-cable wake service to recover the tablet, waits for its services, and
 then authenticates and connects without asking for another click. It never
@@ -209,9 +242,9 @@ the only owner intervention the USB-C session may require. If the bounded
 session cannot finish, Mirror returns to an action instead of continuing in the
 background.
 
-Mirror waits 250 ms before showing connection progress. If the bounded attempt
-finishes sooner, it goes straight to its result instead of flashing a progress
-card.
+After a connection attempt starts, Mirror waits 250 ms before showing connection
+progress. If the bounded attempt finishes sooner, it goes straight to its result
+instead of flashing a progress card.
 
 When an input session starts, it inspects the strict handshake before
 publication. Only an exact `deep_sleep` state permits one guarded `KEY_POWER`
@@ -241,10 +274,12 @@ The root and SSH directories use mode `0700`; profile, key, public-key and
 known-host files use mode `0600`. The profile contains no private key, bearer
 token, password, raw network identifier, or absolute credential path.
 
-Only explicit Wi-Fi setup stores the paired Wi-Fi context secret and wake token
-in the Data Protection Keychain. Direct USB-C admission, status, wake and
-connection never require that bearer. Persistence, service scoping and
-access-group behavior must still be proved in an authorized signed package.
+Only explicit persistent Wi-Fi setup stores the paired Wi-Fi context secret and
+wake token in the Data Protection Keychain. The address entered through
+**Connect via Wi‑Fi** is session-only and is not saved. Manual Wi-Fi and direct
+USB-C connection attempts never require that bearer. Persistence, service
+scoping and access-group behavior must still be proved in an authorized signed
+package.
 
 ## Target and build host
 

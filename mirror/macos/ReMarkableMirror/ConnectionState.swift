@@ -18,6 +18,7 @@ enum RecoveryAction: String, Hashable, Sendable {
     case reauthorizeUSB
     case connectUSB
     case connectWiFi
+    case cancelWiFiAddress
 }
 
 struct RecoveryCardAction: Equatable, Identifiable, Sendable {
@@ -84,8 +85,20 @@ struct RecoveryCardAction: Equatable, Identifiable, Sendable {
     )
     static let connectWiFi = RecoveryCardAction(
         action: .connectWiFi,
-        label: "Connect Wi‑Fi",
-        accessibilityLabel: "Connect to your reMarkable over Wi‑Fi",
+        label: "Connect via Wi‑Fi",
+        accessibilityLabel: "Connect to your reMarkable via Wi‑Fi",
+        isPrimary: false
+    )
+    static let connectEnteredWiFi = RecoveryCardAction(
+        action: .connectWiFi,
+        label: "Connect via Wi‑Fi",
+        accessibilityLabel: "Connect to the entered tablet IP address via Wi‑Fi",
+        isPrimary: true
+    )
+    static let cancelWiFiAddress = RecoveryCardAction(
+        action: .cancelWiFiAddress,
+        label: "Cancel",
+        accessibilityLabel: "Cancel Wi‑Fi connection",
         isPrimary: false
     )
 }
@@ -317,9 +330,9 @@ enum ConnectionPresentationState: Equatable, Sendable {
             RecoveryCardContent(
                 symbol: "cable.connector",
                 title: "Connect your reMarkable",
-                message: "Connect the tablet to this Mac with USB‑C, then choose Connect USB‑C.",
+                message: "Choose USB‑C or enter the tablet’s IP address to connect via Wi‑Fi.",
                 showsProgress: false,
-                actions: [.connectUSB]
+                actions: [.connectUSB, .connectWiFi]
             )
         case let .usbRepairRequired(reason):
             switch reason {

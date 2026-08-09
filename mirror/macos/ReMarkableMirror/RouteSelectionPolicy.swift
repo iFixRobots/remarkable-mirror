@@ -12,10 +12,10 @@ enum ManualRouteSessionDecision: Equatable, Sendable {
 
 /// Health policy for the route chosen by one explicit Connect action.
 ///
-/// A USB-C action may also own one bounded pre-activation recovery window so
-/// the app can wake the tablet and wait for its services to return before it
-/// authenticates. It cannot select, probe, promote, or fall back to another
-/// route.
+/// An explicit Connect action may also own one bounded pre-activation recovery
+/// window. USB-C can wake the tablet; Wi-Fi can wait for an owner-woken
+/// tablet's services to return. Neither path can select, probe, promote, or
+/// fall back to another route.
 struct ManualRouteSessionPolicy: Sendable {
     private static let transientFailureThreshold = 3
     private static let transientFailureLimit = Duration.seconds(15)

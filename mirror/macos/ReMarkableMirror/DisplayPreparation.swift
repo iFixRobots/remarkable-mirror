@@ -717,7 +717,7 @@ private enum DisplayPreparationFailureFactory {
     ) -> DisplayPreparationFailure {
         DisplayPreparationFailure(
             kind: .secureConnectionUnavailable,
-            message: "The secure connection is not ready. Check the tablet and cable, then choose Connect USB‑C or Connect Wi‑Fi again.",
+            message: "The secure connection is not ready. Check the tablet and cable, then choose \(RecoveryCardAction.connectUSB.label) or \(RecoveryCardAction.connectWiFi.label) again.",
             canAutoRetry: false,
             technicalDetail: detail
         )
@@ -756,7 +756,7 @@ private enum DisplayPreparationFailureFactory {
     static func streamInterrupted(_ detail: String) -> DisplayPreparationFailure {
         DisplayPreparationFailure(
             kind: .streamInterrupted,
-            message: "The tablet display connection stopped. Choose Connect USB‑C or Connect Wi‑Fi to start a new session.",
+            message: "The tablet display connection stopped. Choose \(RecoveryCardAction.connectUSB.label) or \(RecoveryCardAction.connectWiFi.label) to start a new session.",
             canAutoRetry: false,
             technicalDetail: detail
         )
