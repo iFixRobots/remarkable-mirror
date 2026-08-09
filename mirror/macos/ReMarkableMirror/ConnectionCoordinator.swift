@@ -28,7 +28,9 @@ extension LocalPairingPreparer: LocalPairingPreparing { }
 
 actor ConnectionCoordinator {
     private static let directCableWakeRecoveryLimit: TimeInterval = 45
+    private static let directCableInitialRetryDelay: Duration = .milliseconds(250)
     private static let filesOpenRecoveryLimit: TimeInterval = 60
+    private static let filesReadinessRetryDelay: Duration = .milliseconds(250)
 
     private struct Operation {
         let id: UUID
@@ -284,6 +286,7 @@ actor ConnectionCoordinator {
     private var filesPaneIsOpen = false
     private var filesPaneVisibilityRevision: UInt64 = 0
     private var filesPaneOwnerRequest: FilesPaneOwnerRequest?
+    private var filesReadinessRetryOperation: Operation?
     private var pointerInteractionIsActive = false
     private var monitorDelayOperation: MonitorDelayOperation?
     private var manualRouteSessionPolicy = ManualRouteSessionPolicy()
@@ -606,6 +609,7 @@ actor ConnectionCoordinator {
             return
         }
 
+        cancelFilesReadinessRetry()
         capability.probeTask?.cancel()
         capability.isAttached = false
         capability.isRetiring = true
@@ -646,6 +650,7 @@ actor ConnectionCoordinator {
         let wasOpen = filesPaneIsOpen
         filesPaneVisibilityRevision = revision
         filesPaneIsOpen = isOpen
+        cancelFilesReadinessRetry()
 
         guard isOpen else {
             filesPaneOwnerRequest = nil
@@ -1519,10 +1524,12 @@ actor ConnectionCoordinator {
                 return
 
             case .waitForSelectedRoute:
-                let interval = MonitorPollCadence.interval(
-                    outcome: observation.outcome,
-                    evidence: observation.evidence
-                )
+                let interval = requestedRoute == .usb && activeRouteBinding == nil
+                    ? Self.directCableInitialRetryDelay
+                    : MonitorPollCadence.interval(
+                        outcome: observation.outcome,
+                        evidence: observation.evidence
+                    )
                 guard await pauseMonitor(
                     for: interval,
                     noLaterThan: initialConnectionDeadline
@@ -3150,6 +3157,79 @@ actor ConnectionCoordinator {
         filesCapability = capability
     }
 
+    private func scheduleFilesReadinessRetry(
+        capabilityID: UUID,
+        generation: GenerationID,
+        ownerRequestID: UUID
+    ) {
+        guard filesReadinessRetryOperation == nil,
+              filesPaneIsOpen,
+              let capability = filesCapability,
+              capability.id == capabilityID,
+              capability.generation == generation,
+              capability.ownerRequestID == ownerRequestID,
+              filesPaneOwnerRequest?.id == ownerRequestID,
+              capability.probeTask == nil,
+              capability.readinessProbeAttempted,
+              !capability.isPreparingProbe,
+              !capability.isAttached,
+              !capability.isRetiring else {
+            return
+        }
+
+        let operationID = UUID()
+        let task = Task { [weak self] in
+            do {
+                try await Task.sleep(for: Self.filesReadinessRetryDelay)
+            } catch {
+                return
+            }
+            await self?.finishFilesReadinessRetry(
+                operationID: operationID,
+                capabilityID: capabilityID,
+                generation: generation,
+                ownerRequestID: ownerRequestID
+            )
+        }
+        filesReadinessRetryOperation = Operation(id: operationID, task: task)
+    }
+
+    private func finishFilesReadinessRetry(
+        operationID: UUID,
+        capabilityID: UUID,
+        generation: GenerationID,
+        ownerRequestID: UUID
+    ) {
+        guard filesReadinessRetryOperation?.id == operationID else { return }
+        filesReadinessRetryOperation = nil
+
+        guard !isShuttingDown,
+              !manualConnectionSessionEnded,
+              filesPaneIsOpen,
+              activeRouteGeneration == generation,
+              routeTransitionReservation != generation,
+              var capability = filesCapability,
+              capability.id == capabilityID,
+              capability.generation == generation,
+              capability.ownerRequestID == ownerRequestID,
+              filesPaneOwnerRequest?.id == ownerRequestID,
+              capability.probeTask == nil,
+              !capability.isPreparingProbe,
+              !capability.isAttached,
+              !capability.isRetiring else {
+            return
+        }
+
+        capability.readinessProbeAttempted = false
+        filesCapability = capability
+        startFilesProbeIfNeeded()
+    }
+
+    private func cancelFilesReadinessRetry() {
+        filesReadinessRetryOperation?.task.cancel()
+        filesReadinessRetryOperation = nil
+    }
+
     private func runFilesProbe(
         capabilityID: UUID,
         generation: GenerationID,
@@ -3196,6 +3276,7 @@ actor ConnectionCoordinator {
         isReady: Bool,
         ownerRequestID: UUID?
     ) async {
+        var retryOwnerRequestID: UUID?
         guard var capability = filesCapability,
               capability.id == capabilityID,
               capability.generation == generation,
@@ -3245,7 +3326,8 @@ actor ConnectionCoordinator {
                 if filesPaneIsOpen,
                    filesPaneOwnerRequest?.id == currentOwnerRequestID,
                    monitorServices.monotonicNow() < deadline {
-                    current.readinessProbeAttempted = false
+                    current.readinessProbeAttempted = true
+                    retryOwnerRequestID = currentOwnerRequestID
                 } else {
                     clearFilesPaneOwnerRequest(ifMatching: currentOwnerRequestID)
                     current.ownerRequestID = nil
@@ -3266,9 +3348,17 @@ actor ConnectionCoordinator {
             admission: .generationEvent,
             generation: generation
         )
+        if let retryOwnerRequestID {
+            scheduleFilesReadinessRetry(
+                capabilityID: capabilityID,
+                generation: generation,
+                ownerRequestID: retryOwnerRequestID
+            )
+        }
     }
 
     private func clearFilesCapability() async {
+        cancelFilesReadinessRetry()
         guard var capability = filesCapability else {
             filesGeneration = nil
             return

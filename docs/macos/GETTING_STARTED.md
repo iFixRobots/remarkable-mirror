@@ -109,7 +109,9 @@ Wi-Fi connection.
    connection immediately. That one click owns a bounded session that wakes the
    tablet through the same cable, waits for its services, authenticates, and
    connects. It never checks, selects, or falls back to Wi-Fi. If the tablet
-   asks for its passcode, unlock it; the USB-C session continues.
+   asks for its passcode, type it immediately; the mirrored tablet takes
+   keyboard focus as soon as it is ready for input, and the USB-C session
+   continues.
 8. Choose **Connection > Set Up Wi‑Fi…** when both devices are on the Wi-Fi
    network you want to use. Mirror makes one Wi-Fi setup check, then enables and verifies
    Developer Mode SSH over Wi-Fi without requesting the tablet password again.

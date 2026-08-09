@@ -682,7 +682,9 @@ final class TabletInputSurfaceView: NSView, @MainActor NSTextInputClient {
 
         guard isInputEnabled != isEnabled else { return }
         isInputEnabled = isEnabled
-        if !isEnabled {
+        if isEnabled {
+            requestFirstResponderWhenReady()
+        } else {
             emitReset(reason: .disabled)
             if window?.firstResponder === self {
                 window?.makeFirstResponder(nil)
@@ -718,6 +720,7 @@ final class TabletInputSurfaceView: NSView, @MainActor NSTextInputClient {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         startObservingWindow()
+        requestFirstResponderWhenReady()
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -947,6 +950,22 @@ final class TabletInputSurfaceView: NSView, @MainActor NSTextInputClient {
         guard let window else { return false }
         if window.firstResponder === self { return true }
         return window.makeFirstResponder(self)
+    }
+
+    private func requestFirstResponderWhenReady() {
+        guard let expectedWindow = window else { return }
+        Task { @MainActor [weak self, weak expectedWindow] in
+            await Task.yield()
+            guard let self,
+                  self.isInputEnabled,
+                  let expectedWindow,
+                  self.window === expectedWindow,
+                  expectedWindow.isKeyWindow,
+                  expectedWindow.firstResponder !== self else {
+                return
+            }
+            _ = expectedWindow.makeFirstResponder(self)
+        }
     }
 
     private func coordinate(for event: NSEvent) -> TabletViewportCoordinate? {
