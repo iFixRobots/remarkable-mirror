@@ -162,7 +162,9 @@ The Windows connection lifecycle is owner-started. App launch must perform no
 tablet probe or wake. **Connect USB-C** owns a bounded attempt against only
 `10.11.99.1`; **Connect Wi-Fi** first reveals an IPv4 field and submission makes
 one attempt against only that address. The selected route stays pinned until
-its generation retires. Reuse the existing direct-USB adapter, cable-only wake,
+its generation retires. The clickable Live route status must delegate to those
+same two actions rather than implement another connection path. Reuse the
+existing direct-USB adapter, cable-only wake,
 paired Windows network, and pinned SSH identity checks; manual admission must
 not replace those transport mechanics. Windows builds normalize multiline SSH
 commands to POSIX line endings before sending them to the tablet. Do not add

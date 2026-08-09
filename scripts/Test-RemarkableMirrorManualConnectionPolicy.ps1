@@ -39,6 +39,7 @@ $monitorSource = Get-Content -Raw -LiteralPath $monitorSourcePath
 $sshRouteSource = Get-Content -Raw -LiteralPath $sshRouteSourcePath
 
 foreach ($requiredMarker in @(
+    'ConnectionRouteButton_Click',
     'ConnectUsbButton_Click',
     'ConnectWifiButton_Click',
     'SubmitWifiAddressButton_Click',
@@ -163,26 +164,82 @@ foreach ($forbiddenLaunchMarker in @(
     }
 }
 
+$manualStart = $mainPageSource.IndexOf(
+    'private async Task StartManualConnectionAsync(',
+    [StringComparison]::Ordinal)
+$manualRunnerStart = $mainPageSource.IndexOf(
+    'private async Task RunManualConnectionAttemptAsync(',
+    $manualStart,
+    [StringComparison]::Ordinal)
+if ($manualStart -lt 0 -or $manualRunnerStart -le $manualStart) {
+    throw 'Could not isolate manual connection admission.'
+}
+$manualStartBlock = $mainPageSource.Substring(
+    $manualStart,
+    $manualRunnerStart - $manualStart)
+$preparingState = $manualStartBlock.IndexOf(
+    'MirrorConnectionState.Preparing,',
+    [StringComparison]::Ordinal)
+$attemptStart = $manualStartBlock.IndexOf(
+    'attemptTask = RunManualConnectionAttemptAsync(',
+    [StringComparison]::Ordinal)
+if ($preparingState -lt 0 -or $attemptStart -lt 0 -or $preparingState -ge $attemptStart) {
+    throw 'A manual route switch can leave stale Live status visible during route teardown.'
+}
+
+$routeSwitchStart = $mainPageSource.IndexOf(
+    'private async void ConnectionRouteButton_Click(',
+    [StringComparison]::Ordinal)
+$usbClickStart = $mainPageSource.IndexOf(
+    'private async void ConnectUsbButton_Click(',
+    [StringComparison]::Ordinal)
+if ($routeSwitchStart -lt 0 -or $usbClickStart -le $routeSwitchStart) {
+    throw 'Could not isolate the live connection route switch handler.'
+}
+$routeSwitchBlock = $mainPageSource.Substring(
+    $routeSwitchStart,
+    $usbClickStart - $routeSwitchStart)
+foreach ($routeSwitchMarker in @(
+        '_mirrorState is not MirrorConnectionState.Live',
+        '!IsCurrentGeneration(generation)',
+        'generation.Kind is DeviceRouteKind.Usb',
+        'ShowWifiAddressEntry();',
+        'await ConnectUsbAsync();'
+    )) {
+    if (-not $routeSwitchBlock.Contains($routeSwitchMarker, [StringComparison]::Ordinal)) {
+        throw "The live route switch is missing: $routeSwitchMarker"
+    }
+}
+foreach ($forbiddenRouteSwitchMarker in @(
+        'StartManualConnectionAsync(',
+        'ProbeSelectedRouteAsync(',
+        'WatchSelectedAsync('
+    )) {
+    if ($routeSwitchBlock.Contains($forbiddenRouteSwitchMarker, [StringComparison]::Ordinal)) {
+        throw "The live route switch bypasses the existing manual actions: $forbiddenRouteSwitchMarker"
+    }
+}
+
 $wifiClickStart = $mainPageSource.IndexOf(
     'private void ConnectWifiButton_Click(',
     [StringComparison]::Ordinal)
 if ($wifiClickStart -lt 0) {
     throw 'Could not find the Connect Wi-Fi click handler.'
 }
-$wifiSubmitStart = $mainPageSource.IndexOf(
-    'private async void SubmitWifiAddressButton_Click(',
+$showWifiStart = $mainPageSource.IndexOf(
+    'private void ShowWifiAddressEntry(',
     $wifiClickStart,
     [StringComparison]::Ordinal)
-if ($wifiClickStart -lt 0 -or $wifiSubmitStart -le $wifiClickStart) {
+if ($showWifiStart -le $wifiClickStart) {
     throw 'Could not isolate the Connect Wi-Fi click handler.'
 }
 $wifiClickBlock = $mainPageSource.Substring(
     $wifiClickStart,
-    $wifiSubmitStart - $wifiClickStart)
+    $showWifiStart - $wifiClickStart)
 if (-not $wifiClickBlock.Contains(
-        'WifiAddressPanel.Visibility = Visibility.Visible;',
+        'ShowWifiAddressEntry();',
         [StringComparison]::Ordinal)) {
-    throw 'Connect Wi-Fi no longer reveals the address field.'
+    throw 'Connect Wi-Fi no longer delegates to the shared address entry.'
 }
 foreach ($forbiddenWifiClickMarker in @(
         'StartManualConnectionAsync(',
@@ -191,6 +248,25 @@ foreach ($forbiddenWifiClickMarker in @(
     )) {
     if ($wifiClickBlock.Contains($forbiddenWifiClickMarker, [StringComparison]::Ordinal)) {
         throw "Connect Wi-Fi contacts the tablet before address submission: $forbiddenWifiClickMarker"
+    }
+}
+
+$wifiSubmitStart = $mainPageSource.IndexOf(
+    'private async void SubmitWifiAddressButton_Click(',
+    $showWifiStart,
+    [StringComparison]::Ordinal)
+if ($wifiSubmitStart -le $showWifiStart) {
+    throw 'Could not isolate the shared Wi-Fi address entry.'
+}
+$showWifiBlock = $mainPageSource.Substring(
+    $showWifiStart,
+    $wifiSubmitStart - $showWifiStart)
+foreach ($showWifiMarker in @(
+        'ConnectionPanel.Visibility = Visibility.Visible;',
+        'WifiAddressPanel.Visibility = Visibility.Visible;'
+    )) {
+    if (-not $showWifiBlock.Contains($showWifiMarker, [StringComparison]::Ordinal)) {
+        throw "The shared Wi-Fi address entry is missing: $showWifiMarker"
     }
 }
 
@@ -286,6 +362,8 @@ foreach ($forbiddenSelectedProbeMarker in @(
 }
 
 foreach ($requiredMarker in @(
+    'x:Name="ConnectionRouteButton"',
+    'Click="ConnectionRouteButton_Click"',
     'x:Name="ConnectUsbButton"',
     'x:Name="ConnectWifiButton"',
     'x:Name="WifiAddressPanel"',

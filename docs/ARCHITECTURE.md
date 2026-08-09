@@ -38,6 +38,10 @@ context, pinned SSH identity, and tablet capabilities still gate publication.
 The chosen route is pinned to its generation. There is no automatic USB-first
 selection, fallback, promotion, or reconnection. A cable, network, frame, or
 input-session failure retires the generation and returns to the manual choices.
+While Live, the route status delegates to the opposite existing manual action:
+USB opens the Wi-Fi address entry without retiring the USB generation, and a
+valid submission replaces it with one Wi-Fi attempt; Wi-Fi starts one bounded
+USB-C attempt. It adds no route probing or selection of its own.
 **Live** requires both a fresh frame and a running input session from that same
 generation. App-owned USB sockets bind to the verified `10.11.99.11/27` source
 and exact direct-cable interface for the cable-only wake endpoint. SSH admission

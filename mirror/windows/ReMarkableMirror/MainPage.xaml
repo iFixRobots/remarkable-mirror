@@ -221,12 +221,17 @@
                 VerticalAlignment="Center"
                 Orientation="Horizontal"
                 Spacing="6">
-                <Border
+                <Button
+                    x:Name="ConnectionRouteButton"
+                    AutomationProperties.Name="Switch connection"
+                    Click="ConnectionRouteButton_Click"
+                    IsEnabled="False"
                     Padding="11,7"
                     Background="#FF202A39"
                     BorderBrush="#FF384457"
                     BorderThickness="1"
-                    CornerRadius="18">
+                    CornerRadius="18"
+                    ToolTipService.ToolTip="Switch connection">
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <Ellipse x:Name="ConnectionDot" Width="8" Height="8" Fill="#E2A33A" />
                         <TextBlock
@@ -236,7 +241,7 @@
                             Foreground="White"
                             Text="Waiting for tablet" />
                     </StackPanel>
-                </Border>
+                </Button>
                 <Button
                     x:Name="ScreenshotButton"
                     AutomationProperties.Name="Copy screenshot"

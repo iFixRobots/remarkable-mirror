@@ -88,6 +88,8 @@ check in one path.
   preparation screen before the drag begins
 - Offers separate **Connect USB-C** and **Connect Wi-Fi** actions; Wi-Fi asks
   for the tablet's IPv4 address only after you choose it
+- Lets you click the **Live over USB/Wi-Fi** status to switch routes using those
+  same manual connection actions
 - Recovers from ordinary lock and short-sleep states, and only shows **Live**
   when the display and controls are both ready
 - Prevents ordinary suspend while USB remains attached and keeps the active,
@@ -188,6 +190,8 @@ sharing logs or diagnostics.
 The Windows app waits at launch and keeps one owner-selected connection at a
 time. **Connect USB-C** starts a bounded direct-cable attempt. **Connect Wi-Fi**
 first reveals an IPv4 field and makes one attempt only after you submit it. The
+live route status is also a manual switch: from USB it opens that same Wi-Fi IP
+field, and from Wi-Fi it starts the same USB-C attempt. The
 app never falls back to, promotes, or reconnects another route automatically.
 It reuses the established direct-USB and paired-network checks, verifies the
 tablet's pinned SSH identity, reads the display through Xovi, and starts touch,

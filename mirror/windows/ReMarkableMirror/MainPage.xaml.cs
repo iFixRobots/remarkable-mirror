@@ -565,6 +565,12 @@ public sealed partial class MainPage : Page
         await _connectionAttemptGate.WaitAsync();
         try
         {
+            if (!_pageIsLoaded ||
+                applicationCancellation.IsCancellationRequested ||
+                !ReferenceEquals(_connectionCancellation, applicationCancellation))
+            {
+                return;
+            }
             if (_connectionAttemptTask is { IsCompleted: false })
             {
                 ShowInfo(
@@ -578,6 +584,11 @@ public sealed partial class MainPage : Page
             attemptCancellation = CancellationTokenSource.CreateLinkedTokenSource(
                 applicationCancellation.Token);
             attemptCancellation.CancelAfter(ManualConnectionAttemptLimit);
+            SetMirrorState(
+                MirrorConnectionState.Preparing,
+                request.Kind is DeviceRouteKind.Usb
+                    ? "Checking only the USB-C connection you selected."
+                    : "Checking only the Wi-Fi address you entered.");
             attemptTask = RunManualConnectionAttemptAsync(
                 request,
                 attemptId,
@@ -669,21 +680,6 @@ public sealed partial class MainPage : Page
 
         _deviceConnectionStatus = DeviceConnectionStatus.Disconnected;
         _deviceConnectionProbeDetail = PassiveRouteProbeDetail.None;
-        await RunOnUIThreadAsync(
-            () =>
-            {
-                if (!IsCurrentConnectionAttempt(attemptId) ||
-                    attemptCancellationToken.IsCancellationRequested)
-                {
-                    return;
-                }
-                SetMirrorState(
-                    MirrorConnectionState.Preparing,
-                    request.Kind is DeviceRouteKind.Usb
-                        ? "Checking only the USB-C connection you selected."
-                        : "Checking only the Wi-Fi address you entered.");
-            },
-            applicationCancellationToken).ConfigureAwait(false);
         _diagnostics.Record(
             "action",
             request.Kind is DeviceRouteKind.Usb
@@ -1324,12 +1320,13 @@ public sealed partial class MainPage : Page
         }
         ConnectionText.Text = connection;
         ConnectionDot.Fill = new SolidColorBrush(color);
+        ConnectionRouteButton.IsEnabled = state is MirrorConnectionState.Live;
         ConnectionPanelTitle.Text = title;
         ConnectionPanelDetail.Text = body;
         ConnectionProgressRing.IsActive = showProgress;
         ConnectionProgressRing.Visibility = showProgress ? Visibility.Visible : Visibility.Collapsed;
         ConnectionChoicePanel.Visibility = showChoices ? Visibility.Visible : Visibility.Collapsed;
-        if (!showChoices)
+        if (!showChoices || previousState is MirrorConnectionState.Live)
         {
             WifiAddressPanel.Visibility = Visibility.Collapsed;
         }
@@ -2100,14 +2097,39 @@ public sealed partial class MainPage : Page
         }
     }
 
-    private async void ConnectUsbButton_Click(object sender, RoutedEventArgs e)
+    private async void ConnectionRouteButton_Click(object sender, RoutedEventArgs e)
+    {
+        var generation = Volatile.Read(ref _routeGeneration);
+        if (_mirrorState is not MirrorConnectionState.Live ||
+            generation is null ||
+            !IsCurrentGeneration(generation))
+        {
+            return;
+        }
+
+        if (generation.Kind is DeviceRouteKind.Usb)
+        {
+            ShowWifiAddressEntry();
+            return;
+        }
+
+        await ConnectUsbAsync();
+    }
+
+    private async void ConnectUsbButton_Click(object sender, RoutedEventArgs e) =>
+        await ConnectUsbAsync();
+
+    private async Task ConnectUsbAsync()
     {
         HideWifiAddressEntry();
         await StartManualConnectionAsync(
             ManualConnectionRequest.ForUsb(StartupRoutes.UsbRoute));
     }
 
-    private void ConnectWifiButton_Click(object sender, RoutedEventArgs e)
+    private void ConnectWifiButton_Click(object sender, RoutedEventArgs e) =>
+        ShowWifiAddressEntry();
+
+    private void ShowWifiAddressEntry()
     {
         if (_connectionAttemptTask is { IsCompleted: false })
         {
@@ -2124,6 +2146,12 @@ public sealed partial class MainPage : Page
         {
             WifiAddressTextBox.Text = savedRoute.Host;
         }
+        if (_mirrorState is MirrorConnectionState.Live)
+        {
+            ConnectionPanelTitle.Text = "Switch to Wi-Fi";
+            ConnectionPanelDetail.Text = "Enter the tablet’s current Wi-Fi IPv4 address, then choose Connect.";
+        }
+        ConnectionPanel.Visibility = Visibility.Visible;
         ConnectionChoicePanel.Visibility = Visibility.Collapsed;
         WifiAddressPanel.Visibility = Visibility.Visible;
         WifiAddressTextBox.Focus(FocusState.Programmatic);
@@ -2198,6 +2226,12 @@ public sealed partial class MainPage : Page
         WifiAddressValidationText.Text = string.Empty;
         WifiAddressPanel.Visibility = Visibility.Collapsed;
         ConnectionChoicePanel.Visibility = Visibility.Visible;
+        var generation = Volatile.Read(ref _routeGeneration);
+        ConnectionPanel.Visibility = _mirrorState is MirrorConnectionState.Live &&
+                                     generation is not null &&
+                                     IsCurrentGeneration(generation)
+            ? Visibility.Collapsed
+            : Visibility.Visible;
     }
 
     private void CopyConnectionDetailsButton_Click(object sender, RoutedEventArgs e)

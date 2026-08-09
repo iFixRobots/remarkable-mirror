@@ -600,16 +600,18 @@ Confirm that the tablet and PC are connected to the same Wi-Fi network. Remember
 After the USB checks, close and reopen Mirror so it returns to the manual
 connection choices. Then:
 
-1. Unplug the USB-C cable and leave the tablet awake for this first check.
-2. Find the tablet's IPv4 address in its Wi-Fi network details.
-3. Choose **Connect Wi-Fi**. Only then does Mirror reveal the IP address field.
+1. Leave the tablet awake and find its IPv4 address in its Wi-Fi network details.
+2. While Mirror says **Live over USB**, click that status. Mirror uses the same
+   **Connect Wi-Fi** action. Only then does Mirror reveal the IP address field.
+3. You may leave USB-C attached; this owner-selected attempt checks only Wi-Fi.
 4. Enter the tablet's IPv4 address and choose **Connect**.
 5. Confirm the status reads **Live over Wi-Fi**.
 6. Repeat touch, keyboard, Pen, and screenshot checks.
 7. Open **Files** and confirm that the library loads over Wi-Fi. Drop one small
    PDF and one DRM-free EPUB, drag one tablet document into Explorer, then save
    one document as native RMDOC to Windows.
-8. Close and reopen Mirror, reconnect USB-C, and choose **Connect USB-C**.
+8. With USB-C attached, click **Live over Wi-Fi**. Mirror uses the same bounded
+   **Connect USB-C** action.
 9. Confirm **Live over USB**, **Touch + Type**, and Files still work.
 
 The entered address selects where to make the attempt; it does not replace the
@@ -673,8 +675,8 @@ repair after every future root-slot switch is not ready yet.
 | **Connect to your reMarkable** | Mirror is idle and has not contacted the tablet | Choose **Connect USB-C** or **Connect Wi-Fi** |
 | **Connecting** | The owner-selected route is opening | Wait for this bounded attempt |
 | **Preparing your reMarkable** | Display and input for this connection are starting | Wait; unlock if this is the first post-boot unlock |
-| **Live over USB** | Display and input are ready through the cable | Nothing |
-| **Live over Wi-Fi** | Display, touch, keyboard, and Pen are ready over Wi-Fi | Nothing |
+| **Live over USB** | Display and input are ready through the cable | Click the status to enter a Wi-Fi address and switch routes |
+| **Live over Wi-Fi** | Display, touch, keyboard, and Pen are ready over Wi-Fi | Click the status to start a USB-C switch |
 | **Connect to your reMarkable** after a failure | The selected session ended or could not start | Fix the cable, network, address, or tablet state, then explicitly choose a route again |
 | **Repair** | The active tablet root is missing matching components | Confirm firmware support, then run the supported release's `Install.cmd` over unlocked USB |
 | Files says connect while Mirror is live | The tablet is locked or the stock Files listener is unavailable | Unlock and confirm USB web interface is enabled |
