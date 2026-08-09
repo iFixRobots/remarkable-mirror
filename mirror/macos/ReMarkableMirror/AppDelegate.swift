@@ -132,8 +132,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.requestFinishWiFiSetup = {
             await coordinator.finishWiFiPairing()
         }
-        model.requestConnect = { route in
-            await coordinator.connect(route: route)
+        model.requestConnect = { target in
+            await coordinator.connect(target: target)
         }
         model.requestCopyDetails = {
             Task {

@@ -3,11 +3,12 @@ import Foundation
 enum MonitorRouteBinding: Equatable, Sendable {
     case usb(DirectUSBRouteContext)
     case wifi(route: VerifiedWiFiRoute, interfaceName: String)
+    case manualWiFi(host: String, context: WiFiNetworkSessionContext)
 
     var kind: ConnectionRoute {
         switch self {
         case .usb: .usb
-        case .wifi: .wifi
+        case .wifi, .manualWiFi: .wifi
         }
     }
 
@@ -15,8 +16,14 @@ enum MonitorRouteBinding: Equatable, Sendable {
         switch self {
         case let .usb(context): context.interfaceName
         case let .wifi(_, interfaceName): interfaceName
+        case let .manualWiFi(_, context): context.interfaceName
         }
     }
+}
+
+struct ManualWiFiConnection: Equatable, Sendable {
+    let host: String
+    let context: WiFiNetworkSessionContext
 }
 
 struct MonitorRouteCandidate: Equatable, Sendable {
@@ -33,6 +40,8 @@ struct MonitorRouteCandidate: Equatable, Sendable {
             host = DeviceProfile.requiredHostKeyAlias
         case let .wifi(wifiRoute, _):
             host = wifiRoute.host
+        case let .manualWiFi(manualHost, _):
+            host = manualHost
         }
 
         return MonitorRouteCandidate(
@@ -251,6 +260,7 @@ extension TabletWakeClient: TabletWakeServicing { }
 
 struct ConnectionMonitorServices: Sendable {
     let verifyUSB: @Sendable () async -> DirectUSBRouteVerification
+    let currentWiFiSessionContext: @Sendable () throws -> WiFiNetworkSessionContext
     let matchWiFi: @Sendable (String) async throws -> WiFiNetworkContextMatch
     let probe: @Sendable (
         SSHRoute,
@@ -270,6 +280,9 @@ struct ConnectionMonitorServices: Sendable {
         ConnectionMonitorServices(
             verifyUSB: {
                 await directUSBRouteVerifier.verify()
+            },
+            currentWiFiSessionContext: {
+                try wifiContextProvider.currentSessionContext()
             },
             matchWiFi: { digest in
                 try await wifiContextProvider.matchCurrentNetwork(

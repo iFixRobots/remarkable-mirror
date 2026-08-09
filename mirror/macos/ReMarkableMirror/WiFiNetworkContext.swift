@@ -50,7 +50,7 @@ struct WiFiNetworkContextDigest: Equatable, Sendable {
     }
 }
 
-struct CurrentWiFiNetworkContextMaterial: Equatable, Sendable {
+struct WiFiNetworkSessionContext: Equatable, Sendable {
     let interfaceName: String
     fileprivate let routerAddress: UInt32
     fileprivate let networkAddress: UInt32
@@ -65,7 +65,7 @@ struct CurrentWiFiNetworkContextSource: Sendable {
 
     static let system = CurrentWiFiNetworkContextSource()
 
-    func read() -> CurrentWiFiNetworkContextMaterial? {
+    func read() -> WiFiNetworkSessionContext? {
         guard let route = Self.currentDefaultIPv4Route(),
               Self.isUsableIPv4Host(route.routerAddress) else {
             return nil
@@ -91,7 +91,7 @@ struct CurrentWiFiNetworkContextSource: Sendable {
             return nil
         }
 
-        return CurrentWiFiNetworkContextMaterial(
+        return WiFiNetworkSessionContext(
             interfaceName: interfaceName,
             routerAddress: route.routerAddress,
             networkAddress: networkAddress,
@@ -358,6 +358,12 @@ struct WiFiNetworkContextProvider: Sendable {
         )
     }
 
+    /// Captures the exact active Wi-Fi attachment for one owner-started
+    /// connection attempt without creating or reading a persistent secret.
+    func currentSessionContext() throws -> WiFiNetworkSessionContext {
+        try currentMaterial()
+    }
+
     func matchCurrentNetwork(storedDigest: String) async throws -> WiFiNetworkContextMatch {
         let expected = try WiFiNetworkContextDigest(storageValue: storedDigest)
         let current = try currentMaterial()
@@ -375,7 +381,7 @@ struct WiFiNetworkContextProvider: Sendable {
         )
     }
 
-    private func currentMaterial() throws -> CurrentWiFiNetworkContextMaterial {
+    private func currentMaterial() throws -> WiFiNetworkSessionContext {
         guard let current = source.read() else {
             throw WiFiNetworkContextError.currentNetworkUnavailable
         }
@@ -383,7 +389,7 @@ struct WiFiNetworkContextProvider: Sendable {
     }
 
     private func requireCurrentMaterial(
-        _ expected: CurrentWiFiNetworkContextMaterial
+        _ expected: WiFiNetworkSessionContext
     ) throws {
         guard let current = source.read() else {
             throw WiFiNetworkContextError.currentNetworkUnavailable
@@ -394,7 +400,7 @@ struct WiFiNetworkContextProvider: Sendable {
     }
 
     private static func authenticationMessage(
-        for current: CurrentWiFiNetworkContextMaterial
+        for current: WiFiNetworkSessionContext
     ) -> Data {
         var message = Self.authenticationDomain
         let interfaceBytes = Data(current.interfaceName.utf8)

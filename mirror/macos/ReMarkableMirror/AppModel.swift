@@ -58,6 +58,8 @@ final class AppModel {
     var toast: MirrorToast?
     var tabletAuthorizationPromptIsPresented = false
     var tabletAuthorizationSubmissionInProgress = false
+    private(set) var wifiAddressPromptIsPresented = false
+    var wifiAddressInput = ""
 
     @ObservationIgnored var requestFilesToggle: (() -> Void)?
     @ObservationIgnored var requestFilesPaneVisibilityChange: ((Bool, UInt64) -> Void)?
@@ -69,7 +71,7 @@ final class AppModel {
     @ObservationIgnored var requestCheckTabletAuthorization: (() async -> Bool)?
     @ObservationIgnored var requestRepairUSB: (() async -> Bool)?
     @ObservationIgnored var requestFinishWiFiSetup: (() async -> Bool)?
-    @ObservationIgnored var requestConnect: ((ConnectionRoute) async -> Bool)?
+    @ObservationIgnored var requestConnect: ((ManualConnectionTarget) async -> Bool)?
     @ObservationIgnored var requestCopyDetails: (() -> Void)?
     @ObservationIgnored var requestCopyScreenshot: (() -> Void)?
     @ObservationIgnored var requestSaveScreenshot: (() -> Void)?
@@ -121,7 +123,10 @@ final class AppModel {
     var hasCurrentFrame: Bool { canCopyScreenshot }
 
     var canFinishWiFiSetup: Bool {
-        guard !connectionRequestInFlight else { return false }
+        guard !connectionRequestInFlight,
+              !wifiAddressPromptIsPresented else {
+            return false
+        }
         guard manualStep == .finishWiFi ||
                 manualStep == .connectUSBBeforeWiFi else {
             return false
@@ -174,7 +179,39 @@ final class AppModel {
         manualStep == .reauthorizeUSB
     }
 
+    var displayedConnectionState: ConnectionPresentationState {
+        wifiAddressPromptIsPresented && !connectionState.isLive
+            ? .readyToConnect
+            : connectionState
+    }
+
+    var canSwitchLiveConnection: Bool {
+        connectionState.isLive &&
+            !connectionRequestInFlight &&
+            !wifiAddressPromptIsPresented
+    }
+
+    var liveConnectionSwitchHint: String {
+        switch connectionState {
+        case .live(.usb):
+            "Switch to Wi‑Fi."
+        case .live(.wifi):
+            "Switch to USB‑C."
+        default:
+            "Available when the mirror is live."
+        }
+    }
+
     var recoveryCard: RecoveryCardContent? {
+        if wifiAddressPromptIsPresented {
+            return RecoveryCardContent(
+                symbol: "wifi",
+                title: "Make sure your reMarkable is awake",
+                message: "Press the power button once if needed. It can stay locked. Enter the tablet’s Wi‑Fi IP address.",
+                showsProgress: false,
+                actions: [.connectEnteredWiFi, .cancelWiFiAddress]
+            )
+        }
         if connectionState == .setupInProgress {
             let content: RecoveryCardContent
             switch manualStep {
@@ -245,8 +282,8 @@ final class AppModel {
             case .connectWiFi:
                 content = RecoveryCardContent(
                     symbol: "wifi",
-                    title: "Connecting with Wi‑Fi",
-                    message: "Checking your approved Wi‑Fi connection once.",
+                    title: "Connecting over Wi‑Fi",
+                    message: "Trying your approved Wi‑Fi connection. Mirror will stop if it can’t connect.",
                     showsProgress: true,
                     actions: []
                 )
@@ -268,8 +305,8 @@ final class AppModel {
             case .connectWiFi:
                 return RecoveryCardContent(
                     symbol: "wifi",
-                    title: "Connecting with Wi‑Fi",
-                    message: "Checking your approved Wi‑Fi connection once.",
+                    title: "Connecting over Wi‑Fi",
+                    message: "Trying your approved Wi‑Fi connection. Mirror will stop if it can’t connect.",
                     showsProgress: true,
                     actions: []
                 )
@@ -291,16 +328,6 @@ final class AppModel {
                 (isManualConnectionStep &&
                     Self.isManualConnectionFailure(connectionState))),
            let base = connectionState.recoveryCard {
-            if manualStep == .connectUSBBeforeWiFi,
-               connectionState == .offline {
-                return RecoveryCardContent(
-                    symbol: "cable.connector",
-                    title: "USB‑C couldn’t reach the tablet",
-                    message: "Mirror couldn’t wake or reach the tablet through this cable. Reconnect it, then try USB‑C again.",
-                    showsProgress: false,
-                    actions: [.connectUSB]
-                )
-            }
             return base.replacingActions(manualRecoveryActions)
         }
         return connectionState.recoveryCard
@@ -383,7 +410,34 @@ final class AppModel {
         case .connectUSB:
             beginConnectionAttempt(.usb)
         case .connectWiFi:
-            beginConnectionAttempt(.wifi)
+            if wifiAddressPromptIsPresented {
+                guard let host = normalizedWiFiAddress else { return }
+                beginConnectionAttempt(.wifi(host: host))
+                return
+            }
+            guard !connectionRequestInFlight,
+                  connectionState != .connecting,
+                  connectionState != .setupInProgress else {
+                return
+            }
+            wifiAddressInput = ""
+            wifiAddressPromptIsPresented = true
+        case .cancelWiFiAddress:
+            guard !connectionRequestInFlight else { return }
+            wifiAddressPromptIsPresented = false
+            wifiAddressInput = ""
+        }
+    }
+
+    func switchLiveConnection() {
+        guard canSwitchLiveConnection else { return }
+        switch connectionState {
+        case .live(.usb):
+            performRecoveryAction(.connectWiFi)
+        case .live(.wifi):
+            performRecoveryAction(.connectUSB)
+        default:
+            break
         }
     }
 
@@ -502,7 +556,29 @@ final class AppModel {
         }
     }
 
-    private func beginConnectionAttempt(_ route: ConnectionRoute) {
+    var canSubmitWiFiAddress: Bool {
+        normalizedWiFiAddress != nil
+    }
+
+    func recoveryActionIsEnabled(_ action: RecoveryAction) -> Bool {
+        guard !connectionRequestInFlight else { return false }
+        if action == .connectWiFi, wifiAddressPromptIsPresented {
+            return canSubmitWiFiAddress
+        }
+        return true
+    }
+
+    private var normalizedWiFiAddress: String? {
+        let value = wifiAddressInput.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        return TabletWiFiPairingProbe.isGlobalIPv4Host(value)
+            ? value
+            : nil
+    }
+
+    private func beginConnectionAttempt(_ target: ManualConnectionTarget) {
+        let route = target.route
         guard connectionState != .connecting,
               connectionState != .setupInProgress,
               connectionRequestID == nil,
@@ -518,12 +594,15 @@ final class AppModel {
         connectionRequestRoute = route
 
         Task { @MainActor [weak self] in
-            let accepted = await requestConnect(route)
+            let accepted = await requestConnect(target)
             guard let self, self.connectionRequestID == requestID else { return }
             guard !accepted else { return }
             self.connectionRequestID = nil
             self.connectionRequestInFlight = false
             self.connectionRequestRoute = nil
+            if route == .wifi {
+                self.wifiAddressPromptIsPresented = false
+            }
             guard
                   self.latestSnapshotRevision == requestRevision,
                   self.connectionState == previousState,
@@ -589,13 +668,27 @@ final class AppModel {
             }
         }
 
+        let nextConnectionState = ConnectionPublicationGate.presentation(for: snapshot)
+        let preservesLiveWiFiPrompt = wifiAddressPromptIsPresented &&
+            connectionRequestID == nil &&
+            connectionState.isLive &&
+            nextConnectionState.isLive &&
+            snapshot.admission == .generationEvent
+        let preservesLiveConnectionRequest = connectionRequestID != nil &&
+            connectionState.isLive &&
+            nextConnectionState.isLive &&
+            snapshot.admission == .generationEvent
+
         latestSnapshotRevision = snapshot.revision
-        if connectionRequestID != nil {
+        if wifiAddressPromptIsPresented && !preservesLiveWiFiPrompt {
+            wifiAddressPromptIsPresented = false
+            wifiAddressInput = ""
+        }
+        if connectionRequestID != nil && !preservesLiveConnectionRequest {
             connectionRequestID = nil
             connectionRequestInFlight = false
             connectionRequestRoute = nil
         }
-        let nextConnectionState = ConnectionPublicationGate.presentation(for: snapshot)
         connectionState = nextConnectionState
         if nextConnectionState != .setupInProgress {
             tabletAuthorizationSubmissionInProgress = false
@@ -688,14 +781,8 @@ final class AppModel {
             [.reauthorizeUSB]
         case .finishWiFi:
             [.connectUSB]
-        case .connectUSBBeforeWiFi:
-            [.connectUSB]
-        case .chooseConnection:
+        case .connectUSBBeforeWiFi, .chooseConnection, .connectUSB, .connectWiFi:
             [.connectUSB, .connectWiFi]
-        case .connectUSB:
-            [.connectUSB]
-        case .connectWiFi:
-            [.connectWiFi]
         case .none:
             []
         }
@@ -703,7 +790,7 @@ final class AppModel {
 
     private var isManualConnectionStep: Bool {
         switch manualStep {
-        case .connectUSBBeforeWiFi, .connectUSB, .connectWiFi:
+        case .connectUSBBeforeWiFi, .chooseConnection, .connectUSB, .connectWiFi:
             true
         default:
             false

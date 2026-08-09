@@ -44,7 +44,7 @@ though this Mac currently selects the beta toolchain globally.
 | Finder drag-out | Delayed WinRT storage provider | Process-owned `NSFilePromiseProvider` fulfillment with atomic final publication | Implemented in source; canceled drag followed by Escape and clean quit physically exercised on an older corrected build; current Finder drag-out file materialization and termination drain remain unproved |
 | Profile and credentials | Windows profile files and credential protection | Strict versioned Application Support profile, mode-`0600` OpenSSH files and Wi-Fi-only Keychain secrets | USB authorization exercised; signed-package Keychain behavior unproven |
 | Pairing finalizer | Windows onboarding and dedicated-key authorization | Separate bounded `Add This Mac…`, `Check Authorization`, and `Connection > Set Up Wi-Fi…` operations behind exact direct-cable gates | Persistent USB authorization and helper repair exercised; Wi-Fi setup unproved |
-| Connection selection and lifecycle | Owner-started `Connect USB-C` or `Connect Wi-Fi`; Windows asks for an IPv4 address after the Wi-Fi action and pins the selected route | Owner-started `Connect USB-C` or `Connect Wi-Fi`; USB-C owns a bounded same-cable wake-through-connect session and never selects Wi-Fi | Manual lifecycle aligned; Windows IP entry is intentional; Mac USB-C exercised, Wi-Fi unproved |
+| Connection selection and lifecycle | Owner-started `Connect USB-C` or `Connect Wi-Fi`; Windows asks for an IPv4 address after the Wi-Fi action, pins the selected route and lets the Live status switch routes | Connection card stacks owner-started `Connect USB-C` above `Connect via Wi-Fi`; the Wi-Fi action locally asks for an IPv4 address and starts one bounded Wi-Fi-only attempt, USB-C owns a bounded same-cable session, and the Live status invokes the opposite existing action | Manual lifecycle aligned with no cross-route fallback; Mac USB-C, manual-IP Wi-Fi and Live route switching physically exercised |
 | Wake and active-session continuity | USB data-attachment guard, input wake lock, guarded deep-sleep power event and connection-aware activity | Same tablet services plus one guarded `KEY_POWER`, immediate Wi-Fi `KEY_F12`, and 10-second Wi-Fi/45-second USB activity inside an owner-started connection | Active USB session exercised; an explicit USB-C connection returned a previously unreachable locked tablet to its passcode, but the exact fully-deep-sleep power event remains unproved |
 | Local reset | Current-user profile and credential cleanup | Service-scoped Keychain cleanup followed by app-owned profile and SSH reset | Implemented in source; tablet-side authorization intentionally remains |
 | Diagnostics | Bounded sanitized Windows log | Bounded fixed-code in-memory ledger and copyable sanitized report | Implemented in Milestone 2 |
@@ -101,17 +101,29 @@ Mode SSH over Wi-Fi.
   **Connect USB‑C** starts one bounded direct-cable session that wakes, waits for
   services, authenticates, and connects without selecting or falling back to
   Wi-Fi. If the tablet requires its passcode, the owner unlocks it and that
-  USB-C session continues. **Connect Wi‑Fi** is a separate owner action.
-- Pending Wi-Fi setup does not block an authorized owner-started USB connection.
-  **Connect USB‑C** remains available; **Connect Wi‑Fi** remains gated until the
-  separate Wi-Fi setup succeeds.
+  USB-C session continues. The connection card places **Connect via Wi‑Fi**
+  directly below **Connect USB‑C**. Choosing the Wi-Fi action first opens a local
+  prompt for the tablet’s IPv4 address and says the tablet must be awake but may
+  remain locked. Submitting starts one Wi-Fi-only attempt to that address, bound
+  to the current Wi-Fi context and authenticated with the saved pinned SSH
+  identity. It may repeat transient-offline checks every three seconds during a
+  45-second retry window; a bounded check admitted before expiry may finish
+  afterward. It never auto-discovers or persists an address, inspects or uses
+  USB, wakes the tablet, falls back to another transport, calls the wake HTTP
+  endpoint, requests a password, or requires an unlock. Failure returns to both
+  manual connection choices. Files remains separate and may still require one.
+- Pending persistent Wi-Fi setup does not block either manual connection choice.
+  **Connect USB‑C** and **Connect via Wi‑Fi** remain available in that order; the
+  entered Wi-Fi address is used for that attempt only and does not complete the
+  separate persistent Wi-Fi setup.
 - The connection progress card appears only when an accepted attempt remains
   active for 250 ms. Faster outcomes go directly to their actionable result.
 - Sanitized diagnostics are available under
   **Help > Copy Connection Diagnostics**.
-- **Connect USB‑C** or **Connect Wi‑Fi** pins the selected connection to one
-  generation. One generation owns probe, frame, input, Files-forward and wake
-  work; retirement precedes any later owner-started replacement.
+- **Connect USB‑C** or submitted **Connect via Wi‑Fi** pins the selected
+  connection to one generation. One generation owns probe, frame, input,
+  Files-forward and wake work; retirement precedes any later owner-started
+  replacement.
 - `Live` requires a fresh frame and running input from the same generation.
   Files readiness remains independent.
 - System OpenSSH starts with a dedicated identity, `BatchMode`,
@@ -203,7 +215,8 @@ Mode SSH over Wi-Fi.
 
 - Delete, raw Finder drag-in, Finder drag-out file materialization,
   eraser/right-click, short-sleep recovery, the exact fully-deep-sleep power
-  event and Wi-Fi remain unproved.
+  event and persistent Wi-Fi setup remain unproved. The manual-IP Wi-Fi
+  connection path is physically exercised.
 - Only explicit Wi-Fi setup stores the Wi-Fi context secret and wake token
   through the Data Protection Keychain adapter. Direct USB-C does not use them.
   The current unsigned app has no proved Team

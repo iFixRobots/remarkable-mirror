@@ -14,6 +14,18 @@ enum ConnectionRoute: String, Codable, Equatable, Sendable {
     case wifi
 }
 
+enum ManualConnectionTarget: Equatable, Sendable {
+    case usb
+    case wifi(host: String)
+
+    var route: ConnectionRoute {
+        switch self {
+        case .usb: .usb
+        case .wifi: .wifi
+        }
+    }
+}
+
 enum ProcessRole: String, Hashable, Sendable {
     case passiveProbe
     case wifiPairingDiscovery

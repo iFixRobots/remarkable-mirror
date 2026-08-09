@@ -129,9 +129,21 @@ state; neither launch nor cable or network changes start tablet communication.
 starts one bounded direct-cable session. That session may repeat status, wake,
 service-readiness, authentication, and connection checks against the same
 cable-attached tablet until it succeeds, needs the tablet passcode, or reaches
-its bound. It never inspects, selects, or falls back to Wi‑Fi. **Connect Wi‑Fi**
-is a separate owner action. When an operation ends without connecting, the app
-returns to an actionable idle state instead of continuing in the background.
+its bound. It never inspects, selects, or falls back to Wi‑Fi.
+The connection card presents **Connect USB-C** followed vertically by
+**Connect via Wi‑Fi**. The Wi-Fi action first changes only local presentation:
+it asks for the tablet’s IPv4 address and tells the owner to make sure the tablet
+is awake, although it may remain locked. Submitting starts one Wi-Fi-only
+attempt to that entered address, binds it to the Mac’s current Wi-Fi context,
+and authenticates it with the saved pinned SSH identity. A transiently offline
+route is rechecked every three seconds during a 45-second retry window. A
+bounded check admitted before expiry may finish afterward. The attempt never
+auto-discovers or persists an address, inspects or uses USB, wakes the tablet,
+falls back to another transport, uses the wake HTTP endpoint, requests a
+password, or requires the tablet to be unlocked. When an operation ends without
+connecting, the app returns to both manual connection choices instead of
+continuing in the background. Files remains a separate capability and may still
+require an unlock.
 
 The explicit **Add This Mac…** action is the persistent authorization boundary.
 After repeating the exact direct-USB gates, it uses a one-time root password to
@@ -143,15 +155,14 @@ documents nor the Wi-Fi password are changed. An uncertain result returns to
 **Check Authorization**, which performs one bounded
 key-only check and never reopens the password prompt by itself. Only a current,
 exact-context key rejection makes another owner-started password attempt
-eligible. **Connection > Set Up Wi‑Fi…** is a separate bounded action that
-verifies the current Wi-Fi connection and completes the pending Wi-Fi
-transition without appending the key again or requesting Location Services. The
-authorized pending profile can be used for an explicit USB-only connection
-before that transition; Wi-Fi connection remains unavailable until Wi-Fi setup
-succeeds. Connection diagnostics are available under
-**Help > Copy Connection Diagnostics**.
-While Wi‑Fi verification is pending, the authorized profile can use
-**Connect USB‑C**, but **Connect Wi-Fi** remains unavailable. The coordinator
+eligible. **Connection > Set Up Wi‑Fi…** remains a separate bounded action that
+verifies the current Wi-Fi connection and completes the stored Wi-Fi transition
+without appending the key again or requesting Location Services. It is not an
+admission gate for the manual IP path. While Wi‑Fi verification is pending, the
+authorized profile’s connection card still shows **Connect USB‑C** followed by
+**Connect via Wi‑Fi**. The latter uses the owner-entered address for that attempt
+only and does not complete or persist Wi-Fi setup. Connection diagnostics are
+available under **Help > Copy Connection Diagnostics**. The coordinator
 publishes connection progress only if an
 accepted attempt remains active for 250 ms; quicker outcomes proceed directly
 to their result instead of flashing a progress card.
@@ -345,18 +356,31 @@ The Windows pre-SSH wake path pins its socket to the direct USB adapter;
 loopback is available only on the tablet or through authenticated SSH
 forwarding.
 
-On Mac, **Connect USB‑C** and **Connect Wi‑Fi** are separate owner actions. One
-**Connect USB‑C** click owns a bounded session on the exact direct cable. It may
-wake the tablet and wait for the same tablet's services before authenticating
+On Mac, **Connect USB‑C** and **Connect via Wi‑Fi** are separate owner actions.
+One **Connect USB‑C** click owns a bounded session on the exact direct cable. It
+may wake the tablet and wait for the same tablet's services before authenticating
 and connecting, but it never checks, selects, or falls back to Wi-Fi. If the
 tablet reports that encrypted storage is locked, entering the passcode is the
-only owner intervention required; the USB-C session then continues. The chosen
-connection is pinned to the resulting generation. Cable or network changes do
-not start, replace, or move a connection. A failed or retired generation returns
-to the disconnected surface and waits for another owner action. Exact binding
+only owner intervention required; the USB-C session then continues.
+**Connect via Wi‑Fi** first opens an entirely local prompt for the tablet’s IPv4
+address and says the tablet must be awake but may remain locked. Submitting
+starts the single bounded Wi-Fi attempt to that address, bound to the current
+Wi-Fi context and authenticated with the saved pinned SSH identity, with
+three-second transient-offline checks during a 45-second retry window. A bounded
+check admitted before expiry may finish afterward. That attempt does not
+auto-discover or persist an address, inspect or use USB, wake the tablet, fall
+back to another transport, call the wake HTTP endpoint, request a password, or
+require an unlock. Failure returns to the two manual connection choices. The
+chosen connection is pinned to the resulting generation. Cable or network changes do not start,
+replace, or move a connection. A failed or retired generation returns to the
+disconnected surface and waits for another owner action. Exact binding
 revalidation still gates publication, and a fresh frame plus ready input from
 the chosen generation remain required before the connection can publish
-**Live**.
+**Live**. Files remains independent and may still wait for an unlock. While
+Live, the route status delegates to those same manual actions. USB-C opens the
+existing Wi-Fi address prompt without retiring the USB generation; canceling
+leaves USB Live. Wi-Fi starts the existing USB-C action immediately. The status
+control adds no probing, fallback, or connection implementation.
 
 Normal continuity inside an owner-started connection comes from preventing
 suspend, not from waiting until the kernel is already asleep. While a Live USB

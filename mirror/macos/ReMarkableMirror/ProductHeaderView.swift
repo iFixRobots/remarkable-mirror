@@ -83,24 +83,54 @@ struct ProductHeaderView: View {
                     .foregroundStyle(.white)
                     .lineLimit(1)
                     .fixedSize(horizontal: true, vertical: false)
+                    .accessibilityAddTraits(.isHeader)
 
                 statusLine
             }
         }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(
-            "Paper Pro Move. Connection status: \(model.connectionState.statusText)"
-        )
     }
 
+    @ViewBuilder
     private var statusLine: some View {
+        if model.connectionState.isLive {
+            Button {
+                model.switchLiveConnection()
+            } label: {
+                statusLineContent
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .background {
+                        Capsule()
+                            .fill(.white.opacity(0.09))
+                    }
+                    .overlay {
+                        Capsule()
+                            .stroke(.white.opacity(0.12), lineWidth: 1)
+                    }
+                    .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .disabled(!model.canSwitchLiveConnection)
+            .help(model.liveConnectionSwitchHint)
+            .accessibilityLabel(model.displayedConnectionState.statusText)
+            .accessibilityHint(model.liveConnectionSwitchHint)
+        } else {
+            statusLineContent
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(
+                    "Connection status: \(model.displayedConnectionState.statusText)"
+                )
+        }
+    }
+
+    private var statusLineContent: some View {
         HStack(spacing: 5) {
             Circle()
-                .fill(MirrorPalette.status(model.connectionState.tone))
+                .fill(MirrorPalette.status(model.displayedConnectionState.tone))
                 .frame(width: 6, height: 6)
                 .accessibilityHidden(true)
 
-            Text(model.connectionState.statusText)
+            Text(model.displayedConnectionState.statusText)
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(.white.opacity(0.78))
                 .lineLimit(1)

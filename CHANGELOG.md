@@ -18,7 +18,20 @@ Notable user-visible changes are recorded here.
   ownership, owner-approved tablet key authorization and Wi-Fi SSH enablement,
   direct Metal frame presentation, screenshots, Touch + Type, Pen and eraser
   input, tablet Files and Finder drag-out, separate owner-started USB-C and
-  Wi-Fi connections, wake and recovery. The fixed non-resizable window is `456 x 877`
+  Wi-Fi connections, wake and recovery. On Mac, the connection card now places
+  **Connect via Wi‑Fi** directly below **Connect USB-C**. That action first opens
+  a local prompt for the tablet’s IPv4 address and says the tablet must be awake
+  but may remain locked. Submitting starts one Wi-Fi-only attempt to the entered
+  address, bound to the current Wi-Fi context and authenticated with the saved
+  pinned SSH identity, with three-second offline checks during a 45-second retry
+  window. A bounded check already admitted may finish afterward. The attempt
+  does not auto-discover or save an address, inspect or use USB, wake the tablet,
+  fall back to another transport, use the wake HTTP service, request a password,
+  or require an unlock. Failure returns to the two manual connection choices.
+  While Live, the green connection status is also a switch: USB-C opens that
+  same Wi-Fi address prompt, while Wi-Fi starts the existing USB-C action.
+  Files remains separate and may still require an unlock. The fixed
+  non-resizable window is `456 x 877`
   compact and `776 x 877` with Files open. The Files animation is accepted as
   smooth; this is not owner acceptance. The final default-size pass over every
   user-visible label, line break and action semantic remains on the port

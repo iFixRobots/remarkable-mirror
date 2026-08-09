@@ -22,7 +22,12 @@ struct TabletStageView: View {
                     .accessibilityHidden(true)
 
                 Group {
-                    if model.hasCurrentFrame,
+                    if model.wifiAddressPromptIsPresented {
+                        TabletWaitingScreen(
+                            recoveryCard: model.recoveryCard,
+                            model: model
+                        )
+                    } else if model.hasCurrentFrame,
                        let presentation = model.framePresentation {
                         ZStack {
                             TabletFrameView(presentation: presentation)
@@ -125,7 +130,8 @@ private struct TabletWaitingScreen: View {
 
 private struct RecoveryCardView: View {
     let content: RecoveryCardContent
-    let model: AppModel
+    @Bindable var model: AppModel
+    @FocusState private var wifiAddressIsFocused: Bool
 
     var body: some View {
         cardContent
@@ -167,6 +173,26 @@ private struct RecoveryCardView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
+            if model.wifiAddressPromptIsPresented {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Tablet IP address")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(MirrorPalette.ink)
+
+                    TextField("192.168.1.42", text: $model.wifiAddressInput)
+                        .textFieldStyle(.roundedBorder)
+                        .focused($wifiAddressIsFocused)
+                        .accessibilityLabel("Tablet Wi‑Fi IP address")
+                        .onSubmit {
+                            guard model.canSubmitWiFiAddress else { return }
+                            model.performRecoveryAction(.connectWiFi)
+                        }
+                        .task {
+                            wifiAddressIsFocused = true
+                        }
+                }
+            }
+
             if content.showsProgress {
                 ProgressView()
                     .controlSize(.small)
@@ -175,20 +201,29 @@ private struct RecoveryCardView: View {
             }
 
             if !content.actions.isEmpty {
-                ViewThatFits(in: .horizontal) {
-                    HStack(spacing: 8) {
-                        ForEach(content.actions) { descriptor in
-                            actionButton(descriptor, fillsWidth: false)
-                        }
-                    }
-                    .fixedSize(horizontal: true, vertical: false)
-
+                if content.actions.map(\.action) == [.connectUSB, .connectWiFi] {
                     VStack(spacing: 8) {
                         ForEach(content.actions) { descriptor in
                             actionButton(descriptor, fillsWidth: true)
                         }
                     }
                     .frame(maxWidth: .infinity)
+                } else {
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 8) {
+                            ForEach(content.actions) { descriptor in
+                                actionButton(descriptor, fillsWidth: false)
+                            }
+                        }
+                        .fixedSize(horizontal: true, vertical: false)
+
+                        VStack(spacing: 8) {
+                            ForEach(content.actions) { descriptor in
+                                actionButton(descriptor, fillsWidth: true)
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
                 }
             }
         }
@@ -223,7 +258,7 @@ private struct RecoveryCardView: View {
             .frame(maxWidth: fillsWidth ? .infinity : nil)
         }
         .accessibilityLabel(descriptor.accessibilityLabel)
-        .disabled(model.connectionRequestInFlight)
+        .disabled(!model.recoveryActionIsEnabled(descriptor.action))
 
         if descriptor.isPrimary {
             button
