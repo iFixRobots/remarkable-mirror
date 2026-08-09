@@ -1,98 +1,83 @@
-# Device setup reference
+# Tablet setup reference
 
-For a first installation, use [Getting started](GETTING_STARTED.md). It includes
-the Windows tools, commands, screenshots, install path, and success checklist.
+This is the compact operator reference. For a first installation, follow
+[Getting started](GETTING_STARTED.md) from the top.
 
-This page is the shorter tablet-side reference for people who already know the
-project.
+## Admission checklist
 
-## Required tablet state
+- supported reMarkable Paper Pro Move model and firmware;
+- reMarkable Developer Mode enabled;
+- first physical passcode unlock after the current boot completed;
+- direct USB tablet address `10.11.99.1`;
+- direct Windows address `10.11.99.11/27`;
+- physical route `10.11.99.0/27`;
+- dedicated key at `%USERPROFILE%\.ssh\remarkable_chiappa_ed25519`;
+- pinned host key at `%USERPROFILE%\.ssh\remarkable_known_hosts`;
+- **Settings > General > Storage > USB web interface** enabled; and
+- tablet Wi-Fi rejoined and explicitly **Connected** after the Developer Mode
+  reset.
 
-- reMarkable Paper Pro Move in Developer Mode
-- first passcode unlock after the current boot completed
-- direct USB address `10.11.99.1`
-- Windows direct USB address `10.11.99.11/27`
-- dedicated key at `%USERPROFILE%\.ssh\remarkable_chiappa_ed25519`
-- pinned host key at `%USERPROFILE%\.ssh\remarkable_known_hosts`
-- **Settings > General > Storage > USB web interface** enabled
-- tablet rejoined to Wi-Fi after the Developer Mode reset
-
-Developer Mode setup, SSH trust, and public-key installation are documented in
-[Pair one dedicated SSH key](GETTING_STARTED.md#7-pair-one-dedicated-ssh-key).
-
-## Developer Mode facts that matter here
-
-- Enabling it factory-resets the tablet.
-- The reset deletes saved Wi-Fi networks.
-- The root username and generated password are under **Settings > General >
-  Help > About > Copyrights and Licenses**.
-- SSH over Wi-Fi is off by default.
-- Mirror's installer enables reMarkable's `rm-ssh-over-wlan on` setting.
-- During an active Mirror session, the USB carrier guard prevents suspend while
-  attached, and the selected input session holds its own wake lease. If Linux
-  already completed suspend before a connection starts, there is no
-  source-proven host wake guarantee; press the power button once, enter the
-  passcode, and explicitly choose the route again.
-
-For the tablet's own Developer Mode steps, follow reMarkable's
+Developer Mode factory-resets the tablet, deletes saved Wi-Fi networks, and
+exposes root SSH. The generated root credential is under **Settings > General >
+Help > About > Copyrights and Licenses**. Follow reMarkable's official
 [Developer Mode documentation](https://developer.remarkable.com/documentation/developer-mode).
 
-## Install the tablet pieces
+## Installation
 
-The first setup must use the direct USB route. Keep the tablet connected and
-unlocked while `Install.cmd` installs the included probe, Xovi
-runtime and extensions, Files loopback, and transport wake component.
+The complete first setup uses the Windows package over direct USB. Keep the
+tablet connected and past its first post-boot unlock while `Install.cmd`:
 
-The installer places the transport service's static boot dependency under
-`/usr/lib/systemd/system`, where it is intended to survive an ordinary reboot
-of the same active root slot; `/etc` is volatile on this tablet. A firmware
-update can activate the other root slot, which may need setup again.
+1. verifies the release metadata and staged assets;
+2. validates the Paper Pro Move input devices;
+3. installs the pinned Xovi runtime and three active extensions;
+4. installs the capture/input probe;
+5. installs and verifies the transport-wake service and USB suspend guard;
+6. stores the protected wake token and host profile; and
+7. enables and verifies Developer Mode SSH over Wi-Fi.
 
-The same setup installed probe v0.4.9. After publishing and verifying that
-binary, an upgrade retires only exact running
-`rmmirror-probe stream` processes: TERM, a bounded wait, KILL only for
-survivors, then a second absence check. Input and its watchdog are not matched.
-If exact frame retirement cannot be verified, setup stops instead of claiming
-success.
+The detailed persistent footprint and compatibility side effects are in
+[What Mirror changes](TABLET_CHANGES.md).
 
-The Windows installer sends its gated launcher payload over standard input
-rather than placing the long remote script in the command line, avoiding the
-Windows command-length limit.
+The Windows launcher owns SSH/SCP children through a gated Job Object and sends
+its serialized payload over standard input. Do not move the remote script back
+into `-EncodedCommand`; it can exceed Windows command-line limits.
 
-Touch, pen, and keyboard input are session-only. Mirror starts them when a
-connection is ready. They are not persistent tablet boot hooks.
+## Runtime lifecycle
 
-## Use Wi-Fi
+Launching Mirror performs no tablet probe or wake.
 
-Mirror never needs the Wi-Fi password. Enter it only on the tablet. Wireless
-Mirror requires:
+- **Connect USB-C** owns one bounded direct-cable attempt.
+- **Connect Wi-Fi** reveals an IPv4 field, then owns one bounded attempt against
+  the submitted address.
+- The selected route is pinned to its frame, input, wake, and Files generation.
+- Failures retire that generation and return to manual choices.
+- There is no background route monitor, fallback, promotion, or reconnection.
+- Clicking the Live status delegates to the opposite existing manual action.
+- Files starts only when the owner opens Files.
 
-- the tablet and PC connected to the same Wi-Fi network;
-- root SSH-over-WLAN enabled by the installer;
-- the dedicated SSH key and pinned host identity; and
-- a tablet state where the Wi-Fi radio is awake.
+Virtual input is session-only. No input service, Xochitl boot dependency, udev
+rule, or persistent input hook is installed.
 
-The stock Files service is not exposed directly on Wi-Fi. Mirror reaches the
-tablet-local listener through authenticated SSH forwarding.
+## Wi-Fi boundary
 
-To connect, choose **Connect Wi-Fi**. Mirror reveals the address field only
-after that action. Confirm or edit the tablet's current IPv4 address, then
-choose **Connect**. The address selects the route for this attempt; pinned SSH
-identity and the paired Windows network still gate it. Launch and network
-changes never start a connection automatically.
+Mirror never needs the Wi-Fi password. Wi-Fi use requires the tablet and host
+on the approved paired network, the dedicated key and pinned identity, Developer
+Mode SSH-over-WLAN, and an awake Wi-Fi radio.
 
-## After firmware updates
+The entered IPv4 address selects only the explicit attempt. It does not replace
+the pinned tablet identity or paired Windows network checks. Files remains on
+tablet loopback and travels through SSH forwarding.
 
-The tablet uses A/B root slots. A firmware update can switch to a root without
-the package-matching components. If the app shows **Repair**:
+## Firmware updates
 
-1. confirm that the release explicitly supports the tablet's new software
-   version;
-2. if it does not, stop and report the new version;
-3. if it does, connect over USB-C;
-4. complete the first post-boot unlock;
-5. run `Install.cmd` from that supported release again; and
-6. reopen Mirror after setup finishes.
+The tablet uses A/B root slots. An update can activate a root without the
+matching Mirror components.
 
-Running the installer again is supported. Automatic repair after every future
-root-slot change is not ready yet.
+1. Confirm the release supports the new software version.
+2. If it does not, stop and report the version.
+3. If it does, connect and unlock over USB.
+4. Run that release's `Install.cmd` again.
+5. Reopen Mirror and explicitly choose a connection.
+
+Automatic root-slot repair is not implemented. Complete stock removal is also
+not yet supported; see [Uninstall status](UNINSTALL.md).

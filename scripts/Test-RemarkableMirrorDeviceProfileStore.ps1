@@ -326,6 +326,31 @@ try {
         . ([scriptblock]::Create($functionAst.Extent.Text))
     }
 
+    $currentIdentity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+    $currentPrincipal = [System.Security.Principal.WindowsPrincipal]::new($currentIdentity)
+    if (-not $currentPrincipal.IsInRole(
+            [System.Security.Principal.WindowsBuiltInRole]::Administrator
+        )) {
+        # PowerShell 7.6 can request SeSecurityPrivilege when Set-Acl reapplies a
+        # protected descriptor. The real installer runs elevated; this harness
+        # keeps its standard-user coverage by persisting the same file ACL
+        # directly, without requesting access to the system audit ACL.
+        function Set-Acl {
+            param(
+                [Parameter(Mandatory)][string]$LiteralPath,
+                [Parameter(Mandatory)]
+                [System.Security.AccessControl.FileSecurity]$AclObject
+            )
+
+            [System.IO.FileSystemAclExtensions]::SetAccessControl(
+                [System.IO.FileInfo]::new(
+                    [System.IO.Path]::GetFullPath($LiteralPath)
+                ),
+                $AclObject
+            )
+        }
+    }
+
     $tokenPath = Join-Path $temporaryRoot 'local-wake-token'
     $firstToken = 'a' * 64
     $secondToken = 'b' * 64

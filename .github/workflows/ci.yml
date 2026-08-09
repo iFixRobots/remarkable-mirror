@@ -80,9 +80,11 @@ jobs:
               'Test-RemarkableMirrorFrameStreamLease.ps1',
               'Test-RemarkableMirrorInputRecoveryPolicy.ps1',
               'Test-RemarkableMirrorInputSessionRoutePolicy.ps1',
+              'Test-RemarkableMirrorManualConnectionPolicy.ps1',
               'Test-RemarkableMirrorMultipartUpload.ps1',
               'Test-RemarkableMirrorPassiveRouteProbe.ps1',
               'Test-RemarkableMirrorPrerequisiteUsbBoundary.ps1',
+              'Test-RemarkableMirrorPublicDocumentation.ps1',
               'Test-RemarkableMirrorWifiRepairPolicy.ps1',
               'Test-RemarkableMirrorWindowsNetworkIdentityMatcher.ps1',
               'Test-RemarkableMirrorPackageMetadata.ps1'

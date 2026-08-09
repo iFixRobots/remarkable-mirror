@@ -1,104 +1,158 @@
 # Releasing
 
-Official releases are built from a clean public commit and signed with the
-iFixRobots package identity. The build uses .NET SDK 10.0.302 and Go 1.26.5;
-the root `global.json`, Go module, CI workflow, and package builder enforce those
-exact versions.
+This project has no public binary release yet. A green build is necessary, but
+it is not enough to publish software that changes a tablet and installs trusted
+host credentials.
 
-Every push to `main` also creates private GitHub Actions downloads for owner
-review. A successful workflow proves that the installer and portable download
-were built; it does not make either one a public release. Public releases still
-follow the signing, source, and publishing steps below.
+## Release outputs
 
-The installer Actions artifact contains only the versioned distribution ZIP;
-the expanded staging directory is not uploaded beside it. The portable artifact
-contains only its self-contained EXE.
+A release may contain four kinds of output:
 
-No public binary version has been released yet.
+| Output | Purpose | Public-release requirement |
+| --- | --- | --- |
+| Windows installer ZIP | Complete Windows app and first-time tablet provisioning | Stable publisher signature and clean-device acceptance |
+| Windows portable EXE | App-only use after the installer/setup path | Authenticode signature and matching source |
+| macOS app ZIP | Native SwiftUI/AppKit desktop app | Developer ID signing, notarization, and a clearly stated setup-prerequisite limit |
+| Linux ARM64 components | Probe, transport wake, and Xovi Files extension for the tablet | Corresponding source and reproducible build metadata |
 
-## Before building
+There is no Linux desktop package.
 
-1. Reconcile user-facing documentation and `CHANGELOG.md`.
-2. Run the agent tests and vet checks.
-3. Run every non-live focused PowerShell check.
-4. Build Debug and Release x64 Windows configurations.
-5. Build the ARM64 companions and Files loopback extension twice and compare
-   hashes.
-6. Confirm `git status --short` is empty.
-7. Prepare a corresponding-source archive for every GPL-covered binary that the
-   release will distribute.
-8. Confirm the complete public onboarding, Getting started, and Troubleshooting
-   guides plus all three app screenshots are present. The builder must not
-   fall back to a shorter guide.
-9. Complete the published Getting started path on a fresh Windows account and a
-   freshly reset supported tablet configuration.
+## Public-readiness gate
 
-## Build
+Before the first public release:
 
-Choose an explicit four-part MSIX version:
+1. While the repository is still private, review every file for credentials,
+   personal data, device identifiers, captures, private diagnostics, and rooted
+   build paths.
+2. Review the complete reachable Git history, not only the current tree. If a
+   deleted or replaced blob contains private operator/device evidence, keep the
+   repository private until the owner explicitly approves a cleaned publication
+   history. Deleting a file from the tip is not history sanitization.
+3. Inventory existing Actions artifacts and remove anything that should not
+   become visible with the repository.
+4. Exercise the published Windows Getting started path on a clean Windows
+   account and a freshly reset, explicitly supported tablet.
+5. Publish a tested uninstall or recovery-to-stock procedure for every
+   persistent host and tablet change.
+6. Replace the local self-signed Windows development identity with a stable
+   public signing process.
+7. Sign and notarize the macOS artifact. An unsigned build may remain a clearly
+   labeled development artifact, but it is not a public-release download.
+8. Publish an exact model and firmware support policy. Do not imply that any
+   retail tablet version is supported.
+9. Keep the current Mac setup-prerequisite limitation and the role of the
+   tablet's ARM64 Linux components visible in the README and release notes.
+10. Change repository visibility only after every earlier gate passes and the
+   owner gives a separate explicit instruction.
+
+## Build from a clean commit
+
+Reconcile `CHANGELOG.md` and all user-facing documentation first. Then run:
 
 ```powershell
-.\scripts\Build-RemarkableMirrorPackage.ps1 -Version 1.YYMM.DD.BUILD
+Push-Location mirror\agent
+go test ./...
+go vet ./...
+Pop-Location
+
+dotnet restore mirror\windows\ReMarkableMirror\ReMarkableMirror.csproj `
+    --configfile mirror\windows\NuGet.config `
+    --locked-mode
+
+dotnet build mirror\windows\ReMarkableMirror\ReMarkableMirror.csproj `
+    --configuration Debug `
+    --no-restore `
+    -p:Platform=x64
 ```
 
-Official builds refuse a dirty tree. `release.json` must contain:
+Run every non-live policy check, then build the ARM64 companions and Files
+extension twice and compare their hashes. Build the Windows Release package and
+the macOS Release package from the same public commit.
 
-- the exact public source commit;
-- `source_dirty: false`;
-- the .NET SDK and host runtime reported by the build process;
-- the exact Go toolchain reported by both ARM64 companion builds;
-- the identity and version read from the packaged Windows App Runtime MSIX;
-- package identity, publisher, version, architecture, and hash;
-- certificate identity and hash;
-- every tablet component version and hash;
-- pinned Xovi release, runtime, generator, toolchain, notice, and license; and
-- the honest onboarding and active-root installation boundaries.
+The official Windows package command uses an explicit four-part MSIX version:
 
-## Verify
+```powershell
+$version = "1.$(Get-Date -Format yyMM).$([int](Get-Date -Format dd)).1"
+.\scripts\Build-RemarkableMirrorPackage.ps1 -Version $version
+```
 
-- Authenticode signature is valid.
-- The MSIX manifest identity matches `release.json`.
-- The packaged process helper reads its gated launcher payload from standard
-  input and does not interpolate the payload into the outer `-EncodedCommand`.
-- A long-argument round trip verifies that the process helper does not regress
-  to a Windows command-length failure.
-- The Release app DLL and EXE contain no rooted application CodeView path and
-  no current repository or user-profile root. Debug builds retain symbols but
-  are not release artifacts.
-- The application MSIX contains its declared self-contained .NET runtime, while
-  the release folder contains exactly one matching Windows App Runtime
-  dependency.
-- The MSIX and ZIP contain the project legal files and the exact restored
-  Microsoft license/notice payload under `ThirdParty/Microsoft`.
-- The ZIP contains one coherent release tree and no private keys or captures.
-- The ZIP contains `ONBOARDING.md`, `GETTING_STARTED.md`,
-  `TROUBLESHOOTING.md`, and the three referenced app screenshots.
-  `ONBOARDING.md` starts from an already downloaded package and never tells the
-  user to build that same package.
-- README and Getting started screenshots contain no personal notebooks,
-  handwritten content, credentials, network details, or background windows.
-- The package is non-development after installation.
-- The changed path is tested on a real tablet.
-- Previously accepted window shape, Files motion, input, and screenshot behavior
-  remain unchanged unless the release intentionally changes them.
-- The corresponding-source archive contains the exact tagged Mirror repository,
-  including build and installation scripts, plus source snapshots at the pinned
-  commits for bundled Xovi and `rm-xovi-extensions` binaries.
-- The source archive includes the notices, GPL license text, and exact toolchain
-  references needed to rebuild the GPL-covered components.
+Official builds must refuse a dirty tree. Do not use a development bypass for a
+public artifact. Increment the final numeric component when rebuilding on the
+same day.
+
+On an Apple-silicon Mac:
+
+```zsh
+scripts/Build-RemarkableMirrorMac.sh
+scripts/Package-RemarkableMirrorMac.sh
+```
+
+## Artifact verification
+
+Verify each artifact independently:
+
+- the version and source commit are exact and the source tree was clean;
+- Windows Authenticode and MSIX identities match the published signer;
+- the macOS app has the expected bundle identity, architecture, signature, and
+  notarization result;
+- packaged hashes match `release.json` and the published checksums;
+- all tablet binaries are static Linux AArch64 objects with recorded versions
+  and hashes;
+- the ZIP has one coherent root and contains no private keys, tokens, profiles,
+  captures, diagnostics, rooted user paths, or signing material;
+- legal files, third-party notices, license payloads, and corresponding source
+  are present;
+- `ONBOARDING.md`, `GETTING_STARTED.md`, `TROUBLESHOOTING.md`,
+  `PLATFORM_SUPPORT.md`, `TABLET_CHANGES.md`, and `UNINSTALL.md` match the
+  release behavior;
+- screenshots contain no personal documents, handwriting, network details, or
+  unrelated windows; and
+- the portable executable starts from an empty working directory with the
+  correct window and taskbar icon.
+
+`release.json` should identify the source commit, toolchains, package identity,
+publisher, version, architecture, certificate, bundled runtime, tablet
+component versions, Xovi/toolchain pins, and hashes. It must say
+`source_dirty: false`.
+
+## Physical acceptance
+
+Compilation and package inspection do not prove the device path. On the exact
+supported tablet and firmware, exercise:
+
+- first provisioning from the published Windows package;
+- manual USB-C connection from an idle launch;
+- manual Wi-Fi connection using the entered address;
+- both directions of the clickable Live route switch;
+- display, Touch + Type, Pen, screenshot, and owner-opened Files;
+- physical wake after deep suspend;
+- close/unload cleanup with no owned process left behind; and
+- reinstall or recovery after a supported firmware/root-slot change.
+
+Record failures and untested paths in the release notes. Do not translate
+partial evidence into a broader support claim.
+
+## Corresponding source
+
+Every GPL-covered binary must ship with corresponding source from the exact
+release inputs. The source archive must include:
+
+- the tagged Mirror repository;
+- build and installation scripts;
+- the pinned Xovi and `rm-xovi-extensions` source snapshots needed for bundled
+  binaries;
+- notices and GPL license text; and
+- exact toolchain references needed to rebuild the components.
 
 ## Publish
 
-Tag the exact source commit. Attach the ZIP, MSIX, public certificate, and
-`release.json` to the GitHub release. Attach the versioned corresponding-source
-archive beside them. Publish SHA-256 values for the ZIP, MSIX, and source archive
-plus the signing certificate fingerprint in the release notes. A publisher
-common name or a manifest inside the download does not tell users where the file
-came from.
+Create the release from the exact tagged public commit. Attach the Windows
+installer ZIP, portable EXE, signed/notarized macOS ZIP when available,
+`release.json`, public signing material that users need for verification, and
+the corresponding-source archive.
 
-Release notes must distinguish tested behavior from work that has not been
-tested. A binary release is not complete until its corresponding source is
-available from the same release.
+Publish SHA-256 checksums and signing fingerprints in the release notes. State
+which host/tablet combinations were physically exercised and which were not.
 
-Never publish an artifact built from a non-public source tree or a dirty tree.
-Never upload the signing private key.
+Never publish a dirty-tree artifact, private signing key, unreviewed Actions
+artifact, or binary whose corresponding source is unavailable.

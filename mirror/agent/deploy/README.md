@@ -227,9 +227,10 @@ at an explicit `Retry` instead of another hidden handoff.
 The current source supports USB and Wi-Fi display, `Touch + Type`, Pen,
 short-sleep recovery, Files through SSH, Files recovery after unlock, and normal
 sleep after USB detach. On the tested tablet, the Windows product did not wake
-full Linux suspend with its direct-network request or standard wake packet. Its
-existing recovery remains: press the tablet's physical power button once, then
-Mirror reconnects automatically when the tablet returns.
+full Linux suspend with its direct-network request or standard wake packet. If
+Linux has already suspended, press the tablet's physical power button once,
+unlock it, then explicitly choose **Connect USB-C** or **Connect Wi-Fi** again.
+Mirror does not reopen or move the retired route by itself.
 
 The Mac contract is separate. Launch and cable appearance do not communicate
 with the tablet. One explicit **Connect USB-C** click owns a bounded direct-cable

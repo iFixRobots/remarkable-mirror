@@ -1,9 +1,11 @@
 package deploy
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -12,6 +14,10 @@ func TestLegacyActiveServiceRollbackUsesCompatibleStatusContract(t *testing.T) {
 	installer, err := os.ReadFile("install-transport-wake.sh")
 	if err != nil {
 		t.Fatalf("read installer: %v", err)
+	}
+	shell, err := resolvePOSIXTestShell()
+	if err != nil {
+		t.Fatal(err)
 	}
 
 	var functions strings.Builder
@@ -133,12 +139,12 @@ test ! -e "$install_rollback_directory"
 legacy_status_is_healthy
 `
 
-			command := exec.Command("/bin/sh")
+			command := exec.Command(shell)
 			command.Stdin = strings.NewReader(harness)
 			command.Env = append(
 				os.Environ(),
-				"RMMIRROR_TEST_ROOT="+testRoot,
-				"RMMIRROR_TEST_STATUS="+statusPath,
+				"RMMIRROR_TEST_ROOT="+posixShellPath(testRoot),
+				"RMMIRROR_TEST_STATUS="+posixShellPath(statusPath),
 				"RMMIRROR_TEST_LEGACY_STATUS="+test.status,
 			)
 			output, err := command.CombinedOutput()
@@ -147,6 +153,165 @@ legacy_status_is_healthy
 			}
 		})
 	}
+}
+
+func TestResolvePOSIXTestShell(t *testing.T) {
+	t.Run("non-Windows uses system shell", func(t *testing.T) {
+		shell, err := resolvePOSIXTestShellFor(
+			"linux",
+			func(string) (string, error) {
+				t.Fatal("non-Windows resolution should not search PATH")
+				return "", nil
+			},
+			func(string) string { return "" },
+			func(string) bool { return false },
+		)
+		if err != nil {
+			t.Fatalf("resolve shell: %v", err)
+		}
+		if shell != "/bin/sh" {
+			t.Fatalf("shell = %q, want /bin/sh", shell)
+		}
+	})
+
+	t.Run("Windows uses shell from PATH", func(t *testing.T) {
+		want := filepath.Join("test-git", "bin", "sh.exe")
+		shell, err := resolvePOSIXTestShellFor(
+			"windows",
+			func(name string) (string, error) {
+				if name == "sh.exe" {
+					return want, nil
+				}
+				return "", exec.ErrNotFound
+			},
+			func(string) string { return "" },
+			func(string) bool { return false },
+		)
+		if err != nil {
+			t.Fatalf("resolve shell: %v", err)
+		}
+		if shell != want {
+			t.Fatalf("shell = %q, want %q", shell, want)
+		}
+	})
+
+	t.Run("Windows derives shell from Git command", func(t *testing.T) {
+		gitRoot := "test-git"
+		gitPath := filepath.Join(gitRoot, "cmd", "git.exe")
+		want := filepath.Join(gitRoot, "bin", "sh.exe")
+		shell, err := resolvePOSIXTestShellFor(
+			"windows",
+			func(name string) (string, error) {
+				if name == "git.exe" {
+					return gitPath, nil
+				}
+				return "", exec.ErrNotFound
+			},
+			func(string) string { return "" },
+			func(path string) bool { return path == want },
+		)
+		if err != nil {
+			t.Fatalf("resolve shell: %v", err)
+		}
+		if shell != want {
+			t.Fatalf("shell = %q, want %q", shell, want)
+		}
+	})
+
+	t.Run("Windows finds a standard Git installation", func(t *testing.T) {
+		programFiles := "test-program-files"
+		want := filepath.Join(programFiles, "Git", "bin", "sh.exe")
+		shell, err := resolvePOSIXTestShellFor(
+			"windows",
+			func(string) (string, error) { return "", exec.ErrNotFound },
+			func(name string) string {
+				if name == "ProgramFiles" {
+					return programFiles
+				}
+				return ""
+			},
+			func(path string) bool { return path == want },
+		)
+		if err != nil {
+			t.Fatalf("resolve shell: %v", err)
+		}
+		if shell != want {
+			t.Fatalf("shell = %q, want %q", shell, want)
+		}
+	})
+}
+
+func TestPOSIXShellPath(t *testing.T) {
+	windowsPath := `C:\Users\Example\AppData Local\Temp\mirror`
+	if got, want := posixShellPathFor("windows", windowsPath), `C:/Users/Example/AppData Local/Temp/mirror`; got != want {
+		t.Fatalf("Windows shell path = %q, want %q", got, want)
+	}
+	unixPath := "/tmp/mirror"
+	if got := posixShellPathFor("linux", unixPath); got != unixPath {
+		t.Fatalf("Unix shell path = %q, want %q", got, unixPath)
+	}
+}
+
+func resolvePOSIXTestShell() (string, error) {
+	return resolvePOSIXTestShellFor(runtime.GOOS, exec.LookPath, os.Getenv, isFile)
+}
+
+func resolvePOSIXTestShellFor(
+	goos string,
+	lookPath func(string) (string, error),
+	getenv func(string) string,
+	isFile func(string) bool,
+) (string, error) {
+	if goos != "windows" {
+		return "/bin/sh", nil
+	}
+
+	if shell, err := lookPath("sh.exe"); err == nil {
+		return shell, nil
+	}
+
+	if git, err := lookPath("git.exe"); err == nil {
+		candidate := filepath.Join(filepath.Dir(filepath.Dir(git)), "bin", "sh.exe")
+		if isFile(candidate) {
+			return candidate, nil
+		}
+	}
+
+	for _, location := range []struct {
+		environment string
+		path        []string
+	}{
+		{environment: "ProgramFiles", path: []string{"Git", "bin", "sh.exe"}},
+		{environment: "ProgramFiles(x86)", path: []string{"Git", "bin", "sh.exe"}},
+		{environment: "LOCALAPPDATA", path: []string{"Programs", "Git", "bin", "sh.exe"}},
+	} {
+		root := getenv(location.environment)
+		if root == "" {
+			continue
+		}
+		candidate := filepath.Join(append([]string{root}, location.path...)...)
+		if isFile(candidate) {
+			return candidate, nil
+		}
+	}
+
+	return "", fmt.Errorf("find POSIX shell: Git for Windows sh.exe is not available")
+}
+
+func isFile(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
+}
+
+func posixShellPath(path string) string {
+	return posixShellPathFor(runtime.GOOS, path)
+}
+
+func posixShellPathFor(goos, path string) string {
+	if goos == "windows" {
+		return strings.ReplaceAll(path, `\`, "/")
+	}
+	return path
 }
 
 func extractShellFunction(t *testing.T, source, name string) string {

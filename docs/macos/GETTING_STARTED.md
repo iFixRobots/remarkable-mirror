@@ -1,363 +1,181 @@
-# macOS Getting Started
+# macOS development build
 
-The native Mac app now implements the product path through Milestone 6 in
-source. It can pair this Mac with explicit approval, make owner-initiated USB
-and Wi-Fi connection attempts through owned system OpenSSH processes, display
-RMM1 frames, send session-only input, create screenshots, use the stock Files
-service, and keep an active connection awake. It builds as a single production
-target under stable Xcode 26.6. Shared Go tests, vet and host-policy checks also
-pass. On 2026-08-08, current-worktree product runs reached **Live** over
-owner-started USB-C with the real frame and owned frame, input and Files
-processes. Files loaded seven root items, navigated into a folder and back,
-recovered after unlock within the same owner window, and exported valid PDF and
-native RMDOC files. Screenshot copy and Save As produced valid `954 x 1696`
-PNGs. Touch and Pen taps, a Pen stroke, committed keyboard text and a continuous
-swipe changed the tablet. The native Files chooser sent a disposable one-page
-PDF, and its round-trip export rendered the same page. A clean **Command-Q**
-retired all owned children without an orphan or AppKit exception. Delete, raw
-Finder drag-in, Finder drag-out, eraser/right-click, Wi-Fi and the exact
-fully-deep-sleep power event remain open.
+The native SwiftUI/AppKit macOS app connects to the real reMarkable tablet over
+authenticated SSH. It supports the compact mirror, session-only input,
+screenshots, Files, and manual USB-C or Wi-Fi connection model.
 
-## Current boundary
+> [!IMPORTANT]
+> The app is real; its current setup flow is incomplete. The Mac bundle installs
+> only the transport-wake subset, while mirroring also requires the probe, Xovi
+> runtime, and extensions. Run the complete Windows installer once to install
+> those tablet prerequisites.
 
-Candidate `0.2.0 (2)` includes:
+> [!WARNING]
+> Do not use this guide to enable Developer Mode on a new tablet. Start with the
+> Windows [Getting started guide](../GETTING_STARTED.md), including its backup,
+> reset, full tablet installation, and security warnings.
 
-- one non-resizable tablet-proportioned window, fixed at `456 x 877` compact and
-  `776 x 877` Files-open;
-- a programmatic Files reveal that moves only between those two widths and whose
-  animation the owner described as good and smooth; opening Files also shifts
-  the window only when needed to keep the expanded pane on the current display;
-- plain connection-status metadata, adjacent one-click `Touch + Type` and `Pen`
-  segments, and a plain Files folder icon;
-- a versioned, current-user device profile under Application Support;
-- dedicated mode-`0600` OpenSSH identity and known-host files;
-- owned `/usr/bin/ssh` processes with strict Ed25519 host checking;
-- bounded secure-connection and capability checks;
-- generation-scoped process retirement and stale-event rejection;
-- a bounded RMM1 stream and direct Metal presentation;
-- current-frame PNG copy and Save As;
-- Touch + Type, Pen, right-button eraser, hardware-key routing, and focus-loss
-  reset through a session-owned input process;
-- Windows-parity input continuity: a single guarded power event for an exact
-  `deep_sleep` handshake, immediate Wi-Fi activity, 10-second Wi-Fi and
-  45-second USB activity cadence, user-input deadline reset, and three-second
-  protocol pings;
-- loopback-only Files forwarding, folder browsing, PDF/EPUB import through a
-  native multi-file chooser or drag and drop, PDF/RMDOC export, and deferred
-  Finder document promises; mixed imports report skipped unsupported-item
-  counts without local names, and an interrupted send remains explicitly
-  unconfirmed until the owner refreshes instead of inviting a duplicate retry;
-- an owner-opened Files pane whose 60-second same-session readiness window can
-  recover after tablet unlock without a reconnect or pane reopen, and stops on
-  pane close or deadline, with an explicit **Try Files Again** renewal;
-- an explicit **Add This Mac…** finalizer for the persistent tablet key and
-  tablet-side USB keep-awake service, followed by separate
-  **Connection > Set Up Wi‑Fi…** verification;
-- manually resumable pending-Wi-Fi setup, protected Wi-Fi context and wake secrets;
-- explicit setup, authorization, verification, USB connection, and Wi-Fi
-  connection actions; one **Connect USB‑C** click owns a bounded same-cable
-  wake, recovery, authentication, and connection session;
-- a connection card that stacks **Connect USB‑C** above
-  **Connect via Wi‑Fi**; the Wi-Fi action first asks locally for the tablet’s
-  IPv4 address and says the tablet must be awake but may remain locked, then
-  starts one bounded Wi-Fi-only attempt to that address;
-- active-session keep-awake without automatic fallback, promotion, or
-  reconnection; and
-- generation-safe cancellation, retirement and service-scoped local reset.
+## Current support boundary
 
-The default-size product-surface pass is complete in source across compact and
-Files-open states. Connection status remains metadata; Touch + Type and Pen
-remain adjacent one-click modes; action labels and icons stay stable while
-transient results use toasts; USB-C and Wi-Fi remain unbroken tokens; internal
-Files failures map to user-facing copy. This is implementation and
-local-validation evidence, not final owner acceptance. Direct USB-C connection,
-frame delivery, screenshot copy/save, tap/type/Pen input, a continuous swipe,
-Files navigation, PDF export and native RMDOC export have physical proof. The
-narrower remaining gaps are listed below.
+You need:
 
-An authenticated SSH transport still appears as **Secure connection ready**,
-not **Live**. Live requires a current frame and a current input session from the
-same generation. Files readiness remains independent. Wi-Fi pairing,
-owner-initiated connection, and active-session wake support are implemented in
-source. Physical evidence now includes persistent SSH authorization and a
-completed owner-started USB-C session; deep-sleep wake and Wi-Fi remain
-unproven.
+- Apple silicon;
+- macOS 14 or newer;
+- a reMarkable Paper Pro Move on a version supported by the matching release;
+- the Mirror tablet prerequisites installed by the complete Windows setup;
+- reMarkable Developer Mode still enabled;
+- the tablet past its first physical unlock after boot; and
+- a direct data-capable USB-C cable for Mac authorization.
 
-Local setup still stops before changing the tablet. **Add This Mac…** is the
-separate, explicit persistent-change boundary. It appends this app's dedicated
-public key to the tablet and installs or upgrades the USB keep-awake service,
-including its wake lock and sleep guard, after the exact direct-USB gates pass
-again. It does not inspect Wi-Fi in that action. Its
-one-time root password is never saved. It does not change documents or the
-Wi-Fi password. **Connection > Set Up Wi‑Fi…** separately verifies the current
-Wi-Fi connection.
+The current arm64 Release app compiles on the configured Xcode 26 runner. USB-C
+and manual-IP Wi-Fi connections, Live route switching, frame display, input,
+screenshots, Files, and clean session shutdown have physical-device evidence.
+Persistent Wi-Fi setup remains a separate evidence boundary.
 
-## Pairing flow
+The current development build is unsigned and not notarized. There is no
+supported public Mac release yet.
 
-1. Connect the reMarkable directly by a data-capable USB-C cable.
-2. For this first setup, wake the tablet and enter its passcode.
-3. Open Mirror. Launch and USB appearance load local state only; neither starts
-   tablet communication.
-4. Choose **Set Up** to run one bounded direct-USB preparation attempt. If it
-   cannot finish, correct the reported condition, then choose
-   **Retry Setup**.
-5. After local preparation completes, choose **Add This Mac…** only when you
-   intend to make the persistent tablet changes described below.
-6. Review the confirmation, then enter the tablet's current one-time root
-   password. Mirror does not save it. This USB-only action does not request
-   any Wi-Fi or Location Services permission. The submission is bounded. If its
-   result cannot be confirmed, Mirror stops at **Check Authorization**; choosing
-   that action makes one key-only check. Mirror never reopens the password
-   prompt by itself.
-7. After authorization, choose **Connect USB‑C** to use the authorized direct
-   connection immediately. That one click owns a bounded session that wakes the
-   tablet through the same cable, waits for its services, authenticates, and
-   connects. It never checks, selects, or falls back to Wi-Fi. If the tablet
-   asks for its passcode, type it immediately; the mirrored tablet takes
-   keyboard focus as soon as it is ready for input, and the USB-C session
-   continues.
-8. On the connection card, **Connect via Wi‑Fi** appears directly below
-   **Connect USB‑C**, including while persistent Wi-Fi setup is pending. Choose
-   it to open a local prompt; this first click does not inspect the network or
-   contact the tablet. Make sure the tablet is awake, although it may remain
-   locked, and enter the tablet’s IPv4 address.
-9. Submit the address to start one Wi-Fi-only attempt to that exact address,
-   bound to the Mac’s current Wi-Fi context and authenticated with the saved
-   pinned SSH identity. Mirror may recheck a transiently offline route every
-   three seconds during a 45-second retry window. A bounded check already
-   admitted may finish afterward, but no new retry starts. The attempt does not
-   auto-discover or save an address, inspect or use USB, wake the tablet, fall
-   back to another transport, use the wake HTTP service, request a password, or
-   require an unlock. Failure returns to the two manual connection choices.
-10. **Connection > Set Up Wi‑Fi…** remains a separate optional persistent setup
-    action. It is not required to show or start the manual IP connection path.
+## Install the development build
 
-Initial setup and authorization require a data-capable USB-C cable that connects
-the reMarkable directly to this Mac. Mirror confirms that the same cable-attached
-device remains present throughout those checks. Disconnecting the cable or
-replacing the device stops that operation. Cable detection alone does not
-authenticate the tablet; the pinned Ed25519 SSH host key supplies that identity
-proof after first-use approval. The later manual Wi-Fi connection does not
-inspect or use USB.
+If a review ZIP is provided, extract it and move `reMarkable Mirror.app` into
+your Applications folder. An unsigned development build may require **Open**
+from Finder's context menu.
 
-If those checks succeed, Mirror creates a dedicated local key and pinned host
-file and saves a pending profile. No tablet file or setting has changed at that
-point.
+Contributors can build and install from source:
 
-**Add This Mac…** repeats the exact direct-cable admission checks, appends only
-the dedicated public key to the tablet's root authorized keys, and installs or
-upgrades and validates the tablet-side USB keep-awake service, including its
-wake lock and sleep guard. An uncertain result is presented as
-**Check Authorization**; that explicit action performs one bounded
-key-only check on a freshly revalidated direct USB context. Mirror does not save
-or request the password again unless that check conclusively rejects the key
-and the owner starts another authorization attempt.
+```zsh
+scripts/Build-RemarkableMirrorMac.sh
+scripts/Package-RemarkableMirrorMac.sh
+scripts/Install-RemarkableMirrorMac.sh
+open "$HOME/Applications/reMarkable Mirror.app"
+```
 
-After authorization succeeds, **Connect USB‑C** can use the authorized direct
-connection immediately. **Connection > Set Up Wi‑Fi…** verifies the current Wi-Fi
-connection,
-enables and verifies Developer Mode SSH over Wi-Fi, and never appends the key or
-requests the root password again. Keep USB connected and keep the Mac and tablet
-on the intended Wi-Fi network for that attempt. Mirror binds Wi-Fi approval to
-that current connection without reading the network name or requesting Location
-Services.
+The local installer refuses to overwrite an existing app. Quit and move the old
+build aside before installing another one. See
+[Development](../DEVELOPMENT.md) for the exact Xcode, Swift, and Go toolchain.
 
-Connection diagnostics are available from
-**Help > Copy Connection Diagnostics**.
+## Authorize this Mac
 
-Resetting setup in the Mac app deletes Mirror-owned local profile, SSH and
-Keychain material. It does not remove the tablet-side public key or disable
-Developer Mode SSH over Wi-Fi.
+Authorization is manual and USB-only. Opening the app or attaching a cable does
+not contact the tablet.
 
-An earlier app build performed background recovery work. That behavior is not
-the current Mac contract. A product-only build alone is not physical pairing,
-frame, input, Files, owner-started connection, or wake-completion proof; only
-the exact paths recorded in the dated physical checkpoint carry that evidence.
+1. Connect the tablet directly with a data-capable USB-C cable.
+2. Wake it and complete the first post-boot unlock.
+3. Open Mirror and choose **Set Up**.
+4. Mirror verifies one direct cable, captures the tablet's Ed25519 host identity
+   through system OpenSSH, creates a dedicated Mac key, and saves a pending
+   local profile. This first phase does not change the tablet.
+5. Choose **Add This Mac…** only when you intend to authorize the Mac.
+6. Review the confirmation and enter the current Developer Mode root password.
+   Mirror does not save it.
+7. The app appends only its dedicated public key and installs or verifies the
+   transport-wake subset. It does not reinstall the probe or Xovi runtime.
+8. If the result is uncertain, choose **Check Authorization**. That action makes
+   one bounded key-only check; Mirror never reopens the password prompt by
+   itself.
 
-Earlier failed checks were traced to application setup, tablet-service and host
-pipe defects rather than either tested cable. Those observations are superseded
-by the 2026-08-08 one-click Live session above. If macOS genuinely withholds USB
-data, Mirror reports **USB data is blocked**; keep the Mac unlocked, reconnect
-USB-C, and handle a macOS accessory prompt only if one appears. Mirror cannot
-trigger or guarantee that prompt and does not change the Mac's accessory policy.
+Disconnecting or replacing the tablet during authorization stops the attempt.
+The pinned SSH identity, not cable presence alone, is the tablet trust anchor.
 
-## Implemented connection behavior
+## Connect over USB-C
 
-With an authorized profile, the source waits without tablet communication until
-the owner chooses **Connect USB‑C** or **Connect via Wi‑Fi**. The connection card
-stacks those actions in that order. **Connect via Wi‑Fi** first opens only the
-local awake-and-address prompt; it does not begin the following work until the
-owner submits an IPv4 address. The submitted Wi-Fi action or the direct USB-C
-action then:
+1. Choose **Connect USB-C**.
+2. Mirror checks only the direct cable, asks the wake service to recover the
+   tablet when safe, waits for its services, authenticates, and prepares one
+   session.
+3. If the tablet asks for its passcode, unlock it. The same bounded USB-C
+   attempt continues.
+4. Wait for **Live** before using Touch + Type or Pen.
 
-1. admits only the exact direct cable or the entered Wi-Fi address bound to the
-   current Wi-Fi context;
-2. authenticates with the pinned host identity;
-3. prepares Xovi without bypassing the reset-before-start rule;
-4. opens the session-owned input process and the leased RMM1 frame stream;
-5. publishes **Live** only after display and controls from the current session
-   are ready;
-6. starts a loopback-only Files forward and publishes Files separately when the
-   stock service responds; and
-7. owns and retires that session's frame, input, Files, wake, and SSH work
-   together.
+One click owns the entire bounded USB-C attempt. It never checks, selects, or
+falls back to Wi-Fi. If the attempt ends, Mirror returns to an actionable idle
+state and waits for another owner action.
 
-Opening Files is its own owner action. It creates a 60-second readiness window for
-the exact pane request and current connection generation. If the stock service
-is unavailable because the tablet is locked, unlock the tablet and leave Files
-open; the same request can recover without another connection or pane click.
-Closing Files or reaching the deadline stops the attempts. After expiry, choose
-the circular-arrow action labeled **Try Files Again** to start a fresh 60-second
-owner window without closing the pane. Once Files is available, that same action
-becomes **Refresh** and reloads the listing.
+## Connect over Wi-Fi
 
-When Files is available, click the send target or focus it and press Return or
-Space to choose one or more PDFs or DRM-free EPUBs. The same target also accepts
-files dragged from Finder, although that exact drag-in interaction remains
-unproved in the current candidate. New documents are sent to the folder shown
-in Files.
+After USB authorization succeeds:
 
-Launch, cable attachment, and network changes never start a connection. If the
-chosen connection disappears or the session fails, Mirror returns to the
-disconnected surface and waits for another owner action. It does not fall back
-to Wi-Fi, move to USB, or reconnect automatically.
+1. Put the Mac and tablet on the same Wi-Fi network that you control.
+2. Make sure the tablet is awake. It may remain locked.
+3. Choose **Connect via Wi-Fi**, directly below **Connect USB-C**.
+4. Enter the tablet's current IPv4 address and choose **Connect via Wi-Fi**.
+5. Wait for **Live over Wi-Fi**.
 
-One **Connect via Wi‑Fi** click opens a local prompt with no tablet or network
-traffic. It says the tablet must be awake but may remain locked and asks for its
-IPv4 address. Submitting starts one attempt to that exact address, bound to the
-current Wi-Fi context and authenticated with the saved pinned SSH identity.
-Mirror can recheck a transiently offline route every three seconds during a
-45-second retry window. A bounded check already admitted may finish afterward,
-but no new retry starts. The attempt does not auto-discover or save an address,
-inspect or use USB, wake the tablet, fall back to another transport, call the
-wake HTTP endpoint, request a password, or require an unlock. Failure returns to
-the two manual connection choices. Files is independent and may still wait for
-the tablet to be unlocked.
+The first click only opens a local prompt. Submitting starts one bounded
+Wi-Fi-only attempt to that address, bound to the Mac's current Wi-Fi context
+and authenticated with the pinned tablet identity. Mirror may check a
+transiently offline route every three seconds during a 45-second attempt. It
+does not auto-discover or save the address, inspect or use USB, wake the tablet,
+fall back to another route, use the wake HTTP service, request a password, or
+require an unlock.
 
-When Mirror is Live, click the green **Live over USB-C** or
-**Live over Wi-Fi** status to switch connections. USB-C opens the same tablet
-IP prompt; canceling it keeps USB-C Live. Wi-Fi starts the existing USB-C
-connection action immediately.
+**Connection > Set Up Wi-Fi…** is a separate optional persistent setup action.
+It does not gate the manual IP connection. When used, keep USB attached; Mirror
+verifies the current network context and Developer Mode SSH over Wi-Fi without
+asking for the root password again.
 
-One **Connect USB-C** click starts a bounded session on that cable. Mirror asks
-the direct-cable wake service to recover the tablet, waits for its services, and
-then authenticates and connects without asking for another click. It never
-checks or selects Wi-Fi. If the tablet requires its passcode, unlock it; that is
-the only owner intervention the USB-C session may require. If the bounded
-session cannot finish, Mirror returns to an action instead of continuing in the
-background.
+The app does not read the Wi-Fi name, request Location Services, or store the
+Wi-Fi password. Network changes do not start, switch, or reopen a connection.
 
-After a connection attempt starts, Mirror waits 250 ms before showing connection
-progress. If the bounded attempt finishes sooner, it goes straight to its result
-instead of flashing a progress card.
+Use Wi-Fi Mirror only on a network you control. Files stays on tablet loopback
+and travels through authenticated SSH forwarding.
 
-When an input session starts, it inspects the strict handshake before
-publication. Only an exact `deep_sleep` state permits one guarded `KEY_POWER`
-event in that session. Wi-Fi sends one immediate `KEY_F12` before controls
-publish. Active sessions then send `KEY_F12` every 10 seconds on Wi-Fi or 45
-seconds on USB; acknowledged user input resets the activity deadline.
-Three-second `ping` messages continue between activity events.
+## Switch routes
 
-The tablet's USB data-attachment service prevents suspend during an active USB session.
-The input helper's wake lock and host activity cadence preserve the selected
-active session. Those mechanisms do not choose another connection or reopen a
-retired session.
+- While USB is Live, click **Live over USB-C** to open the same Wi-Fi address
+  prompt. Canceling leaves USB Live; submitting starts the Wi-Fi attempt.
+- While Wi-Fi is Live, click **Live over Wi-Fi** to start the same bounded
+  USB-C action used from the disconnected screen.
 
-This sequence is implemented in source. The dated physical checkpoint proves
-only the exact connection, frame, input-session, Files-readiness and shutdown
-paths it records; other activation and capability paths remain source-only.
+The Live status adds no third connection path, background probe, fallback, or
+automatic route selection.
 
-## Local storage and secrets
+## Files and input
 
-The profile and OpenSSH material live under:
+**Live** requires a current frame and input session from the same connection.
+Files is separate and starts only when you open its pane.
+
+If Files is unavailable because the tablet is locked, unlock it and leave the
+pane open. The owner-requested readiness window can recover without reconnecting.
+Closing Files or reaching its deadline stops further attempts; choose
+**Try Files Again** for a new window.
+
+Touch, pen, eraser, and keyboard devices exist only for the active session.
+Closing the app or losing the selected connection retires that session and
+restores stock physical input.
+
+## Local data and reset
+
+The profile and app-owned OpenSSH files live under:
 
 ```text
 ~/Library/Application Support/com.ifixrobots.ReMarkableMirror/
 ```
 
-The root and SSH directories use mode `0700`; profile, key, public-key and
-known-host files use mode `0600`. The profile contains no private key, bearer
-token, password, raw network identifier, or absolute credential path.
+Directories use mode `0700`; files use `0600`. The address entered through
+**Connect via Wi-Fi** is session-only and is not saved. Optional persistent
+Wi-Fi setup stores the network-context secret and wake token in the Data
+Protection Keychain. Direct USB-C does not use those secrets.
 
-Only explicit persistent Wi-Fi setup stores the paired Wi-Fi context secret and
-wake token in the Data Protection Keychain. The address entered through
-**Connect via Wi‑Fi** is session-only and is not saved. Manual Wi-Fi and direct
-USB-C connection attempts never require that bearer. Persistence, service
-scoping and access-group behavior must still be proved in an authorized signed
-package.
+**Set Up Again…** can remove Mirror-owned local profile, SSH, and Keychain
+material from the Mac. It does not remove the public key from the tablet,
+disable tablet Wi-Fi SSH, or uninstall the tablet components.
+See [Uninstall status](../UNINSTALL.md).
 
-## Target and build host
+## Diagnostics and limits
 
-- Deployment target: Apple silicon on macOS 14 or newer. The macOS 14 runtime
-  has not yet been exercised.
-- Candidate Release toolchain: Xcode 26.6 at `/Applications/Xcode.app`, Swift
-  6.3.3, and the macOS 26.5 SDK.
-- Current source evidence: the source builds as a single production target
-  under stable Xcode 26.6. Shared Go tests, vet and host-policy checks also pass.
-  The last audited Release build predates the current recovery and presentation
-  changes.
+Use **Help > Copy Connection Diagnostics** for a sanitized event summary.
+Review it before sharing; it can still contain timestamps and software state.
 
-## Build
+Current limits:
 
-From the repository root:
+- Mac setup does not yet install every tablet prerequisite;
+- no signed or notarized public package;
+- persistent Wi-Fi setup remains separately unproved;
+- no complete tested uninstall/stock restoration;
+- no automatic fallback, route selection, or reconnection; and
+- full Linux suspend can still require a physical power-button press and
+  explicit reconnect.
 
-```zsh
-scripts/Build-RemarkableMirrorMac.sh
-```
-
-The Release app is written to:
-
-```text
-artifacts/macos/DerivedData/Build/Products/Release/reMarkable Mirror.app
-```
-
-## Package and install
-
-Create the private unsigned arm64 review ZIP:
-
-```zsh
-scripts/Package-RemarkableMirrorMac.sh
-```
-
-The package script derives the version and architecture from the built app. For
-this candidate the expected filename is:
-
-```text
-artifacts/macos/package/reMarkable-Mirror-0.2.0-macOS-arm64-unsigned.zip
-```
-
-The last audited local review ZIP is:
-
-```text
-artifacts/macos/package/reMarkable-Mirror-0.2.0-macOS-arm64-unsigned.zip
-```
-
-Its SHA-256 is
-`0bb79a5331142d42a4f5d74cdf31802a660f6d8ebb1d0adb4a93a99f6fcc38cf`.
-That checksum and archive audit apply only to this older package. It predates
-the current recovery and presentation changes, does not prove parity with the
-current source, and does not establish physical-tablet behavior. A signed
-current-source package, notarization, hosting and owner acceptance remain open.
-
-For a first local install:
-
-```zsh
-scripts/Install-RemarkableMirrorMac.sh
-open "$HOME/Applications/reMarkable Mirror.app"
-```
-
-The installer refuses to replace an existing app. Quit and move an earlier
-candidate aside explicitly before installing another one. Current physical
-runs used a durably authorized Mac profile; the separate Wi-Fi setup step
-remains pending.
-
-When installing the older unsigned review ZIP, macOS may require **Open** from
-the Finder context menu. A local launch is not current-source parity, Developer
-ID, notarization, release, or Gold proof.
-
-The Xcode project contains one production app target. Debug and Release use the
-same production bundle identifier, with no auxiliary Mac targets or
-developer-only UI.
-
-See [Port status](PORT_STATUS.md) for the evidence ledger and
-[Troubleshooting](TROUBLESHOOTING.md) for setup and launch failures.
+See [macOS troubleshooting](TROUBLESHOOTING.md) and
+[Platform support](../PLATFORM_SUPPORT.md).
