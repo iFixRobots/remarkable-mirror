@@ -55,6 +55,17 @@ public sealed class SshFrameSource
         fi
 
         if test "$allow_start" -eq 1; then
+          # Connect is an explicit owner action. Retire only exact Mirror
+          # sessions left behind by an earlier host connection, then let the
+          # input watchdog restore the physical device before continuing.
+          for session_pid in $(pidof rmmirror-probe 2>/dev/null || true); do
+            session_command=$(tr '\000' ' ' < "/proc/$session_pid/cmdline" 2>/dev/null || true)
+            case "$session_command" in
+              "$probe input "*|"$probe stream "*)
+                kill -TERM "$session_pid" 2>/dev/null || true
+                ;;
+            esac
+          done
           input_ready_output=$("$probe" input-ready --restore-timeout 50s 2>&1) || {
             printf '%s\n' 'rmmirror: input_restore_not_ready' >&2
             printf '%s\n' "$input_ready_output" | tail -c 800 >&2
@@ -974,12 +985,21 @@ public sealed class SshFrameSource
         }
         if (ContainsAny(
                 standardError,
-                "rmmirror: sleep_cancel_failed",
-                "rmmirror: input_restore_not_ready"))
+                "rmmirror: sleep_cancel_failed"))
         {
             return new FrameStreamException(
                 FrameStreamFailureKind.CompanionNotReady,
                 "The tablet display service could not be prepared safely. Run Mirror setup again, then choose Retry.",
+                isTransient: false,
+                technicalDetail: technicalDetail);
+        }
+        if (standardError.Contains(
+                "rmmirror: input_restore_not_ready",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return new FrameStreamException(
+                FrameStreamFailureKind.CompanionNotReady,
+                "The tablet could not release its previous Mirror session. Restart the tablet, then connect again.",
                 isTransient: false,
                 technicalDetail: technicalDetail);
         }
