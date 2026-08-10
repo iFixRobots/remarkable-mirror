@@ -130,6 +130,8 @@ public sealed class TabletSetupCoordinator
         OpenSshAuthorizationResult.PasswordRejected => Result(TabletSetupStatus.PasswordRejected),
         OpenSshAuthorizationResult.HostIdentityRejected =>
             Result(TabletSetupStatus.HostIdentityRejected),
+        OpenSshAuthorizationResult.UnsupportedTablet =>
+            Result(TabletSetupStatus.UnsupportedTablet),
         OpenSshAuthorizationResult.OpenSshUnavailable =>
             Result(TabletSetupStatus.OpenSshUnavailable),
         OpenSshAuthorizationResult.KeyProofFailed or
@@ -271,6 +273,8 @@ public sealed class TabletSetupCoordinator
                 "The tablet did not accept that Developer Mode password.",
             TabletSetupStatus.HostIdentityRejected =>
                 "The connected tablet does not match the SSH identity already trusted by this computer.",
+            TabletSetupStatus.UnsupportedTablet =>
+                "This tablet model or software version is not supported by this Mirror build.",
             TabletSetupStatus.OpenSshUnavailable =>
                 "Windows OpenSSH Client is required for setup.",
             TabletSetupStatus.PowerShellUnavailable =>
@@ -304,6 +308,7 @@ public enum TabletSetupStatus
     PasswordRequired,
     PasswordRejected,
     HostIdentityRejected,
+    UnsupportedTablet,
     OpenSshUnavailable,
     PowerShellUnavailable,
     LocalCredentialFailure,

@@ -19,7 +19,19 @@ internal sealed class OpenSshSetupClient
     private static readonly IPAddress UsbTabletAddress = IPAddress.Parse(UsbTabletHost);
     private static readonly IPAddress UsbWindowsAddress = IPAddress.Parse(UsbWindowsHost);
 
-    private const string AuthorizationCommand = """
+    private const string TabletSupportCommand = """
+        tablet_model="$(tr -d '\000' < /sys/firmware/devicetree/base/model 2>/dev/null || true)"
+        tablet_img_version="$(sed -n 's/^IMG_VERSION=//p' /etc/os-release 2>/dev/null | head -n 1 | tr -d '"')"
+        tablet_os_build="$(sed -n 's/^VERSION_ID=//p' /etc/os-release 2>/dev/null | head -n 1 | tr -d '"')"
+        if test "$tablet_model" != 'reMarkable Chiappa' ||
+            test "$tablet_img_version" != '3.28.0.164' ||
+            test "$tablet_os_build" != '5.8.199'; then
+          printf '%s\n' 'RMMIRROR_UNSUPPORTED_TABLET=1'
+          exit 83
+        fi
+        """;
+
+    private const string AuthorizationCommand = TabletSupportCommand + """
         set -eu
         umask 077
         key_type='ssh-ed25519'
@@ -120,7 +132,8 @@ internal sealed class OpenSshSetupClient
                 }
                 return OpenSshAuthorizationResult.Authorized;
             }
-            if (proof is OpenSshAuthorizationResult.HostIdentityRejected)
+            if (proof is OpenSshAuthorizationResult.HostIdentityRejected or
+                OpenSshAuthorizationResult.UnsupportedTablet)
             {
                 return proof;
             }
@@ -163,7 +176,8 @@ internal sealed class OpenSshSetupClient
                         cancellationToken)
                     .ConfigureAwait(false))
             {
-                return keyProof is OpenSshAuthorizationResult.HostIdentityRejected
+                return keyProof is OpenSshAuthorizationResult.HostIdentityRejected or
+                    OpenSshAuthorizationResult.UnsupportedTablet
                     ? keyProof
                     : OpenSshAuthorizationResult.KeyProofFailed;
             }
@@ -389,6 +403,12 @@ internal sealed class OpenSshSetupClient
         {
             return OpenSshAuthorizationResult.HostIdentityRejected;
         }
+        if (result.StandardOutput.Contains(
+                "RMMIRROR_UNSUPPORTED_TABLET=1",
+                StringComparison.Ordinal))
+        {
+            return OpenSshAuthorizationResult.UnsupportedTablet;
+        }
         return result.ExitCode == 0 && result.StandardOutput.Contains(
             "RMMIRROR_HOST_AUTHORIZED=1",
             StringComparison.Ordinal)
@@ -405,7 +425,7 @@ internal sealed class OpenSshSetupClient
         var info = CreateSshStartInfo(
             usbRoute,
             knownHostsPath,
-            "printf '%s\\n' 'RMMIRROR_KEY_VERIFIED=1'",
+            TabletSupportCommand + "printf '%s\\n' 'RMMIRROR_KEY_VERIFIED=1'",
             batchMode: true,
             strictHostKeyChecking);
         var result = await RunChildAsync(info, TimeSpan.FromSeconds(10), cancellationToken)
@@ -417,6 +437,12 @@ internal sealed class OpenSshSetupClient
         if (ContainsHostIdentityFailure(result.StandardError))
         {
             return OpenSshAuthorizationResult.HostIdentityRejected;
+        }
+        if (result.StandardOutput.Contains(
+                "RMMIRROR_UNSUPPORTED_TABLET=1",
+                StringComparison.Ordinal))
+        {
+            return OpenSshAuthorizationResult.UnsupportedTablet;
         }
         return result.ExitCode == 0 && result.StandardOutput.Contains(
             "RMMIRROR_KEY_VERIFIED=1",
@@ -767,6 +793,7 @@ internal enum OpenSshAuthorizationResult
     PasswordRequired,
     PasswordRejected,
     HostIdentityRejected,
+    UnsupportedTablet,
     KeyProofFailed,
     LocalCredentialFailure,
     OpenSshUnavailable,
