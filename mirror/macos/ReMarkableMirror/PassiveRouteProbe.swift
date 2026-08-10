@@ -671,6 +671,7 @@ enum TabletCapabilityProbeContract {
     static let orderedKeys = [
         "RMMIRROR_CAP_BOOT_ID",
         "RMMIRROR_CAP_ACTIVE_ROOT",
+        "RMMIRROR_CAP_TABLET_MODEL",
         "RMMIRROR_CAP_OS_VERSION",
         "RMMIRROR_CAP_OS_BUILD",
         "RMMIRROR_CAP_KERNEL",
@@ -702,6 +703,7 @@ enum TabletCapabilityProbeContract {
         if test -z "$active_root"; then
           active_root="$(awk '$2 == "/" { print $1; exit }' /proc/mounts 2>/dev/null || true)"
         fi
+        tablet_model="$(tr -d '\000' < /sys/firmware/devicetree/base/model 2>/dev/null || true)"
         os_version="$(sed -n 's/^IMG_VERSION=//p' /etc/os-release 2>/dev/null | head -n 1 | tr -d '"')"
         os_build="$(sed -n 's/^VERSION_ID=//p' /etc/os-release 2>/dev/null | head -n 1 | tr -d '"')"
         kernel_release="$(uname -r 2>/dev/null || true)"
@@ -725,6 +727,7 @@ enum TabletCapabilityProbeContract {
     static let outputCommand = #"""
         printf '%s\n' "RMMIRROR_CAP_BOOT_ID=$boot_id"
         printf '%s\n' "RMMIRROR_CAP_ACTIVE_ROOT=$active_root"
+        printf '%s\n' "RMMIRROR_CAP_TABLET_MODEL=$tablet_model"
         printf '%s\n' "RMMIRROR_CAP_OS_VERSION=$os_version"
         printf '%s\n' "RMMIRROR_CAP_OS_BUILD=$os_build"
         printf '%s\n' "RMMIRROR_CAP_KERNEL=$kernel_release"
@@ -752,9 +755,13 @@ struct PassiveRouteCapability: Equatable, Sendable {
     static let expectedTransportSchema = "rmmirror.transport-wake/v1"
     static let expectedUSBConnectionPolicy = "carrier-qualified-power-hold/v1"
     static let expectedXoviVersion = "v19-23052026"
+    static let expectedTabletModel = "reMarkable Chiappa"
+    static let expectedOSVersion = "3.28.0.164"
+    static let expectedOSBuild = "5.8.199"
 
     let bootID: UUID
     let activeRoot: String
+    let tabletModel: String
     let osVersion: String
     let osBuild: String
     let kernelRelease: String
@@ -796,6 +803,7 @@ struct PassiveRouteCapability: Equatable, Sendable {
               let activeRoot = safe(values["RMMIRROR_CAP_ACTIVE_ROOT"]),
               activeRoot.first == "/",
               !activeRoot.contains(where: \Character.isWhitespace),
+              let tabletModel = safe(values["RMMIRROR_CAP_TABLET_MODEL"]),
               let osVersion = safe(values["RMMIRROR_CAP_OS_VERSION"]),
               let osBuild = safe(values["RMMIRROR_CAP_OS_BUILD"]),
               let kernelRelease = safe(values["RMMIRROR_CAP_KERNEL"]),
@@ -831,6 +839,7 @@ struct PassiveRouteCapability: Equatable, Sendable {
         return PassiveRouteCapability(
             bootID: bootID,
             activeRoot: activeRoot,
+            tabletModel: tabletModel,
             osVersion: osVersion,
             osBuild: osBuild,
             kernelRelease: kernelRelease,
@@ -850,7 +859,10 @@ struct PassiveRouteCapability: Equatable, Sendable {
             systemSleepBlocked: systemSleepBlocked,
             transportOperational: transportOperational,
             xoviVersion: xoviVersion,
-            isCurrent: probeVersion == expectedProbeVersion &&
+            isCurrent: tabletModel == expectedTabletModel &&
+                osVersion == expectedOSVersion &&
+                osBuild == expectedOSBuild &&
+                probeVersion == expectedProbeVersion &&
                 transportVersion == expectedTransportVersion &&
                 transportSchema == expectedTransportSchema &&
                 usbConnectionPolicy == expectedUSBConnectionPolicy &&
@@ -880,6 +892,7 @@ struct PassiveRouteCapability: Equatable, Sendable {
     ) -> Bool {
         bootID == other.bootID &&
             activeRoot == other.activeRoot &&
+            tabletModel == other.tabletModel &&
             osVersion == other.osVersion &&
             osBuild == other.osBuild &&
             kernelRelease == other.kernelRelease &&
@@ -915,8 +928,9 @@ actor PassiveRouteProbe {
         mismatch=0
         test -n "$boot_id" || mismatch=1
         test -n "$active_root" || mismatch=1
-        test -n "$os_version" || mismatch=1
-        test -n "$os_build" || mismatch=1
+        test "$tablet_model" = 'reMarkable Chiappa' || mismatch=1
+        test "$os_version" = '3.28.0.164' || mismatch=1
+        test "$os_build" = '5.8.199' || mismatch=1
         test -n "$kernel_release" || mismatch=1
         test "$probe_version" = '0.4.9' || mismatch=1
         test "$transport_version" = '0.6.0' || mismatch=1

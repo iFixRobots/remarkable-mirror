@@ -35,6 +35,8 @@ $filesLoopbackBuildScriptPath = Join-Path $PSScriptRoot 'Build-RemarkableFilesLo
 $transportUnitPath = Join-Path $repositoryRoot 'mirror\agent\deploy\rmmirror-transport-wake.service'
 $transportInstallPath = Join-Path $repositoryRoot 'mirror\agent\deploy\install-transport-wake.sh'
 $transportSleepGuardPath = Join-Path $repositoryRoot 'mirror\agent\deploy\rmmirror-usb-sleep-guard.conf'
+$prerequisiteInstallPath = Join-Path $repositoryRoot 'mirror\agent\deploy\install-mirror-prerequisites.sh'
+$prerequisiteContractPath = Join-Path $repositoryRoot 'mirror\agent\deploy\rmmirror-prerequisites.env'
 $publicOnboardingGuidePath = Join-Path $repositoryRoot 'docs\PACKAGE_ONBOARDING.md'
 $publicGettingStartedGuidePath = Join-Path $repositoryRoot 'docs\GETTING_STARTED.md'
 $publicTroubleshootingGuidePath = Join-Path $repositoryRoot 'docs\TROUBLESHOOTING.md'
@@ -94,9 +96,6 @@ if ([string]::IsNullOrWhiteSpace($PublisherDisplayName) -or
     $PublisherDisplayName -match "[`r`n]") {
     throw 'PublisherDisplayName must be a non-empty single-line value.'
 }
-$xoviRelease = 'v19-23052026'
-$xoviArchiveHashExpected = '32d64d1262ddc984e3235c7d0340a398fe6d5b3efa6a979865f5977b32630d27'
-
 foreach ($requiredPath in @(
         $globalJsonPath,
         $projectPath,
@@ -118,6 +117,8 @@ foreach ($requiredPath in @(
         $transportUnitPath,
         $transportInstallPath,
         $transportSleepGuardPath,
+        $prerequisiteInstallPath,
+        $prerequisiteContractPath,
         $publicOnboardingGuidePath,
         $publicGettingStartedGuidePath,
         $publicTroubleshootingGuidePath,
@@ -134,6 +135,49 @@ foreach ($requiredPath in @(
         throw "Required packaging input does not exist: $requiredPath"
     }
 }
+
+$prerequisiteContract = @{}
+foreach ($line in [System.IO.File]::ReadAllLines($prerequisiteContractPath)) {
+    if ($line -cnotmatch '^([A-Z0-9_]+)=([A-Za-z0-9.,/+_-]+)$' -or
+        $prerequisiteContract.ContainsKey($Matches[1])) {
+        throw 'The tablet prerequisite contract is malformed.'
+    }
+    $prerequisiteContract[$Matches[1]] = $Matches[2]
+}
+$expectedPrerequisiteContractKeys = @(
+    'RMMIRROR_PREREQUISITES_SCHEMA',
+    'RMMIRROR_TABLET_MODEL',
+    'RMMIRROR_TABLET_IMG_VERSION',
+    'RMMIRROR_TABLET_OS_BUILD',
+    'RMMIRROR_XOVI_RELEASE',
+    'RMMIRROR_XOVI_ARCHIVE_SHA256',
+    'RMMIRROR_PROBE_VERSION',
+    'RMMIRROR_TRANSPORT_VERSION',
+    'RMMIRROR_TRANSPORT_SCHEMA',
+    'RMMIRROR_USB_CONNECTION_POLICY',
+    'RMMIRROR_REQUIRED_EXTENSIONS'
+)
+$actualPrerequisiteContractKeys =
+    ($prerequisiteContract.Keys | Sort-Object) -join "`n"
+$sortedExpectedPrerequisiteContractKeys =
+    ($expectedPrerequisiteContractKeys | Sort-Object) -join "`n"
+if ($actualPrerequisiteContractKeys -cne $sortedExpectedPrerequisiteContractKeys) {
+    throw 'The tablet prerequisite contract has unexpected fields.'
+}
+$xoviRelease = $prerequisiteContract['RMMIRROR_XOVI_RELEASE']
+$xoviArchiveHashExpected = $prerequisiteContract['RMMIRROR_XOVI_ARCHIVE_SHA256']
+$mirrorProbeVersion = $prerequisiteContract['RMMIRROR_PROBE_VERSION']
+$tabletPrerequisiteComponentNames = @(
+    'install-mirror-prerequisites.sh',
+    'rmmirror-prerequisites.env',
+    'rmmirror-probe',
+    'xovi-aarch64.tar.gz',
+    'rmmirror-files-loopback.so',
+    'rmmirror-transport-wake',
+    'rmmirror-transport-wake.service',
+    'install-transport-wake.sh',
+    'rmmirror-usb-sleep-guard.conf'
+)
 
 $hasPrebuiltFilesLoopbackPath = -not [string]::IsNullOrWhiteSpace($PrebuiltFilesLoopbackPath)
 $hasPrebuiltFilesLoopbackHash = -not [string]::IsNullOrWhiteSpace($PrebuiltFilesLoopbackSha256)
@@ -152,16 +196,6 @@ $probeVersionMatch = [regex]::Match(
 if (-not $probeVersionMatch.Success) {
     throw 'Could not read the rmmirror-probe version from the Go source.'
 }
-$mirrorProbeVersion = $probeVersionMatch.Groups['version'].Value
-
-$prerequisiteSource = [System.IO.File]::ReadAllText($prerequisiteScriptPath)
-$prerequisiteVersionMatch = [regex]::Match(
-    $prerequisiteSource,
-    '\$mirrorProbeVersion\s*=\s*''(?<version>[0-9]+\.[0-9]+\.[0-9]+)''')
-if (-not $prerequisiteVersionMatch.Success) {
-    throw 'Could not read the expected rmmirror-probe version from the prerequisite installer.'
-}
-
 $passiveRouteProbeSource = [System.IO.File]::ReadAllText($passiveRouteProbePath)
 $windowsVersionMatch = [regex]::Match(
     $passiveRouteProbeSource,
@@ -174,7 +208,7 @@ if (-not $windowsVersionMatch.Success -or -not $capabilityVersionMatch.Success) 
 }
 
 $probeVersionConsumers = @(
-    $prerequisiteVersionMatch.Groups['version'].Value,
+    $probeVersionMatch.Groups['version'].Value,
     $windowsVersionMatch.Groups['version'].Value,
     $capabilityVersionMatch.Groups['version'].Value
 )
@@ -195,13 +229,9 @@ $usbPolicySources = [ordered]@{
         Text = $passiveRouteProbeSource
         Pattern = 'test "\$usb_connection_policy" = ''(?<policy>[^'']+)'' \|\| mismatch=1'
     }
-    WindowsInstallerPostInstall = @{
-        Text = $prerequisiteSource
-        Pattern = 'grep -q ''"usb_connection_policy":"(?<policy>[^"]+)"'' /run/rmmirror-transport-wake\.json'
-    }
-    WindowsInstallerPairing = @{
-        Text = $prerequisiteSource
-        Pattern = '\$capabilityMetadata\[''USB_CONNECTION_POLICY''\]\s+-cne\s+''(?<policy>[^'']+)'''
+    Contract = @{
+        Text = "RMMIRROR_USB_CONNECTION_POLICY=$($prerequisiteContract['RMMIRROR_USB_CONNECTION_POLICY'])"
+        Pattern = 'RMMIRROR_USB_CONNECTION_POLICY=(?<policy>[^\r\n]+)'
     }
     MacExpected = @{
         Text = [System.IO.File]::ReadAllText($macPassiveRouteProbePath)
@@ -441,6 +471,193 @@ function Assert-AppOwnedPackageBinaryPrivacy {
     }
 }
 
+function Assert-TabletPrerequisiteComponents {
+    param(
+        [Parameter(Mandatory)][string]$ComponentDirectory,
+        [Parameter(Mandatory)][hashtable]$ExpectedSources,
+        [Parameter(Mandatory)][string]$ArtifactName
+    )
+
+    if (-not (Test-Path -LiteralPath $ComponentDirectory -PathType Container)) {
+        throw "$ArtifactName is missing its tablet prerequisite components directory."
+    }
+
+    $expectedNames = [string[]]$tabletPrerequisiteComponentNames.Clone()
+    $actualFiles = @(Get-ChildItem -LiteralPath $ComponentDirectory -File)
+    $actualNames = [string[]]@($actualFiles | ForEach-Object Name)
+    [Array]::Sort($expectedNames, [StringComparer]::Ordinal)
+    [Array]::Sort($actualNames, [StringComparer]::Ordinal)
+    if (($actualNames -join "`n") -cne ($expectedNames -join "`n")) {
+        throw "$ArtifactName has an unexpected tablet prerequisite component set: $($actualNames -join ', ')."
+    }
+
+    foreach ($componentName in $tabletPrerequisiteComponentNames) {
+        if (-not $ExpectedSources.ContainsKey($componentName)) {
+            throw "No audited source was supplied for tablet prerequisite component: $componentName"
+        }
+
+        $componentPath = Join-Path $ComponentDirectory $componentName
+        $component = Get-Item -LiteralPath $componentPath
+        if ($component.Length -le 0) {
+            throw "$ArtifactName contains an empty tablet prerequisite component: $componentName"
+        }
+
+        $expectedHash = (Get-FileHash -LiteralPath $ExpectedSources[$componentName] -Algorithm SHA256).Hash
+        $actualHash = (Get-FileHash -LiteralPath $componentPath -Algorithm SHA256).Hash
+        if (-not [StringComparer]::OrdinalIgnoreCase.Equals($actualHash, $expectedHash)) {
+            throw "$ArtifactName tablet prerequisite hash mismatch: $componentName"
+        }
+    }
+}
+
+function Assert-TabletPrerequisiteBundle {
+    param(
+        [Parameter(Mandatory)][string]$BundleDirectory,
+        [Parameter(Mandatory)][hashtable]$ExpectedSources,
+        [Parameter(Mandatory)][string]$ArtifactName
+    )
+
+    $expectedRelativePaths = [string[]]@(
+        'Install-RemarkableMirrorPrerequisites.ps1',
+        'lib\RemarkableRmctlCapture.ps1'
+        $tabletPrerequisiteComponentNames |
+            ForEach-Object { "components\$_" }
+    )
+    $actualRelativePaths = [string[]]@(
+        Get-ChildItem -LiteralPath $BundleDirectory -File -Recurse |
+            ForEach-Object {
+                [System.IO.Path]::GetRelativePath($BundleDirectory, $_.FullName).Replace('/', '\')
+            }
+    )
+    [Array]::Sort($expectedRelativePaths, [StringComparer]::Ordinal)
+    [Array]::Sort($actualRelativePaths, [StringComparer]::Ordinal)
+    if (($actualRelativePaths -join "`n") -cne ($expectedRelativePaths -join "`n")) {
+        throw "$ArtifactName has an unexpected TabletPrerequisites bundle: $($actualRelativePaths -join ', ')."
+    }
+
+    $rootFiles = @(
+        Get-ChildItem -LiteralPath $BundleDirectory -File |
+            ForEach-Object Name
+    )
+    if ($rootFiles.Count -ne 1 -or
+        $rootFiles[0] -cne 'Install-RemarkableMirrorPrerequisites.ps1') {
+        throw "$ArtifactName must contain only the prerequisite adapter at the TabletPrerequisites root."
+    }
+
+    $adapterPath = Join-Path $BundleDirectory 'Install-RemarkableMirrorPrerequisites.ps1'
+    $capturePath = Join-Path $BundleDirectory 'lib\RemarkableRmctlCapture.ps1'
+    foreach ($filePair in @(
+            @{ Actual = $adapterPath; Expected = $prerequisiteScriptPath; Name = 'prerequisite adapter' },
+            @{ Actual = $capturePath; Expected = $captureHelperPath; Name = 'capture helper' }
+        )) {
+        $actualHash = (Get-FileHash -LiteralPath $filePair.Actual -Algorithm SHA256).Hash
+        $expectedHash = (Get-FileHash -LiteralPath $filePair.Expected -Algorithm SHA256).Hash
+        if (-not [StringComparer]::OrdinalIgnoreCase.Equals($actualHash, $expectedHash)) {
+            throw "$ArtifactName $($filePair.Name) hash does not match its audited source."
+        }
+    }
+
+    Assert-TabletPrerequisiteComponents `
+        -ComponentDirectory (Join-Path $BundleDirectory 'components') `
+        -ExpectedSources $ExpectedSources `
+        -ArtifactName $ArtifactName
+}
+
+function Copy-TabletPrerequisiteBundle {
+    param(
+        [Parameter(Mandatory)][string]$DestinationRoot,
+        [Parameter(Mandatory)][hashtable]$ExpectedSources,
+        [Parameter(Mandatory)][string]$ArtifactName
+    )
+
+    $bundleDirectory = Join-Path $DestinationRoot 'TabletPrerequisites'
+    if (Test-Path -LiteralPath $bundleDirectory) {
+        throw "Refusing to overwrite an existing TabletPrerequisites bundle: $bundleDirectory"
+    }
+
+    $libDirectory = Join-Path $bundleDirectory 'lib'
+    $componentDirectory = Join-Path $bundleDirectory 'components'
+    New-Item -ItemType Directory -Path $libDirectory, $componentDirectory -Force | Out-Null
+    Copy-Item -LiteralPath $prerequisiteScriptPath -Destination $bundleDirectory
+    Copy-Item -LiteralPath $captureHelperPath -Destination $libDirectory
+    foreach ($componentName in $tabletPrerequisiteComponentNames) {
+        Copy-Item -LiteralPath $ExpectedSources[$componentName] -Destination $componentDirectory
+    }
+
+    Assert-TabletPrerequisiteBundle `
+        -BundleDirectory $bundleDirectory `
+        -ExpectedSources $ExpectedSources `
+        -ArtifactName $ArtifactName
+    return $bundleDirectory
+}
+
+function Assert-PortableTabletPrerequisiteBundle {
+    param(
+        [Parameter(Mandatory)][string]$PortableExecutable,
+        [Parameter(Mandatory)][string]$ExtractionRoot,
+        [Parameter(Mandatory)][hashtable]$ExpectedSources
+    )
+
+    New-Item -ItemType Directory -Path $ExtractionRoot -Force | Out-Null
+    $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = $PortableExecutable
+    $startInfo.UseShellExecute = $false
+    $startInfo.Environment['DOTNET_BUNDLE_EXTRACT_BASE_DIR'] = $ExtractionRoot
+    $process = [System.Diagnostics.Process]::Start($startInfo)
+    if ($null -eq $process) {
+        throw 'Could not start the portable executable for its local bundle audit.'
+    }
+
+    try {
+        $deadline = [DateTime]::UtcNow.AddSeconds(30)
+        $bundleDirectory = $null
+        $mainWindowReady = $false
+        do {
+            $process.Refresh()
+            if ($process.HasExited) {
+                throw "Portable executable exited during its bundle audit with code $($process.ExitCode)."
+            }
+            $mainWindowReady = $process.MainWindowHandle -ne [IntPtr]::Zero
+            $bundleDirectory = @(
+                Get-ChildItem -LiteralPath $ExtractionRoot -Directory -Recurse -ErrorAction SilentlyContinue |
+                    Where-Object { $_.Name -ceq 'TabletPrerequisites' }
+            ) | Select-Object -First 1
+            if ($null -ne $bundleDirectory) {
+                $requiredFiles = @(
+                    Get-ChildItem -LiteralPath $bundleDirectory.FullName -File -Recurse -ErrorAction SilentlyContinue
+                )
+                if ($requiredFiles.Count -eq ($tabletPrerequisiteComponentNames.Count + 2) -and
+                    $mainWindowReady) {
+                    break
+                }
+            }
+            Start-Sleep -Milliseconds 100
+        } while ([DateTime]::UtcNow -lt $deadline)
+
+        if ($null -eq $bundleDirectory) {
+            throw 'Portable executable did not extract its TabletPrerequisites bundle within 30 seconds.'
+        }
+        $process.Refresh()
+        if ($process.HasExited) {
+            throw "Portable executable exited during its bundle audit with code $($process.ExitCode)."
+        }
+        if ($process.MainWindowHandle -eq [IntPtr]::Zero) {
+            throw 'Portable executable did not open its main window within 30 seconds.'
+        }
+        Assert-TabletPrerequisiteBundle `
+            -BundleDirectory $bundleDirectory.FullName `
+            -ExpectedSources $ExpectedSources `
+            -ArtifactName 'Portable executable'
+    }
+    finally {
+        if (-not $process.HasExited) {
+            $process.Kill($true)
+            [void]$process.WaitForExit(5000)
+        }
+        $process.Dispose()
+    }
+}
+
 function Get-OrCreateSigningCertificate {
     $codeSigningOid = '1.3.6.1.5.5.7.3.3'
     $minimumExpiry = (Get-Date).AddDays(30)
@@ -495,14 +712,99 @@ New-Item -ItemType Directory -Path $temporaryRoot | Out-Null
 $releaseName = "ReMarkableMirror-$Version-x64"
 $releaseDirectory = Join-Path $OutputDirectory $releaseName
 $zipPath = Join-Path $OutputDirectory "$releaseName.zip"
+$portablePath = Join-Path $OutputDirectory 'ReMarkableMirror.exe'
 if (Test-Path -LiteralPath $releaseDirectory) {
     throw "Release directory already exists: $releaseDirectory"
 }
 if (Test-Path -LiteralPath $zipPath) {
     throw "Release archive already exists: $zipPath"
 }
+if (Test-Path -LiteralPath $portablePath) {
+    throw "Portable executable already exists: $portablePath"
+}
 
 try {
+    $prerequisiteAssetDirectory = Join-Path $temporaryRoot 'tablet-prerequisite-assets'
+    New-Item -ItemType Directory -Path $prerequisiteAssetDirectory | Out-Null
+    foreach ($staticAssetPath in @(
+            $prerequisiteInstallPath,
+            $prerequisiteContractPath,
+            $transportUnitPath,
+            $transportInstallPath,
+            $transportSleepGuardPath
+        )) {
+        Copy-Item -LiteralPath $staticAssetPath -Destination $prerequisiteAssetDirectory
+    }
+
+    $probeBuildDirectory = Join-Path $temporaryRoot 'mirror-agent'
+    $probeBuild = & $probeBuildScriptPath -OutputDirectory $probeBuildDirectory -Force
+    if ($null -eq $probeBuild -or
+        -not (Test-Path -LiteralPath $probeBuild.OutputPath -PathType Leaf)) {
+        throw 'The mirror-agent build did not return a usable ARM64 binary.'
+    }
+    Copy-Item `
+        -LiteralPath $probeBuild.OutputPath `
+        -Destination (Join-Path $prerequisiteAssetDirectory 'rmmirror-probe')
+
+    $transportBuildDirectory = Join-Path $temporaryRoot 'transport-wake'
+    $transportBuild = & $transportBuildScriptPath -OutputDirectory $transportBuildDirectory -Force
+    if ($null -eq $transportBuild -or
+        -not (Test-Path -LiteralPath $transportBuild.OutputPath -PathType Leaf)) {
+        throw 'The transport-wake build did not return a usable ARM64 binary.'
+    }
+    if ($transportBuild.GoVersion -cne $probeBuild.GoVersion) {
+        throw "ARM64 companion Go toolchain drift: probe used '$($probeBuild.GoVersion)'; transport wake used '$($transportBuild.GoVersion)'."
+    }
+    Copy-Item `
+        -LiteralPath $transportBuild.OutputPath `
+        -Destination (Join-Path $prerequisiteAssetDirectory 'rmmirror-transport-wake')
+
+    $filesLoopbackBuild = if ($usePrebuiltFilesLoopback) {
+        Get-VerifiedRemarkableFilesLoopbackArtifact `
+            -Path $PrebuiltFilesLoopbackPath `
+            -ExpectedSha256 $PrebuiltFilesLoopbackSha256
+    }
+    else {
+        $filesLoopbackBuildDirectory = Join-Path $temporaryRoot 'files-loopback'
+        & $filesLoopbackBuildScriptPath `
+            -OutputDirectory $filesLoopbackBuildDirectory `
+            -Force
+    }
+    if ($null -eq $filesLoopbackBuild -or
+        -not (Test-Path -LiteralPath $filesLoopbackBuild.OutputPath -PathType Leaf)) {
+        throw 'The Files loopback build did not return a usable ARM64 shared object.'
+    }
+    Copy-Item `
+        -LiteralPath $filesLoopbackBuild.OutputPath `
+        -Destination (Join-Path $prerequisiteAssetDirectory 'rmmirror-files-loopback.so')
+
+    $xoviArchivePath = Join-Path $temporaryRoot 'xovi-aarch64.tar.gz'
+    $cachedXoviArchive = Join-Path $repositoryRoot "tmp\mirror\xovi-$xoviRelease\xovi-aarch64.tar.gz"
+    if (Test-Path -LiteralPath $cachedXoviArchive -PathType Leaf) {
+        Copy-Item -LiteralPath $cachedXoviArchive -Destination $xoviArchivePath
+    }
+    else {
+        Invoke-WebRequest `
+            -Uri "https://github.com/asivery/rm-xovi-extensions/releases/download/$xoviRelease/xovi-aarch64.tar.gz" `
+            -OutFile $xoviArchivePath
+    }
+    $xoviArchiveHash = (Get-FileHash -LiteralPath $xoviArchivePath -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($xoviArchiveHash -ne $xoviArchiveHashExpected) {
+        throw "Unexpected Xovi archive hash: $xoviArchiveHash"
+    }
+    Copy-Item `
+        -LiteralPath $xoviArchivePath `
+        -Destination (Join-Path $prerequisiteAssetDirectory 'xovi-aarch64.tar.gz')
+
+    $tabletPrerequisiteSources = @{}
+    foreach ($componentName in $tabletPrerequisiteComponentNames) {
+        $tabletPrerequisiteSources[$componentName] = Join-Path $prerequisiteAssetDirectory $componentName
+    }
+    Assert-TabletPrerequisiteComponents `
+        -ComponentDirectory $prerequisiteAssetDirectory `
+        -ExpectedSources $tabletPrerequisiteSources `
+        -ArtifactName 'Prerequisite staging directory'
+
     $temporaryWindowsDirectory = Join-Path $temporaryRoot 'windows'
     & robocopy.exe $windowsSourceDirectory $temporaryWindowsDirectory /E /XD bin obj AppPackages /XF '*.user' /NFL /NDL /NJH /NJS /NP
     if ($LASTEXITCODE -ge 8) {
@@ -539,6 +841,10 @@ try {
     Copy-Item -Path (Join-Path $microsoftNoticesDirectoryPath '*') `
         -Destination $buildMicrosoftNoticesDirectory `
         -Recurse
+    $stagedTabletPrerequisiteBundle = Copy-TabletPrerequisiteBundle `
+        -DestinationRoot $buildProjectDirectory `
+        -ExpectedSources $tabletPrerequisiteSources `
+        -ArtifactName 'Staged Windows project'
 
     $packageBuildDirectory = Join-Path $temporaryRoot 'AppPackages\'
     $restoreArguments = @(
@@ -570,6 +876,25 @@ try {
         '-p:DebugSymbols=false',
         "-p:AppxPackageDir=$packageBuildDirectory"
     )
+    $portableBuildDirectory = Join-Path $temporaryRoot 'portable'
+    $portableRestoreArguments = @(
+        'restore',
+        $buildProjectPath,
+        '--configfile', $buildNugetConfigPath,
+        '--locked-mode',
+        '-p:Configuration=Release',
+        '-p:PublishReadyToRun=false',
+        '-p:PublishProfile=win-x64-portable.pubxml'
+    )
+    $portablePublishArguments = @(
+        'publish',
+        $buildProjectPath,
+        '--configuration', 'Release',
+        '--no-restore',
+        '-p:PublishReadyToRun=false',
+        '-p:PublishProfile=win-x64-portable.pubxml',
+        '-o', $portableBuildDirectory
+    )
     Push-Location $repositoryRoot
     try {
         & $dotnet @restoreArguments
@@ -580,10 +905,29 @@ try {
         if ($LASTEXITCODE -ne 0) {
             throw "dotnet publish failed with exit code $LASTEXITCODE."
         }
+        & $dotnet @portableRestoreArguments
+        if ($LASTEXITCODE -ne 0) {
+            throw "Portable dotnet restore --locked-mode failed with exit code $LASTEXITCODE."
+        }
+        & $dotnet @portablePublishArguments
+        if ($LASTEXITCODE -ne 0) {
+            throw "Portable dotnet publish failed with exit code $LASTEXITCODE."
+        }
     }
     finally {
         Pop-Location
     }
+
+    $portableFiles = @(Get-ChildItem -LiteralPath $portableBuildDirectory -File)
+    $portableExecutable = Join-Path $portableBuildDirectory 'ReMarkableMirror.exe'
+    if ($portableFiles.Count -ne 1 -or
+        -not (Test-Path -LiteralPath $portableExecutable -PathType Leaf)) {
+        throw 'Portable publish did not produce exactly one ReMarkableMirror.exe.'
+    }
+    Assert-PortableTabletPrerequisiteBundle `
+        -PortableExecutable $portableExecutable `
+        -ExtractionRoot (Join-Path $temporaryRoot 'portable-extract') `
+        -ExpectedSources $tabletPrerequisiteSources
 
     $appPackages = @(
         Get-ChildItem -LiteralPath $packageBuildDirectory -Recurse -Filter '*.msix' -File |
@@ -610,7 +954,6 @@ try {
     Copy-Item -LiteralPath $runtimePackages[0].FullName -Destination $dependencyDirectory
     Copy-Item -LiteralPath $installerScriptPath -Destination $releaseDirectory
     Copy-Item -LiteralPath $installerLauncherPath -Destination (Join-Path $releaseDirectory 'Install.cmd')
-    Copy-Item -LiteralPath $prerequisiteScriptPath -Destination $releaseDirectory
     Copy-Item -LiteralPath $publicOnboardingGuidePath -Destination (Join-Path $releaseDirectory 'ONBOARDING.md')
     Copy-Item -LiteralPath $publicGettingStartedGuidePath -Destination (Join-Path $releaseDirectory 'GETTING_STARTED.md')
     Copy-Item -LiteralPath $publicTroubleshootingGuidePath -Destination (Join-Path $releaseDirectory 'TROUBLESHOOTING.md')
@@ -628,70 +971,6 @@ try {
     Copy-Item -LiteralPath $projectLicensePath -Destination (Join-Path $releaseDirectory 'LICENSE')
     Copy-Item -LiteralPath $projectNoticePath -Destination (Join-Path $releaseDirectory 'NOTICE')
     Copy-Item -LiteralPath $projectThirdPartyNoticesPath -Destination (Join-Path $releaseDirectory 'THIRD_PARTY_NOTICES.md')
-
-    $releaseLibraryDirectory = Join-Path $releaseDirectory 'lib'
-    $releaseComponentDirectory = Join-Path $releaseDirectory 'components'
-    New-Item -ItemType Directory -Path $releaseLibraryDirectory, $releaseComponentDirectory -Force | Out-Null
-    Copy-Item -LiteralPath $captureHelperPath -Destination $releaseLibraryDirectory
-    Copy-Item -LiteralPath $transportUnitPath -Destination $releaseComponentDirectory
-    Copy-Item -LiteralPath $transportInstallPath -Destination $releaseComponentDirectory
-    Copy-Item -LiteralPath $transportSleepGuardPath -Destination $releaseComponentDirectory
-
-    $probeBuildDirectory = Join-Path $temporaryRoot 'mirror-agent'
-    $probeBuild = & $probeBuildScriptPath -OutputDirectory $probeBuildDirectory -Force
-    if ($null -eq $probeBuild -or
-        -not (Test-Path -LiteralPath $probeBuild.OutputPath -PathType Leaf)) {
-        throw 'The mirror-agent build did not return a usable ARM64 binary.'
-    }
-    $releaseProbePath = Join-Path $releaseComponentDirectory 'rmmirror-probe'
-    Copy-Item -LiteralPath $probeBuild.OutputPath -Destination $releaseProbePath
-
-    $transportBuildDirectory = Join-Path $temporaryRoot 'transport-wake'
-    $transportBuild = & $transportBuildScriptPath -OutputDirectory $transportBuildDirectory -Force
-    if ($null -eq $transportBuild -or
-        -not (Test-Path -LiteralPath $transportBuild.OutputPath -PathType Leaf)) {
-        throw 'The transport-wake build did not return a usable ARM64 binary.'
-    }
-    if ($transportBuild.GoVersion -cne $probeBuild.GoVersion) {
-        throw "ARM64 companion Go toolchain drift: probe used '$($probeBuild.GoVersion)'; transport wake used '$($transportBuild.GoVersion)'."
-    }
-    $releaseTransportPath = Join-Path $releaseComponentDirectory 'rmmirror-transport-wake'
-    Copy-Item -LiteralPath $transportBuild.OutputPath -Destination $releaseTransportPath
-
-    $filesLoopbackBuild = if ($usePrebuiltFilesLoopback) {
-        Get-VerifiedRemarkableFilesLoopbackArtifact `
-            -Path $PrebuiltFilesLoopbackPath `
-            -ExpectedSha256 $PrebuiltFilesLoopbackSha256
-    }
-    else {
-        $filesLoopbackBuildDirectory = Join-Path $temporaryRoot 'files-loopback'
-        & $filesLoopbackBuildScriptPath `
-            -OutputDirectory $filesLoopbackBuildDirectory `
-            -Force
-    }
-    if ($null -eq $filesLoopbackBuild -or
-        -not (Test-Path -LiteralPath $filesLoopbackBuild.OutputPath -PathType Leaf)) {
-        throw 'The Files loopback build did not return a usable ARM64 shared object.'
-    }
-    $releaseFilesLoopbackPath = Join-Path $releaseComponentDirectory 'rmmirror-files-loopback.so'
-    Copy-Item -LiteralPath $filesLoopbackBuild.OutputPath -Destination $releaseFilesLoopbackPath
-
-    $xoviArchivePath = Join-Path $temporaryRoot 'xovi-aarch64.tar.gz'
-    $cachedXoviArchive = Join-Path $repositoryRoot "tmp\mirror\xovi-$xoviRelease\xovi-aarch64.tar.gz"
-    if (Test-Path -LiteralPath $cachedXoviArchive -PathType Leaf) {
-        Copy-Item -LiteralPath $cachedXoviArchive -Destination $xoviArchivePath
-    }
-    else {
-        Invoke-WebRequest `
-            -Uri "https://github.com/asivery/rm-xovi-extensions/releases/download/$xoviRelease/xovi-aarch64.tar.gz" `
-            -OutFile $xoviArchivePath
-    }
-    $xoviArchiveHash = (Get-FileHash -LiteralPath $xoviArchivePath -Algorithm SHA256).Hash.ToLowerInvariant()
-    if ($xoviArchiveHash -ne $xoviArchiveHashExpected) {
-        throw "Unexpected Xovi archive hash: $xoviArchiveHash"
-    }
-    $releaseXoviPath = Join-Path $releaseComponentDirectory 'xovi-aarch64.tar.gz'
-    Copy-Item -LiteralPath $xoviArchivePath -Destination $releaseXoviPath
 
     $releaseNoticeDirectory = Join-Path $releaseDirectory 'ThirdParty\XOVI'
     $releaseMicrosoftNoticesDirectory = Join-Path $releaseDirectory 'ThirdParty\Microsoft'
@@ -733,6 +1012,10 @@ try {
         $manifestIdentity.ProcessorArchitecture -ne 'x64') {
         throw "Finished MSIX identity does not match the requested name, publisher, version, and architecture."
     }
+    Assert-TabletPrerequisiteBundle `
+        -BundleDirectory (Join-Path $unpackDirectory 'TabletPrerequisites') `
+        -ExpectedSources $tabletPrerequisiteSources `
+        -ArtifactName 'Finished MSIX'
     Assert-AppOwnedPackageBinaryPrivacy `
         -UnpackDirectory $unpackDirectory `
         -SensitiveRoots @(
@@ -777,23 +1060,36 @@ try {
     $embeddedDotnetRuntimeVersion = [string]$includedDotnetRuntime[0].version
 
     $packageHash = (Get-FileHash -LiteralPath $packagePath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $portableHash = (Get-FileHash -LiteralPath $portableExecutable -Algorithm SHA256).Hash.ToLowerInvariant()
+    $portableLength = (Get-Item -LiteralPath $portableExecutable).Length
     $certificateHash = (Get-FileHash -LiteralPath $certificatePath -Algorithm SHA256).Hash.ToLowerInvariant()
     $runtimePackage = Get-ChildItem -LiteralPath $dependencyDirectory -Filter '*.msix' -File | Select-Object -First 1
     $runtimeHash = (Get-FileHash -LiteralPath $runtimePackage.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
     $runtimeIdentity = Get-AppxArchiveIdentity -Path $runtimePackage.FullName
-    $probeHash = (Get-FileHash -LiteralPath $releaseProbePath -Algorithm SHA256).Hash.ToLowerInvariant()
-    $transportHash = (Get-FileHash -LiteralPath $releaseTransportPath -Algorithm SHA256).Hash.ToLowerInvariant()
-    $transportSleepGuardHash = (Get-FileHash -LiteralPath (Join-Path $releaseComponentDirectory 'rmmirror-usb-sleep-guard.conf') -Algorithm SHA256).Hash.ToLowerInvariant()
-    $filesLoopbackHash = (Get-FileHash -LiteralPath $releaseFilesLoopbackPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $probeHash = (Get-FileHash -LiteralPath $tabletPrerequisiteSources['rmmirror-probe'] -Algorithm SHA256).Hash.ToLowerInvariant()
+    $transportHash = (Get-FileHash -LiteralPath $tabletPrerequisiteSources['rmmirror-transport-wake'] -Algorithm SHA256).Hash.ToLowerInvariant()
+    $transportSleepGuardHash = (Get-FileHash -LiteralPath $tabletPrerequisiteSources['rmmirror-usb-sleep-guard.conf'] -Algorithm SHA256).Hash.ToLowerInvariant()
+    $filesLoopbackHash = (Get-FileHash -LiteralPath $tabletPrerequisiteSources['rmmirror-files-loopback.so'] -Algorithm SHA256).Hash.ToLowerInvariant()
+    $prerequisiteInstallerHash = (Get-FileHash -LiteralPath $tabletPrerequisiteSources['install-mirror-prerequisites.sh'] -Algorithm SHA256).Hash.ToLowerInvariant()
+    $prerequisiteContractHash = (Get-FileHash -LiteralPath $tabletPrerequisiteSources['rmmirror-prerequisites.env'] -Algorithm SHA256).Hash.ToLowerInvariant()
+    $hostPrerequisiteAdapterHash = (Get-FileHash -LiteralPath $prerequisiteScriptPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $captureHelperHash = (Get-FileHash -LiteralPath $captureHelperPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $runtimeComponentMetadata = @(
+        foreach ($componentName in $tabletPrerequisiteComponentNames) {
+            [ordered]@{
+                file = "TabletPrerequisites/components/$componentName"
+                sha256 = (Get-FileHash -LiteralPath $tabletPrerequisiteSources[$componentName] -Algorithm SHA256).Hash.ToLowerInvariant()
+            }
+        }
+    )
 
     $readme = @"
 reMarkable Mirror $Version for 64-bit Windows
 
 To install this release:
 1. Extract this entire folder.
-2. Connect the reMarkable tablet. If it just rebooted, complete its first unlock;
-   an ordinary screen lock is supported.
-3. Double-click Install.cmd.
+2. Double-click Install.cmd.
+3. Open Mirror and choose Start Setup when you are ready to prepare the tablet.
 
 The included installer reads the exact package identity, publisher, version and
 SHA-256 from release.json before trusting the certificate or installing the
@@ -801,39 +1097,27 @@ MSIX. release.json also records the exact Git commit and whether the source tree
 was dirty. Official iFixRobots packages require clean source unless the builder
 explicitly opts into a local development artifact marked source_dirty=true.
 
-Default tablet setup requires PowerShell 7.5 or newer and these existing SSH
-files under %USERPROFILE%\.ssh:
-  remarkable_chiappa_ed25519
-  remarkable_known_hosts
-
 The installer requests one Windows administrator prompt to trust the included
-local signing certificate, installs the Windows App Runtime and Mirror with its
-matching .NET runtime built in, then installs the package-matching tablet probe,
-pinned XOVI release and three required
-extensions, plus USB transport wake support. XOVI is started only when Mirror
-connects. It is never configured to start at tablet boot.
+local signing certificate, installs the Windows App Runtime, and installs
+Mirror with its matching .NET runtime and tablet prerequisite payload built in.
+It never contacts or changes the tablet. Tablet setup begins only after you open
+Mirror and explicitly choose Start Setup.
 
-For another PC or tablet, Developer Mode, the first post-boot unlock, an
-authorized SSH identity and host trust must already be set up. This installer
-does not enable Developer Mode, bypass the tablet passcode, or create SSH trust.
-Enabling Developer Mode performs a factory reset and removes saved Wi-Fi
-networks and credentials. After the reset, reconnect the tablet to Wi-Fi from
-the tablet UI and wait until it explicitly says Connected. Enter that password
-only on the tablet. The Files view uses the tablet's stock web interface through the
-pinned SSH connection; the package-matching loopback extension makes it
-available for either USB or Wi-Fi without exposing it directly on the Wi-Fi
-network. Read ONBOARDING.md
-before setting up a fresh tablet.
+Mirror then guides Developer Mode owners through authorizing this computer and
+installing the package-matching tablet probe, pinned XOVI release, Files
+loopback extension, and USB transport wake support. Enabling Developer Mode
+factory-resets the tablet and removes its saved Wi-Fi networks and credentials;
+read ONBOARDING.md before starting with a fresh tablet.
 
-Wi-Fi Files requires the package-matching tablet components.
+The Files view uses the tablet's stock web interface through the pinned SSH
+connection. The loopback extension keeps that service off the Wi-Fi network.
+XOVI is started only when Mirror connects and is not configured to start at
+tablet boot.
 
 Upstream XOVI notices, exact source links and GPL v3 terms are under
 ThirdParty\XOVI.
 
-For an app-only reinstall of an already matching release, run:
-  powershell -ExecutionPolicy Bypass -File .\Install-RemarkableMirror.ps1 -SkipTabletSetup
-App-only install does not update the tablet probe and cannot add Wi-Fi Files to
-an older tablet setup.
+Tablet setup and repair are always visible, owner-started actions inside Mirror.
 "@
     Set-Content -LiteralPath (Join-Path $releaseDirectory 'README.txt') -Value $readme -Encoding UTF8
 
@@ -869,6 +1153,14 @@ an older tablet setup.
                 version = $embeddedDotnetRuntimeVersion
             }
         }
+        portable = [ordered]@{
+            file = [System.IO.Path]::GetFileName($portablePath)
+            architecture = 'x64'
+            sha256 = $portableHash
+            bytes = $portableLength
+            deployment = 'self-contained-single-file'
+            tablet_prerequisites_embedded = $true
+        }
         certificate = [ordered]@{
             file = [System.IO.Path]::GetFileName($certificatePath)
             thumbprint = $certificate.Thumbprint
@@ -892,18 +1184,44 @@ an older tablet setup.
             microsoft_notices = 'ThirdParty/Microsoft/README.md'
         }
         tablet_prerequisites = [ordered]@{
-            installer = 'Install-RemarkableMirrorPrerequisites.ps1'
-            installed_by_default = $true
+            runtime_bundle = [ordered]@{
+                root = 'TabletPrerequisites'
+                adapter = [ordered]@{
+                    file = 'TabletPrerequisites/Install-RemarkableMirrorPrerequisites.ps1'
+                    sha256 = $hostPrerequisiteAdapterHash
+                }
+                capture_helper = [ordered]@{
+                    file = 'TabletPrerequisites/lib/RemarkableRmctlCapture.ps1'
+                    sha256 = $captureHelperHash
+                }
+                components = $runtimeComponentMetadata
+            }
+            transaction = [ordered]@{
+                file = 'TabletPrerequisites/components/install-mirror-prerequisites.sh'
+                sha256 = $prerequisiteInstallerHash
+                contract = [ordered]@{
+                    file = 'TabletPrerequisites/components/rmmirror-prerequisites.env'
+                    schema = $prerequisiteContract['RMMIRROR_PREREQUISITES_SCHEMA']
+                    tablet_model = $prerequisiteContract['RMMIRROR_TABLET_MODEL']
+                    tablet_img_version = $prerequisiteContract['RMMIRROR_TABLET_IMG_VERSION']
+                    tablet_os_build = $prerequisiteContract['RMMIRROR_TABLET_OS_BUILD']
+                    sha256 = $prerequisiteContractHash
+                }
+            }
+            installer_contacts_tablet = $false
+            owner_started_in_app = $true
+            installed_by_default = $false
             developer_mode_required = $true
             first_unlock_required = $true
-            ssh_identity_and_host_trust_required = $true
+            ssh_identity_and_host_trust_created_in_app = $true
+            developer_mode_password_stored = $false
             probe = [ordered]@{
-                file = 'components/rmmirror-probe'
+                file = 'TabletPrerequisites/components/rmmirror-probe'
                 version = $mirrorProbeVersion
                 sha256 = $probeHash
             }
             xovi = [ordered]@{
-                file = 'components/xovi-aarch64.tar.gz'
+                file = 'TabletPrerequisites/components/xovi-aarch64.tar.gz'
                 release = $xoviRelease
                 release_commit = '7874154dba6793cc68a15fae0fb9dd272c4ed20a'
                 sha256 = $xoviArchiveHash
@@ -920,7 +1238,7 @@ an older tablet setup.
                 notice = 'ThirdParty/XOVI/NOTICE.txt'
             }
             files_loopback = [ordered]@{
-                file = 'components/rmmirror-files-loopback.so'
+                file = 'TabletPrerequisites/components/rmmirror-files-loopback.so'
                 version = '0.1.0'
                 sha256 = $filesLoopbackHash
                 toolchain_image = $filesLoopbackBuild.ToolchainImage
@@ -928,10 +1246,10 @@ an older tablet setup.
                 listener_scope = 'tablet-loopback-via-authenticated-ssh-forward'
             }
             transport_wake = [ordered]@{
-                file = 'components/rmmirror-transport-wake'
+                file = 'TabletPrerequisites/components/rmmirror-transport-wake'
                 sha256 = $transportHash
                 system_sleep_guard = [ordered]@{
-                    file = 'components/rmmirror-usb-sleep-guard.conf'
+                    file = 'TabletPrerequisites/components/rmmirror-usb-sleep-guard.conf'
                     sha256 = $transportSleepGuardHash
                     executor = 'systemd-suspend-then-hibernate.service'
                     condition = 'hold-while-live-usb-carrier'
@@ -941,13 +1259,14 @@ an older tablet setup.
             }
         }
         tablet_prerequisite_included = $true
-        full_fresh_tablet_onboarding = $false
     }
     $metadata | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $releaseDirectory 'release.json') -Encoding UTF8
 
+    Copy-Item -LiteralPath $portableExecutable -Destination $portablePath
     Compress-Archive -LiteralPath $releaseDirectory -DestinationPath $zipPath -CompressionLevel Optimal
 
     Write-Host "Package: $packagePath"
+    Write-Host "Portable: $portablePath"
     Write-Host "Shareable ZIP: $zipPath"
     Write-Host "Version: $Version"
     Write-Host "SHA-256: $packageHash"

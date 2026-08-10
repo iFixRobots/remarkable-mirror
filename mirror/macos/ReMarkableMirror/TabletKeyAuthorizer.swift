@@ -85,9 +85,8 @@ enum TabletKeyAuthorizationFailure: Equatable, Sendable {
 }
 
 enum TabletKeyAuthorizationResult: Equatable, Sendable {
-    /// The key was appended and then proved over the exact key-only USB
-    /// route. Capability is advisory here because an older wake prerequisite
-    /// is exactly what the next installation stage is responsible for fixing.
+    /// The key was appended and then proved over the exact key-only USB route.
+    /// A current capability lets setup skip the otherwise idempotent installer.
     case authorized(PassiveRouteCapability?)
     case failed(TabletKeyAuthorizationFailure)
 }
@@ -151,8 +150,8 @@ actor TabletKeyAuthorizer {
         guard let publicKey = Self.normalizedEd25519PublicKey(publicKey) else {
             return .failed(.invalidPublicKey)
         }
-        guard Self.isSafeAbsoluteFileURL(identityURL),
-              Self.isSafeAbsoluteFileURL(knownHostsURL) else {
+        guard SafeConnectionValue.isAbsoluteFileURL(identityURL),
+              SafeConnectionValue.isAbsoluteFileURL(knownHostsURL) else {
             return .failed(.invalidCredentialPath)
         }
         guard BSDInterfaceName.isValid(expectedUSBContext.interfaceName) else {
@@ -276,8 +275,8 @@ actor TabletKeyAuthorizer {
         usbContext: DirectUSBRouteContext,
         generation: GenerationID
     ) -> ProcessRequest? {
-        guard isSafeAbsoluteFileURL(scriptURL),
-              isSafeAbsoluteFileURL(knownHostsURL),
+        guard SafeConnectionValue.isAbsoluteFileURL(scriptURL),
+              SafeConnectionValue.isAbsoluteFileURL(knownHostsURL),
               BSDInterfaceName.isValid(usbContext.interfaceName) else {
             return nil
         }
@@ -361,15 +360,6 @@ actor TabletKeyAuthorizer {
         case .exited:
             .authorizationProtocolFailed
         }
-    }
-
-    private static func isSafeAbsoluteFileURL(_ url: URL) -> Bool {
-        url.isFileURL &&
-            url.path.first == "/" &&
-            url.path.utf8.count <= 4_096 &&
-            !url.path.contains("\0") &&
-            !url.path.contains("\r") &&
-            !url.path.contains("\n")
     }
 
     private func exactRouteFailure(

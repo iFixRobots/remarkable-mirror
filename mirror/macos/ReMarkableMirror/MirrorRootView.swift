@@ -109,7 +109,7 @@ private struct TabletAuthorizationPrompt: View {
             Color.black.opacity(0.44)
 
             VStack(alignment: .leading, spacing: 0) {
-                Text(repairsUSB ? "Authorize USB‑C again" : "Authorize this Mac")
+                Text(repairsUSB ? "Authorize USB‑C again" : "Authorize and install")
                     .font(.system(size: 20, weight: .semibold))
                     .foregroundStyle(MirrorPalette.ink)
 
@@ -149,7 +149,7 @@ private struct TabletAuthorizationPrompt: View {
                                 ProgressView()
                                     .controlSize(.small)
                             }
-                            Text(repairsUSB ? "Authorize USB‑C" : "Authorize")
+                            Text(repairsUSB ? "Authorize USB‑C" : "Authorize & Install")
                         }
                         .frame(minWidth: 126)
                     }
@@ -203,16 +203,16 @@ private struct TabletAuthorizationPrompt: View {
 
     private var promptMessage: String {
         "Enter the Developer Mode password shown on your reMarkable. " +
-            "Mirror uses it for this attempt only and never saves it."
+            "Mirror uses it once for this setup attempt and never saves it."
     }
 
     private var footnote: String {
         if repairsUSB {
-            return "This repairs this Mac’s saved USB‑C authorization. " +
-                "It does not configure Wi‑Fi or change documents."
+            return "Mirror repairs this Mac’s dedicated SSH key and the pinned " +
+                "tablet components. Wi‑Fi settings and documents are unchanged."
         }
-        return "This adds this Mac’s access key and installs Mirror’s USB " +
-            "keep-awake helper. Keep the tablet connected, awake, and unlocked."
+        return "Mirror adds a dedicated SSH key, installs the pinned tablet " +
+            "components, and enables authenticated Wi‑Fi SSH. Keep the tablet connected, awake, and unlocked."
     }
 
     private func cancel() {

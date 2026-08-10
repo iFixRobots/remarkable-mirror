@@ -9,7 +9,8 @@ param(
     [string]$TransportWakeBinary,
     [string]$MirrorProbeBinary,
     [string]$XoviArchive,
-    [string]$FilesLoopbackExtension
+    [string]$FilesLoopbackExtension,
+    [switch]$RecognizeOnly
 )
 
 Set-StrictMode -Version Latest
@@ -18,6 +19,43 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'lib\RemarkableRmctlCapture.ps1')
 
 $repositoryRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
+$releaseComponentDirectory = Join-Path $PSScriptRoot 'components'
+$deployDirectory = Join-Path $repositoryRoot 'mirror\agent\deploy'
+$releaseContract = Join-Path $releaseComponentDirectory 'rmmirror-prerequisites.env'
+$contractSource = if (Test-Path -LiteralPath $releaseContract -PathType Leaf) {
+    $releaseContract
+}
+else {
+    Join-Path $deployDirectory 'rmmirror-prerequisites.env'
+}
+if (-not (Test-Path -LiteralPath $contractSource -PathType Leaf)) {
+    throw "The tablet prerequisite contract is missing: $contractSource"
+}
+$contractValues = @{}
+foreach ($line in [System.IO.File]::ReadAllLines($contractSource)) {
+    if ($line -cnotmatch '^([A-Z0-9_]+)=([A-Za-z0-9.,/+_-]+)$' -or
+        $contractValues.ContainsKey($Matches[1])) {
+        throw 'The tablet prerequisite contract is malformed.'
+    }
+    $contractValues[$Matches[1]] = $Matches[2]
+}
+$expectedContractKeys = @(
+    'RMMIRROR_PREREQUISITES_SCHEMA',
+    'RMMIRROR_TABLET_MODEL',
+    'RMMIRROR_TABLET_IMG_VERSION',
+    'RMMIRROR_TABLET_OS_BUILD',
+    'RMMIRROR_XOVI_RELEASE',
+    'RMMIRROR_XOVI_ARCHIVE_SHA256',
+    'RMMIRROR_PROBE_VERSION',
+    'RMMIRROR_TRANSPORT_VERSION',
+    'RMMIRROR_TRANSPORT_SCHEMA',
+    'RMMIRROR_USB_CONNECTION_POLICY',
+    'RMMIRROR_REQUIRED_EXTENSIONS'
+)
+if ((($contractValues.Keys | Sort-Object) -join "`n") -cne
+    (($expectedContractKeys | Sort-Object) -join "`n")) {
+    throw 'The tablet prerequisite contract has unexpected fields.'
+}
 $runToken = [guid]::NewGuid().ToString('N')
 $buildDirectory = Join-Path $repositoryRoot "tmp\mirror\transport-wake-$runToken"
 $remoteStage = "/home/root/.rmmirror-transport-stage-$runToken"
@@ -27,9 +65,8 @@ $usbPrefixLength = 27
 $stageCreated = $false
 $wakeTokenFile = Join-Path $env:USERPROFILE '.ssh\remarkable_chiappa_wake_token'
 $sshHostKeyAlias = '10.11.99.1'
-$xoviRelease = 'v19-23052026'
-$xoviArchiveHashExpected = '32d64d1262ddc984e3235c7d0340a398fe6d5b3efa6a979865f5977b32630d27'
-$mirrorProbeVersion = '0.4.9'
+$xoviRelease = $contractValues['RMMIRROR_XOVI_RELEASE']
+$xoviArchiveHashExpected = $contractValues['RMMIRROR_XOVI_ARCHIVE_SHA256']
 
 function Get-DirectUsbTabletRoute {
     [CmdletBinding()]
@@ -136,7 +173,8 @@ foreach ($credentialPath in @($IdentityFile, $KnownHostsFile)) {
     }
 }
 
-$releaseComponentDirectory = Join-Path $PSScriptRoot 'components'
+$assetHashes = @{}
+if (-not $RecognizeOnly) {
 $releaseBinary = Join-Path $releaseComponentDirectory 'rmmirror-transport-wake'
 $releaseProbe = Join-Path $releaseComponentDirectory 'rmmirror-probe'
 $releaseXoviArchive = Join-Path $releaseComponentDirectory 'xovi-aarch64.tar.gz'
@@ -144,6 +182,7 @@ $releaseUnit = Join-Path $releaseComponentDirectory 'rmmirror-transport-wake.ser
 $releaseInstaller = Join-Path $releaseComponentDirectory 'install-transport-wake.sh'
 $releaseSleepGuard = Join-Path $releaseComponentDirectory 'rmmirror-usb-sleep-guard.conf'
 $releaseFilesLoopback = Join-Path $releaseComponentDirectory 'rmmirror-files-loopback.so'
+$releasePrerequisiteInstaller = Join-Path $releaseComponentDirectory 'install-mirror-prerequisites.sh'
 
 if ([string]::IsNullOrWhiteSpace($TransportWakeBinary) -and
     (Test-Path -LiteralPath $releaseBinary -PathType Leaf)) {
@@ -219,9 +258,19 @@ $sleepGuardSource = if (Test-Path -LiteralPath $releaseSleepGuard -PathType Leaf
 else {
     Join-Path $repositoryRoot 'mirror\agent\deploy\rmmirror-usb-sleep-guard.conf'
 }
+$prerequisiteInstallerSource = if (
+    Test-Path -LiteralPath $releasePrerequisiteInstaller -PathType Leaf
+) {
+    $releasePrerequisiteInstaller
+}
+else {
+    Join-Path $deployDirectory 'install-mirror-prerequisites.sh'
+}
 $unitFull = [System.IO.Path]::GetFullPath($unitSource)
 $installerFull = [System.IO.Path]::GetFullPath($installerSource)
 $sleepGuardFull = [System.IO.Path]::GetFullPath($sleepGuardSource)
+$prerequisiteInstallerFull = [System.IO.Path]::GetFullPath($prerequisiteInstallerSource)
+$contractFull = [System.IO.Path]::GetFullPath($contractSource)
 foreach ($assetPath in @(
         $binaryFull,
         $probeFull,
@@ -229,7 +278,9 @@ foreach ($assetPath in @(
         $filesLoopbackFull,
         $unitFull,
         $installerFull,
-        $sleepGuardFull
+        $sleepGuardFull,
+        $prerequisiteInstallerFull,
+        $contractFull
     )) {
     if (-not (Test-Path -LiteralPath $assetPath -PathType Leaf)) {
         throw "Required tablet prerequisite asset does not exist: $assetPath"
@@ -240,8 +291,17 @@ foreach ($assetPath in @(
     }
 }
 
-$filesLoopbackBytes = [System.IO.File]::ReadAllBytes($filesLoopbackFull)
-if ($filesLoopbackBytes.Length -lt 64 -or
+$filesLoopbackItem = Get-Item -LiteralPath $filesLoopbackFull
+$filesLoopbackBytes = [byte[]]::new(20)
+$filesLoopbackStream = [System.IO.File]::OpenRead($filesLoopbackFull)
+try {
+    $filesLoopbackHeaderLength = $filesLoopbackStream.Read($filesLoopbackBytes, 0, $filesLoopbackBytes.Length)
+}
+finally {
+    $filesLoopbackStream.Dispose()
+}
+if ($filesLoopbackItem.Length -lt 64 -or
+    $filesLoopbackHeaderLength -ne $filesLoopbackBytes.Length -or
     $filesLoopbackBytes[0] -ne 0x7f -or
     $filesLoopbackBytes[1] -ne 0x45 -or
     $filesLoopbackBytes[2] -ne 0x4c -or
@@ -272,10 +332,15 @@ $assetHashes = @{
     'xovi-aarch64.tar.gz' = $xoviArchiveHash
     'rmmirror-files-loopback.so' =
         (Get-FileHash -LiteralPath $filesLoopbackFull -Algorithm SHA256).Hash.ToLowerInvariant()
+    'install-mirror-prerequisites.sh' =
+        (Get-FileHash -LiteralPath $prerequisiteInstallerFull -Algorithm SHA256).Hash.ToLowerInvariant()
+    'rmmirror-prerequisites.env' =
+        (Get-FileHash -LiteralPath $contractFull -Algorithm SHA256).Hash.ToLowerInvariant()
+}
+$scp = (Get-Command scp.exe -ErrorAction Stop).Source
 }
 
 $ssh = (Get-Command ssh.exe -ErrorAction Stop).Source
-$scp = (Get-Command scp.exe -ErrorAction Stop).Source
 $identityFull = [System.IO.Path]::GetFullPath($IdentityFile)
 $knownHostsFull = [System.IO.Path]::GetFullPath($KnownHostsFile)
 $sshOptions = @(
@@ -289,7 +354,6 @@ $sshOptions = @(
     '-o', "HostKeyAlias=$sshHostKeyAlias",
     '-o', 'UpdateHostKeys=no',
     '-o', "BindAddress=$usbHostAddress",
-    '-o', "BindInterface=`"$($usbRoute.InterfaceAlias)`"",
     '-o', 'ConnectTimeout=5',
     '-o', 'ServerAliveInterval=5',
     '-o', 'ServerAliveCountMax=2'
@@ -370,9 +434,16 @@ function Set-CurrentUserOnlyAcl {
         throw 'Could not determine the current Windows user SID.'
     }
 
+    $currentAcl = Get-Acl -LiteralPath $Item.FullName
+    $currentOwner = $currentAcl.GetOwner(
+        [System.Security.Principal.SecurityIdentifier]
+    )
+    if ($currentOwner -ne $sid) {
+        throw 'Mirror refuses to change an item owned by another user.'
+    }
+
     if ($Item -is [System.IO.DirectoryInfo]) {
         $acl = [System.Security.AccessControl.DirectorySecurity]::new()
-        $acl.SetOwner($sid)
         $acl.SetAccessRuleProtection($true, $false)
         $acl.AddAccessRule(
             [System.Security.AccessControl.FileSystemAccessRule]::new(
@@ -384,10 +455,10 @@ function Set-CurrentUserOnlyAcl {
                 [System.Security.AccessControl.AccessControlType]::Allow
             )
         )
+        [System.IO.FileSystemAclExtensions]::SetAccessControl($Item, $acl)
     }
     else {
         $acl = [System.Security.AccessControl.FileSecurity]::new()
-        $acl.SetOwner($sid)
         $acl.SetAccessRuleProtection($true, $false)
         $acl.AddAccessRule(
             [System.Security.AccessControl.FileSystemAccessRule]::new(
@@ -396,8 +467,8 @@ function Set-CurrentUserOnlyAcl {
                 [System.Security.AccessControl.AccessControlType]::Allow
             )
         )
+        [System.IO.FileSystemAclExtensions]::SetAccessControl($Item, $acl)
     }
-    Set-Acl -LiteralPath $Item.FullName -AclObject $acl
 }
 
 function Test-CurrentUserOnlyAcl {
@@ -713,217 +784,76 @@ function Set-PrivateTokenFile {
 }
 
 try {
-    $create = Invoke-CheckedExternalProcess `
+    $tabletIdentityCommand = (@"
+set -eu
+test "`$(tr -d '\000' < /sys/firmware/devicetree/base/model)" = 'reMarkable Chiappa'
+test "`$(sed -n 's/^IMG_VERSION=//p' /etc/os-release | head -n 1 | tr -d '"')" = '$($contractValues['RMMIRROR_TABLET_IMG_VERSION'])'
+test "`$(sed -n 's/^VERSION_ID=//p' /etc/os-release | head -n 1 | tr -d '"')" = '$($contractValues['RMMIRROR_TABLET_OS_BUILD'])'
+printf '%s\n' 'RMMIRROR_TABLET_SUPPORTED=1'
+"@).Replace("`r`n", "`n").Trim()
+    $tabletIdentity = Invoke-CheckedExternalProcess `
         -FilePath $ssh `
-        -Arguments ($sshOptions + @($remoteHost, "umask 077; mkdir $remoteStage")) `
+        -Arguments ($sshOptions + @($remoteHost, $tabletIdentityCommand)) `
         -TimeoutMilliseconds 15000 `
-        -FailureMessage 'Could not create the tablet prerequisite stage'
-    $stageCreated = $true
-
-    foreach ($upload in @(
-            @{ Local = $binaryFull; Remote = 'rmmirror-transport-wake' },
-            @{ Local = $probeFull; Remote = 'rmmirror-probe' },
-            @{ Local = $xoviArchiveFull; Remote = 'xovi-aarch64.tar.gz' },
-            @{ Local = $filesLoopbackFull; Remote = 'rmmirror-files-loopback.so' },
-            @{ Local = $unitFull; Remote = 'rmmirror-transport-wake.service' },
-            @{ Local = $installerFull; Remote = 'install-transport-wake.sh' },
-            @{ Local = $sleepGuardFull; Remote = 'rmmirror-usb-sleep-guard.conf' }
-        )) {
-        Invoke-CheckedExternalProcess `
-            -FilePath $scp `
-            -Arguments (@('-O', '-q') + $sshOptions + @(
-                $upload.Local,
-                "${remoteHost}:$remoteStage/$($upload.Remote)"
-            )) `
-            -TimeoutMilliseconds 60000 `
-            -FailureMessage "Could not upload $($upload.Remote)" | Out-Null
+        -FailureMessage 'The connected tablet model or software is not supported by this Mirror build'
+    if ($tabletIdentity.Stdout -notmatch '(?m)^RMMIRROR_TABLET_SUPPORTED=1\r?$') {
+        throw 'Tablet support verification did not return its completion marker.'
     }
 
-    $installCommand = (@"
+    if (-not $RecognizeOnly) {
+        $create = Invoke-CheckedExternalProcess `
+            -FilePath $ssh `
+            -Arguments ($sshOptions + @(
+                $remoteHost,
+                "set -eu; umask 077; test ! -e '$remoteStage'; mkdir '$remoteStage'; date +%s > '$remoteStage/.rmmirror-stage-created'"
+            )) `
+            -TimeoutMilliseconds 15000 `
+            -FailureMessage 'Could not create the tablet prerequisite stage'
+        $stageCreated = $true
+
+        foreach ($upload in @(
+                @{ Local = $binaryFull; Remote = 'rmmirror-transport-wake' },
+                @{ Local = $probeFull; Remote = 'rmmirror-probe' },
+                @{ Local = $xoviArchiveFull; Remote = 'xovi-aarch64.tar.gz' },
+                @{ Local = $filesLoopbackFull; Remote = 'rmmirror-files-loopback.so' },
+                @{ Local = $unitFull; Remote = 'rmmirror-transport-wake.service' },
+                @{ Local = $installerFull; Remote = 'install-transport-wake.sh' },
+                @{ Local = $sleepGuardFull; Remote = 'rmmirror-usb-sleep-guard.conf' },
+                @{ Local = $prerequisiteInstallerFull; Remote = 'install-mirror-prerequisites.sh' },
+                @{ Local = $contractFull; Remote = 'rmmirror-prerequisites.env' }
+            )) {
+            Invoke-CheckedExternalProcess `
+                -FilePath $scp `
+                -Arguments (@('-O', '-q') + $sshOptions + @(
+                    $upload.Local,
+                    "${remoteHost}:$remoteStage/$($upload.Remote)"
+                )) `
+                -TimeoutMilliseconds 60000 `
+                -FailureMessage "Could not upload $($upload.Remote)" | Out-Null
+        }
+
+        $installCommand = (@"
 set -eu
 stage='$remoteStage'
-test "`$(sha256sum "`$stage/rmmirror-transport-wake" | cut -d' ' -f1)" = '$($assetHashes['rmmirror-transport-wake'])'
-test "`$(sha256sum "`$stage/rmmirror-transport-wake.service" | cut -d' ' -f1)" = '$($assetHashes['rmmirror-transport-wake.service'])'
-test "`$(sha256sum "`$stage/install-transport-wake.sh" | cut -d' ' -f1)" = '$($assetHashes['install-transport-wake.sh'])'
-test "`$(sha256sum "`$stage/rmmirror-usb-sleep-guard.conf" | cut -d' ' -f1)" = '$($assetHashes['rmmirror-usb-sleep-guard.conf'])'
-test "`$(sha256sum "`$stage/rmmirror-probe" | cut -d' ' -f1)" = '$($assetHashes['rmmirror-probe'])'
-test "`$(sha256sum "`$stage/xovi-aarch64.tar.gz" | cut -d' ' -f1)" = '$($assetHashes['xovi-aarch64.tar.gz'])'
-test "`$(sha256sum "`$stage/rmmirror-files-loopback.so" | cut -d' ' -f1)" = '$($assetHashes['rmmirror-files-loopback.so'])'
-test -c /dev/uinput
-test -c /dev/input/event2
-test "`$(cat /sys/class/input/event2/device/name)" = 'Elan marker input'
-
-mkdir "`$stage/xovi-unpack"
-tar -xzf "`$stage/xovi-aarch64.tar.gz" -C "`$stage/xovi-unpack"
-pinned_xovi="`$stage/xovi-unpack/xovi"
-test -x "`$pinned_xovi/start"
-test -x "`$pinned_xovi/stock"
-test -f "`$pinned_xovi/xovi.so"
-test -f "`$pinned_xovi/inactive-extensions/framebuffer-spy.so"
-test -f "`$pinned_xovi/inactive-extensions/xovi-message-broker.so"
-if test ! -e /home/root/xovi; then
-  printf '%s\n' '$xoviRelease' > "`$pinned_xovi/.rmmirror-version"
-  mv "`$pinned_xovi" /home/root/xovi
-else
-  if ! test -f /home/root/xovi/.rmmirror-version ||
-      ! test "`$(cat /home/root/xovi/.rmmirror-version)" = '$xoviRelease'; then
-    printf '%s\n' 'rmmirror-prerequisite: xovi_version_mismatch' >&2
-    exit 44
-  fi
-  for asset in \
-    xovi.so \
-    start \
-    stock \
-    inactive-extensions/framebuffer-spy.so \
-    inactive-extensions/xovi-message-broker.so
-  do
-    if ! cmp -s "`$pinned_xovi/`$asset" "/home/root/xovi/`$asset"; then
-      printf '%s\n' "rmmirror-prerequisite: xovi_asset_mismatch:`$asset" >&2
-      exit 45
-    fi
-  done
-fi
-test -x /home/root/xovi/start
-test -f /home/root/xovi/inactive-extensions/framebuffer-spy.so
-test -f /home/root/xovi/inactive-extensions/xovi-message-broker.so
-mkdir -p \
-  /home/root/xovi/extensions.d \
-  /home/root/xovi/inactive-extensions \
-  /home/root/xovi/services/xochitl.service
-for retired_extension in qt-resource-rebuilder.so webserver-remote.so; do
-  if test -f "/home/root/xovi/extensions.d/`$retired_extension"; then
-    mv -f \
-      "/home/root/xovi/extensions.d/`$retired_extension" \
-      "/home/root/xovi/inactive-extensions/`$retired_extension"
-  fi
-done
-rm -f \
-  /home/root/xovi/services/xochitl.service/qt-resource-rebuilder.conf \
-  /home/root/xovi/services/xochitl.service/99-rmmirror-activation-guard.conf \
-  /home/root/xovi/services/xochitl.service/zz-rmmirror-activation-guard.conf
-cp "`$stage/rmmirror-files-loopback.so" /home/root/xovi/inactive-extensions/rmmirror-files-loopback.so.new
-chmod 0755 /home/root/xovi/inactive-extensions/rmmirror-files-loopback.so.new
-mv -f /home/root/xovi/inactive-extensions/rmmirror-files-loopback.so.new /home/root/xovi/inactive-extensions/rmmirror-files-loopback.so
-cmp -s "`$stage/rmmirror-files-loopback.so" /home/root/xovi/inactive-extensions/rmmirror-files-loopback.so
-publish_extension() {
-  extension_name="`$1"
-  source_path="/home/root/xovi/inactive-extensions/`$extension_name"
-  target_path="/home/root/xovi/extensions.d/`$extension_name"
-  if test -f "`$target_path" && cmp -s "`$source_path" "`$target_path"; then
-    chmod 0755 "`$target_path"
-    return 0
-  fi
-  cp "`$source_path" "`$target_path.new"
-  chmod 0755 "`$target_path.new"
-  mv -f "`$target_path.new" "`$target_path"
-}
-publish_extension framebuffer-spy.so
-publish_extension xovi-message-broker.so
-publish_extension rmmirror-files-loopback.so
-
-mkdir -p /home/root/.local/bin
-cp "`$stage/rmmirror-probe" /home/root/.local/bin/rmmirror-probe.new
-chmod 0700 /home/root/.local/bin/rmmirror-probe.new
-mv -f /home/root/.local/bin/rmmirror-probe.new /home/root/.local/bin/rmmirror-probe
-test "`$(sha256sum /home/root/.local/bin/rmmirror-probe | cut -d' ' -f1)" = '$($assetHashes['rmmirror-probe'])'
-test "`$(/home/root/.local/bin/rmmirror-probe version)" = '$mirrorProbeVersion'
-
-frame_stream_probe_path=/home/root/.local/bin/rmmirror-probe
-is_exact_frame_stream_process() {
-  frame_stream_proc_dir="`$1"
-  test -r "`$frame_stream_proc_dir/cmdline" || return 1
-
-  frame_stream_executable=`$(readlink "`$frame_stream_proc_dir/exe" 2>/dev/null || true)
-  if test "`$frame_stream_executable" != "`$frame_stream_probe_path" &&
-      test "`$frame_stream_executable" != "`$frame_stream_probe_path (deleted)"; then
-    return 1
-  fi
-
-  frame_stream_arguments=`$(tr '\000' '\n' < "`$frame_stream_proc_dir/cmdline" 2>/dev/null) || return 1
-  frame_stream_argv0=`$(printf '%s\n' "`$frame_stream_arguments" | sed -n '1p')
-  frame_stream_argv1=`$(printf '%s\n' "`$frame_stream_arguments" | sed -n '2p')
-  test "`$frame_stream_argv0" = "`$frame_stream_probe_path" &&
-    test "`$frame_stream_argv1" = stream
-}
-
-list_exact_frame_stream_pids() {
-  for frame_stream_proc_dir in /proc/[0-9]*; do
-    if is_exact_frame_stream_process "`$frame_stream_proc_dir"; then
-      printf '%s\n' "`${frame_stream_proc_dir##*/}"
-    fi
-  done
-}
-
-wait_for_frame_stream_retirement() {
-  frame_stream_attempt=0
-  while test "`$frame_stream_attempt" -lt 20; do
-    frame_stream_pids=`$(list_exact_frame_stream_pids)
-    test -z "`$frame_stream_pids" && return 0
-    sleep 0.1
-    frame_stream_attempt=`$((frame_stream_attempt + 1))
-  done
-  frame_stream_pids=`$(list_exact_frame_stream_pids)
-  test -z "`$frame_stream_pids" && return 0
-  return 1
-}
-
-retire_frame_streams() {
-  frame_stream_pids=`$(list_exact_frame_stream_pids)
-  if test -n "`$frame_stream_pids"; then
-    kill -TERM `$frame_stream_pids 2>/dev/null || true
-  fi
-  if wait_for_frame_stream_retirement; then
-    return 0
-  fi
-
-  frame_stream_pids=`$(list_exact_frame_stream_pids)
-  if test -n "`$frame_stream_pids"; then
-    kill -KILL `$frame_stream_pids 2>/dev/null || true
-  fi
-  if wait_for_frame_stream_retirement; then
-    return 0
-  fi
-
-  printf '%s\n' 'rmmirror-prerequisite: frame_stream_retirement_failed' >&2
-  return 1
-}
-retire_frame_streams
-
-chmod 0700 "`$stage/install-transport-wake.sh"
-"`$stage/install-transport-wake.sh" install
-systemctl is-active --quiet rmmirror-transport-wake.service
-test -L /usr/lib/systemd/system/multi-user.target.wants/rmmirror-transport-wake.service
-test "`$(readlink /usr/lib/systemd/system/multi-user.target.wants/rmmirror-transport-wake.service)" = '../rmmirror-transport-wake.service'
-test "`$(systemctl is-enabled rmmirror-transport-wake.service)" = 'static'
-multi_user_wants=`$(systemctl show --property=Wants --value -- multi-user.target)
-case " `$multi_user_wants " in
-  *" rmmirror-transport-wake.service "*) ;;
-  *) exit 1 ;;
-esac
-grep -q '"schema":"rmmirror.transport-wake/v1"' /run/rmmirror-transport-wake.json
-grep -q '"usb_connection_policy":"carrier-qualified-power-hold/v1"' /run/rmmirror-transport-wake.json
-grep -q '"state":"holding"' /run/rmmirror-transport-wake.json
-grep -q '"usb_carrier":true' /run/rmmirror-transport-wake.json
-grep -q '"wake_lock_active":true' /run/rmmirror-transport-wake.json
-grep -q '"system_sleep_blocked":true' /run/rmmirror-transport-wake.json
-grep -q '"wake_endpoint_healthy":true' /run/rmmirror-transport-wake.json
-listener_addresses=`$(netstat -lnt 2>/dev/null | awk '`$4 ~ /:51337`$/ { print `$4 }')
-test "`$(printf '%s\n' "`$listener_addresses" | grep -c '^127[.]0[.]0[.]1:51337`$')" -eq 1
-test "`$(printf '%s\n' "`$listener_addresses" | grep -c '^10[.]11[.]99[.]1:51337`$')" -eq 1
-test "`$(printf '%s\n' "`$listener_addresses" | grep -c ':51337`$')" -eq 2
-case ",`$(awk '`$2 == "/" { print `$4; exit }' /proc/mounts)," in
-  *,ro,*) ;;
-  *) exit 1 ;;
-esac
-printf '%s\n' 'RMMIRROR_PREREQUISITES=installed'
+test "`$(sha256sum "`$stage/install-mirror-prerequisites.sh" | cut -d' ' -f1)" = '$($assetHashes['install-mirror-prerequisites.sh'])'
+chmod 0700 "`$stage/install-mirror-prerequisites.sh"
+RMMIRROR_CONTRACT_SHA256='$($assetHashes['rmmirror-prerequisites.env'])' \
+RMMIRROR_TRANSPORT_WAKE_SHA256='$($assetHashes['rmmirror-transport-wake'])' \
+RMMIRROR_TRANSPORT_SERVICE_SHA256='$($assetHashes['rmmirror-transport-wake.service'])' \
+RMMIRROR_TRANSPORT_INSTALLER_SHA256='$($assetHashes['install-transport-wake.sh'])' \
+RMMIRROR_SLEEP_GUARD_SHA256='$($assetHashes['rmmirror-usb-sleep-guard.conf'])' \
+RMMIRROR_PROBE_SHA256='$($assetHashes['rmmirror-probe'])' \
+RMMIRROR_FILES_LOOPBACK_SHA256='$($assetHashes['rmmirror-files-loopback.so'])' \
+"`$stage/install-mirror-prerequisites.sh"
 "@).Replace("`r`n", "`n").Trim()
-    $install = Invoke-CheckedExternalProcess `
-        -FilePath $ssh `
-        -Arguments ($sshOptions + @($remoteHost, $installCommand)) `
-        -TimeoutMilliseconds 60000 `
-        -FailureMessage 'Could not install the Mirror tablet prerequisites'
-    if ($install.Stdout -notmatch '(?m)^RMMIRROR_PREREQUISITES=installed\r?$') {
-        throw 'Tablet prerequisite install did not return its completion marker.'
+        $install = Invoke-CheckedExternalProcess `
+            -FilePath $ssh `
+            -Arguments ($sshOptions + @($remoteHost, $installCommand)) `
+            -TimeoutMilliseconds 60000 `
+            -FailureMessage 'Could not install the Mirror tablet prerequisites'
+        if ($install.Stdout -notmatch '(?m)^RMMIRROR_PREREQUISITES=installed\r?$') {
+            throw 'Tablet prerequisite install did not return its completion marker.'
+        }
     }
 
     $endpointStatusCommand = @'
@@ -1073,9 +1003,11 @@ printf '%s\n' \
                 'COMPANION_VERSION',
                 'USB_CONNECTION_POLICY'
             )
-        if ($capabilityMetadata['USB_CONNECTION_POLICY'] -cne
-            'carrier-qualified-power-hold/v1') {
-            throw 'Tablet USB connection-policy capability does not match this Mirror build.'
+        if ($capabilityMetadata['COMPANION_VERSION'] -cne
+            $contractValues['RMMIRROR_TRANSPORT_VERSION'] -or
+            $capabilityMetadata['USB_CONNECTION_POLICY'] -cne
+            $contractValues['RMMIRROR_USB_CONNECTION_POLICY']) {
+            throw 'Tablet transport capability does not match this Mirror build.'
         }
 
         $parsedBootId = [guid]::Empty
@@ -1171,7 +1103,7 @@ printf '%s\n' 'RMMIRROR_WIFI=verified'
     }
 
     [pscustomobject]@{
-        Schema = 'rmmirror.prerequisites/v1'
+        Schema = $contractValues['RMMIRROR_PREREQUISITES_SCHEMA']
         TabletAddress = $TabletAddress
         MirrorProbeSha256 = $assetHashes['rmmirror-probe']
         XoviRelease = $xoviRelease

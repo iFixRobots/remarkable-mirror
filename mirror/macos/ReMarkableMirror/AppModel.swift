@@ -127,8 +127,7 @@ final class AppModel {
               !wifiAddressPromptIsPresented else {
             return false
         }
-        guard manualStep == .finishWiFi ||
-                manualStep == .connectUSBBeforeWiFi else {
+        guard manualStep == .finishWiFi else {
             return false
         }
         return switch connectionState {
@@ -242,16 +241,16 @@ final class AppModel {
             case .checkTabletAuthorization:
                 content = RecoveryCardContent(
                     symbol: "checkmark.shield",
-                    title: "Checking authorization",
-                    message: "Checking the saved key once over USB‑C.",
+                    title: "Checking tablet setup",
+                    message: "Checking the saved key, then installing or verifying the pinned tablet components over USB-C.",
                     showsProgress: true,
                     actions: []
                 )
             case .repairUSB:
                 content = RecoveryCardContent(
                     symbol: "wrench.and.screwdriver",
-                    title: "Repairing USB‑C",
-                    message: "Checking the saved authorization and restoring USB‑C access once. Wi‑Fi is not being configured.",
+                    title: "Repairing tablet setup",
+                    message: "Checking the saved authorization and repairing the pinned tablet components over USB‑C. Wi‑Fi is not being configured.",
                     showsProgress: true,
                     actions: []
                 )
@@ -271,7 +270,7 @@ final class AppModel {
                     showsProgress: true,
                     actions: []
                 )
-            case .connectUSBBeforeWiFi, .connectUSB:
+            case .connectUSB:
                 content = RecoveryCardContent(
                     symbol: "ipad.gen2",
                     title: "Waking and connecting",
@@ -294,7 +293,7 @@ final class AppModel {
         }
         if connectionState == .connecting {
             switch manualStep {
-            case .connectUSBBeforeWiFi, .connectUSB:
+            case .connectUSB:
                 return RecoveryCardContent(
                     symbol: "cable.connector",
                     title: "Waking and connecting",
@@ -400,6 +399,8 @@ final class AppModel {
                 step: .checkTabletAuthorization,
                 request: requestCheckTabletAuthorization
             )
+        case .finishWiFiSetup:
+            finishWiFiSetup()
         case .repairUSB:
             beginManualSetupOperation(
                 step: .repairUSB,
@@ -562,6 +563,9 @@ final class AppModel {
 
     func recoveryActionIsEnabled(_ action: RecoveryAction) -> Bool {
         guard !connectionRequestInFlight else { return false }
+        if action == .finishWiFiSetup {
+            return canFinishWiFiSetup
+        }
         if action == .connectWiFi, wifiAddressPromptIsPresented {
             return canSubmitWiFiAddress
         }
@@ -669,6 +673,9 @@ final class AppModel {
         }
 
         let nextConnectionState = ConnectionPublicationGate.presentation(for: snapshot)
+        let presentsAuthorizationPrompt =
+            nextConnectionState == .awaitingTabletAuthorization &&
+            snapshot.manualStep == .authorizeTablet
         let preservesLiveWiFiPrompt = wifiAddressPromptIsPresented &&
             connectionRequestID == nil &&
             connectionState.isLive &&
@@ -693,7 +700,9 @@ final class AppModel {
         if nextConnectionState != .setupInProgress {
             tabletAuthorizationSubmissionInProgress = false
         }
-        if nextConnectionState != .awaitingTabletAuthorization {
+        if presentsAuthorizationPrompt {
+            tabletAuthorizationPromptIsPresented = true
+        } else if nextConnectionState != .awaitingTabletAuthorization {
             tabletAuthorizationPromptIsPresented = false
         }
         manualStep = snapshot.manualStep
@@ -780,8 +789,8 @@ final class AppModel {
         case .reauthorizeUSB:
             [.reauthorizeUSB]
         case .finishWiFi:
-            [.connectUSB]
-        case .connectUSBBeforeWiFi, .chooseConnection, .connectUSB, .connectWiFi:
+            [.finishWiFiSetup]
+        case .chooseConnection, .connectUSB, .connectWiFi:
             [.connectUSB, .connectWiFi]
         case .none:
             []
@@ -790,7 +799,7 @@ final class AppModel {
 
     private var isManualConnectionStep: Bool {
         switch manualStep {
-        case .connectUSBBeforeWiFi, .chooseConnection, .connectUSB, .connectWiFi:
+        case .chooseConnection, .connectUSB, .connectWiFi:
             true
         default:
             false

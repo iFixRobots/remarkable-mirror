@@ -14,6 +14,7 @@ enum RecoveryAction: String, Hashable, Sendable {
     case resetSetup
     case authorizeTablet
     case checkTabletAuthorization
+    case finishWiFiSetup
     case repairUSB
     case reauthorizeUSB
     case connectUSB
@@ -31,8 +32,8 @@ struct RecoveryCardAction: Equatable, Identifiable, Sendable {
 
     static let setup = RecoveryCardAction(
         action: .setup,
-        label: "Set Up",
-        accessibilityLabel: "Set up this Mac",
+        label: "Start Setup",
+        accessibilityLabel: "Start reMarkable setup",
         isPrimary: true
     )
     static let cancelSetup = RecoveryCardAction(
@@ -55,20 +56,32 @@ struct RecoveryCardAction: Equatable, Identifiable, Sendable {
     )
     static let authorizeTablet = RecoveryCardAction(
         action: .authorizeTablet,
-        label: "Add This Mac…",
-        accessibilityLabel: "Add this Mac to your reMarkable",
+        label: "Continue Setup",
+        accessibilityLabel: "Continue reMarkable setup",
         isPrimary: true
     )
     static let checkTabletAuthorization = RecoveryCardAction(
         action: .checkTabletAuthorization,
-        label: "Check Authorization",
-        accessibilityLabel: "Check tablet authorization",
+        label: "Continue Tablet Setup",
+        accessibilityLabel: "Continue tablet setup over USB-C",
+        isPrimary: true
+    )
+    static let retryTabletSetup = RecoveryCardAction(
+        action: .checkTabletAuthorization,
+        label: "Retry Tablet Setup",
+        accessibilityLabel: "Retry tablet setup over USB-C",
+        isPrimary: true
+    )
+    static let finishWiFiSetup = RecoveryCardAction(
+        action: .finishWiFiSetup,
+        label: "Continue Setup",
+        accessibilityLabel: "Continue reMarkable setup over USB-C",
         isPrimary: true
     )
     static let repairUSB = RecoveryCardAction(
         action: .repairUSB,
-        label: "Repair USB‑C",
-        accessibilityLabel: "Repair USB‑C connection",
+        label: "Repair Tablet Setup",
+        accessibilityLabel: "Repair tablet setup over USB‑C",
         isPrimary: true
     )
     static let reauthorizeUSB = RecoveryCardAction(
@@ -85,13 +98,13 @@ struct RecoveryCardAction: Equatable, Identifiable, Sendable {
     )
     static let connectWiFi = RecoveryCardAction(
         action: .connectWiFi,
-        label: "Connect via Wi‑Fi",
+        label: "Connect Wi‑Fi",
         accessibilityLabel: "Connect to your reMarkable via Wi‑Fi",
         isPrimary: false
     )
     static let connectEnteredWiFi = RecoveryCardAction(
         action: .connectWiFi,
-        label: "Connect via Wi‑Fi",
+        label: "Connect Wi‑Fi",
         accessibilityLabel: "Connect to the entered tablet IP address via Wi‑Fi",
         isPrimary: true
     )
@@ -157,6 +170,7 @@ enum USBRepairReason: Equatable, Sendable {
     case keyRejected
     case secureTransportUnavailable
     case authorizationUncertain
+    case prerequisiteInstallFailed(String)
 }
 
 enum ConnectionPresentationState: Equatable, Sendable {
@@ -169,8 +183,11 @@ enum ConnectionPresentationState: Equatable, Sendable {
     case usbAccessoryApprovalRequired
     case setupWaitingForWakeAndUnlock
     case setupAttention
+    case setupPackageAttention(String)
+    case xoviAttention
+    case tabletInstallAttention(String)
     case awaitingTabletAuthorization
-    case awaitingTabletAuthorizationCheck
+    case awaitingTabletAuthorizationCheck(String?)
     case awaitingWiFiVerification
     case usbRepairRequired(USBRepairReason)
     case profileAttention
@@ -197,14 +214,17 @@ enum ConnectionPresentationState: Equatable, Sendable {
         case .loadingProfile: "Checking"
         case .setupRequired, .setupInProgress, .setupRetrying, .setupWaitingForUSB,
              .setupWaitingForWakeAndUnlock, .awaitingTabletAuthorization,
-             .awaitingTabletAuthorizationCheck: "Setup"
+             .awaitingTabletAuthorizationCheck, .awaitingWiFiVerification: "Setup"
         case .setupUnsafeUSBRoute: "USB needed"
         case .usbAccessoryApprovalRequired: "USB blocked"
         case .connecting: "Connecting"
         case .transportReady: "Preparing"
-        case .setupAttention, .profileAttention, .attention: "Attention"
-        case .awaitingWiFiVerification, .readyToConnect, .offline: "Disconnected"
-        case .usbRepairRequired: "USB repair"
+        case .setupAttention, .setupPackageAttention, .xoviAttention,
+             .tabletInstallAttention,
+             .profileAttention,
+             .attention: "Attention"
+        case .readyToConnect, .offline: "Disconnected"
+        case .usbRepairRequired: "Setup repair"
         case .wakeAndUnlock: "Waiting"
         case .unlockRequired: "Unlock"
         case .sleeping: "Sleeping"
@@ -229,7 +249,9 @@ enum ConnectionPresentationState: Equatable, Sendable {
             .amber
         case .usbRepairRequired:
             .amber
-        case .setupAttention, .profileAttention, .attention, .repair:
+        case .setupAttention, .setupPackageAttention, .xoviAttention,
+             .tabletInstallAttention,
+             .profileAttention, .attention, .repair:
             .red
         }
     }
@@ -249,8 +271,8 @@ enum ConnectionPresentationState: Equatable, Sendable {
         case .setupRequired:
             RecoveryCardContent(
                 symbol: "laptopcomputer.and.arrow.down",
-                title: "Set up this Mac",
-                message: "Connect your reMarkable with USB‑C and unlock it.",
+                title: "Set up your reMarkable",
+                message: "First back up your tablet, enable Developer Mode, sign in again, reconnect Wi‑Fi, unlock once, and turn on the USB web interface. Then connect USB‑C and Mirror will handle the rest.",
                 showsProgress: false,
                 actions: [.setup]
             )
@@ -310,29 +332,63 @@ enum ConnectionPresentationState: Equatable, Sendable {
                 showsProgress: false,
                 actions: [.retrySetup]
             )
+        case let .setupPackageAttention(failureDescription):
+            RecoveryCardContent(
+                symbol: "exclamationmark.triangle",
+                title: "Tablet setup can't run",
+                message: "Mirror stopped while \(failureDescription). Quit Mirror and install a complete build before trying again.",
+                showsProgress: false,
+                actions: []
+            )
+        case .xoviAttention:
+            RecoveryCardContent(
+                symbol: "exclamationmark.triangle",
+                title: "Existing Xovi setup needs attention",
+                message: "Mirror found an unknown or incompatible Xovi installation and did not overwrite it. Reconcile that owner-managed setup before trying again.",
+                showsProgress: false,
+                actions: []
+            )
+        case let .tabletInstallAttention(failureDescription):
+            RecoveryCardContent(
+                symbol: "exclamationmark.triangle",
+                title: "Existing tablet setup needs attention",
+                message: "Mirror stopped while \(failureDescription) and did not replace the unsafe path. Reconcile that existing tablet setup before trying again.",
+                showsProgress: false,
+                actions: []
+            )
         case .awaitingTabletAuthorization:
             RecoveryCardContent(
                 symbol: "checkmark.shield",
-                title: "Add this Mac to your reMarkable",
-                message: "Choose Add This Mac to add this Mac’s access key and install USB keep-awake. Wi‑Fi setup is a separate step.",
+                title: "Ready to authorize and install",
+                message: "Continue setup to authorize this Mac and install the pinned Mirror tablet components.",
                 showsProgress: false,
                 actions: [.authorizeTablet]
             )
-        case .awaitingTabletAuthorizationCheck:
-            RecoveryCardContent(
-                symbol: "checkmark.shield",
-                title: "Check tablet authorization",
-                message: "Setup may already have added this Mac. Keep USB‑C connected and check before entering the password again.",
-                showsProgress: false,
-                actions: [.checkTabletAuthorization]
-            )
+        case let .awaitingTabletAuthorizationCheck(failureDescription):
+            if let failureDescription {
+                RecoveryCardContent(
+                    symbol: "wrench.and.screwdriver",
+                    title: "Tablet setup couldn't finish",
+                    message: "Mirror stopped while \(failureDescription). Keep USB-C connected, then retry without entering the password again.",
+                    showsProgress: false,
+                    actions: [.retryTabletSetup]
+                )
+            } else {
+                RecoveryCardContent(
+                    symbol: "checkmark.shield",
+                    title: "Continue tablet setup",
+                    message: "Mirror will check the saved key, then install or verify the pinned tablet components over USB-C. It will not ask for the password again.",
+                    showsProgress: false,
+                    actions: [.checkTabletAuthorization]
+                )
+            }
         case .awaitingWiFiVerification:
             RecoveryCardContent(
-                symbol: "cable.connector",
-                title: "Connect your reMarkable",
-                message: "Choose USB‑C or enter the tablet’s IP address to connect via Wi‑Fi.",
+                symbol: "wifi",
+                title: "Finish setting up your reMarkable",
+                message: "Keep USB‑C connected. Mirror will finish and verify secure Wi‑Fi access, then return to the connection chooser.",
                 showsProgress: false,
-                actions: [.connectUSB, .connectWiFi]
+                actions: [.finishWiFiSetup]
             )
         case let .usbRepairRequired(reason):
             switch reason {
@@ -347,8 +403,8 @@ enum ConnectionPresentationState: Equatable, Sendable {
             case .secureTransportUnavailable:
                 RecoveryCardContent(
                     symbol: "cable.connector",
-                    title: "USB‑C couldn’t reach the tablet",
-                    message: "Mirror couldn’t restore USB‑C access during this attempt. Reconnect USB‑C, unlock the tablet if it shows a passcode, then choose Repair USB‑C again.",
+                    title: "Tablet setup needs repair",
+                    message: "Reconnect USB‑C, unlock the tablet if it shows a passcode, then choose Repair Tablet Setup again.",
                     showsProgress: false,
                     actions: [.repairUSB]
                 )
@@ -356,7 +412,15 @@ enum ConnectionPresentationState: Equatable, Sendable {
                 RecoveryCardContent(
                     symbol: "checkmark.shield",
                     title: "Authorization was not confirmed",
-                    message: "Repair USB‑C will check the saved key once before asking for the password again.",
+                    message: "Repair Tablet Setup will check the saved key once before asking for the password again.",
+                    showsProgress: false,
+                    actions: [.repairUSB]
+                )
+            case let .prerequisiteInstallFailed(failureDescription):
+                RecoveryCardContent(
+                    symbol: "wrench.and.screwdriver",
+                    title: "Tablet setup couldn't finish",
+                    message: "Mirror stopped while \(failureDescription). Keep USB-C connected, then choose Repair Tablet Setup to retry safely.",
                     showsProgress: false,
                     actions: [.repairUSB]
                 )
@@ -452,10 +516,10 @@ enum ConnectionPresentationState: Equatable, Sendable {
         case .repair:
             RecoveryCardContent(
                 symbol: "wrench.and.screwdriver",
-                title: "Setup needs attention",
-                message: "Mirror couldn’t verify the saved tablet identity or required tablet components. Set up this Mac again to repair the connection.",
+                title: "Tablet setup needs repair",
+                message: "Connect the tablet directly over USB‑C, unlock it if needed, then repair the pinned Mirror components. Wi‑Fi is not changed.",
                 showsProgress: false,
-                actions: [.resetSetup]
+                actions: [.repairUSB]
             )
         }
     }
@@ -471,8 +535,11 @@ enum ConnectionEvidence: Equatable, Sendable {
     case usbAccessoryApprovalRequired
     case setupWaitingForWakeAndUnlock
     case setupAttention
+    case setupPackageAttention(String)
+    case xoviAttention
+    case tabletInstallAttention(String)
     case awaitingTabletAuthorization
-    case awaitingTabletAuthorizationCheck
+    case awaitingTabletAuthorizationCheck(String?)
     case awaitingWiFiVerification
     case usbRepairRequired(USBRepairReason)
     case profileAttention
@@ -506,7 +573,6 @@ enum ConnectionManualStep: Equatable, Sendable {
     case reauthorizeUSB
     case finishWiFi
     case chooseConnection
-    case connectUSBBeforeWiFi
     case connectUSB
     case connectWiFi
 }
@@ -580,8 +646,14 @@ enum ConnectionPublicationGate {
         case .usbAccessoryApprovalRequired: .usbAccessoryApprovalRequired
         case .setupWaitingForWakeAndUnlock: .setupWaitingForWakeAndUnlock
         case .setupAttention: .setupAttention
+        case let .setupPackageAttention(failureDescription):
+            .setupPackageAttention(failureDescription)
+        case .xoviAttention: .xoviAttention
+        case let .tabletInstallAttention(failureDescription):
+            .tabletInstallAttention(failureDescription)
         case .awaitingTabletAuthorization: .awaitingTabletAuthorization
-        case .awaitingTabletAuthorizationCheck: .awaitingTabletAuthorizationCheck
+        case let .awaitingTabletAuthorizationCheck(failureDescription):
+            .awaitingTabletAuthorizationCheck(failureDescription)
         case .awaitingWiFiVerification: .awaitingWiFiVerification
         case let .usbRepairRequired(reason): .usbRepairRequired(reason)
         case .profileAttention: .profileAttention

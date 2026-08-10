@@ -19,6 +19,7 @@
     <DefineConstants Condition="'$(PortablePublishProfileSelected)' == 'true'">$(DefineConstants);REMARKABLE_MIRROR_PORTABLE</DefineConstants>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
   </PropertyGroup>
 
   <ItemGroup Condition="'$(PortablePublishProfileSelected)' != 'true'">
@@ -42,6 +43,12 @@
     <AppxManifest Remove="Package.appxmanifest" />
     <ApplicationDefinition Update="App.xaml" CopyToOutputDirectory="Never" CopyToPublishDirectory="Never" />
     <Page Update="Files\FilesPaneView.xaml;MainPage.xaml;MainWindow.xaml" CopyToOutputDirectory="Never" CopyToPublishDirectory="Never" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="TabletPrerequisites\**\*"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(PortablePublishProfileSelected)' != 'true'">

@@ -60,7 +60,7 @@ enum TabletPairingFinalizationStage: Equatable, Sendable {
     case validatingProfile
     case validatingUSB
     case authorizingTabletKey
-    case installingTransportWake
+    case installingPrerequisites
     case recordingTabletAuthorization
     case verifyingUSBKey
     case retrievingWakeToken
@@ -98,7 +98,7 @@ enum TabletPairingFinalizationFailure: Equatable, Sendable {
     case unsafeUSBRoute
     case usbContextChanged
     case keyAuthorizationFailed(TabletKeyAuthorizationFailure)
-    case transportWakeInstallFailed(TabletTransportWakeInstallationFailure)
+    case prerequisiteInstallFailed(TabletPrerequisiteInstallationFailure)
     case profileTransitionFailed
     case requestRejected
     case processUnavailable
@@ -154,14 +154,14 @@ protocol TabletPairingFinalizing: Actor {
         generation: GenerationID
     ) async -> TabletPairingFinalizationResult
 
-    func repairAuthorizedUSBWake(
+    func repairTabletSetup(
         expectedPendingWiFi: DeviceProfile,
         expectedUSBContext: DirectUSBRouteContext,
         approval: TabletPairingFinalizationApproval,
         generation: GenerationID
     ) async -> TabletPairingFinalizationResult
 
-    func reauthorizeUSBWake(
+    func reauthorizeAndRepairTabletSetup(
         expectedProfile: DeviceProfile,
         expectedUSBContext: DirectUSBRouteContext,
         password: String,
@@ -185,7 +185,7 @@ actor TabletPairingFinalizer {
     private let profileStore: any TabletPairingProfileStoring
     private let routeVerifier: any TabletKeyAuthorizationRouteVerifying
     private let keyAuthorizer: any TabletPairingKeyAuthorizing
-    private let transportWakeInstaller: any TabletTransportWakeInstalling
+    private let prerequisiteInstaller: any TabletPrerequisiteInstalling
     private let wifiContextProvider: any TabletPairingWiFiContextProviding
     private let wakeTokenStore: any TabletPairingWakeTokenStoring
     private let processRunner: any ProcessRunning
@@ -205,7 +205,7 @@ actor TabletPairingFinalizer {
         self.profileStore = profileStore
         self.routeVerifier = routeVerifier
         self.keyAuthorizer = keyAuthorizer
-        self.transportWakeInstaller = TabletTransportWakeInstaller(
+        self.prerequisiteInstaller = TabletPrerequisiteInstaller(
             routeVerifier: routeVerifier,
             processRunner: processRegistry
         )
@@ -219,7 +219,7 @@ actor TabletPairingFinalizer {
         profileStore: any TabletPairingProfileStoring,
         routeVerifier: any TabletKeyAuthorizationRouteVerifying,
         keyAuthorizer: any TabletPairingKeyAuthorizing,
-        transportWakeInstaller: any TabletTransportWakeInstalling,
+        prerequisiteInstaller: any TabletPrerequisiteInstalling,
         wifiContextProvider: any TabletPairingWiFiContextProviding,
         wakeTokenStore: any TabletPairingWakeTokenStoring,
         processRunner: any ProcessRunning,
@@ -228,7 +228,7 @@ actor TabletPairingFinalizer {
         self.profileStore = profileStore
         self.routeVerifier = routeVerifier
         self.keyAuthorizer = keyAuthorizer
-        self.transportWakeInstaller = transportWakeInstaller
+        self.prerequisiteInstaller = prerequisiteInstaller
         self.wifiContextProvider = wifiContextProvider
         self.wakeTokenStore = wakeTokenStore
         self.processRunner = processRunner
@@ -324,9 +324,10 @@ actor TabletPairingFinalizer {
             )
         }
 
+        let authorizedCapability: PassiveRouteCapability?
         switch authorization {
-        case .authorized:
-            break
+        case let .authorized(capability):
+            authorizedCapability = capability
         case let .failed(failure):
             return retry(
                 stage: .authorizingTabletKey,
@@ -336,34 +337,40 @@ actor TabletPairingFinalizer {
             )
         }
         let usbCapability: PassiveRouteCapability
-        do {
-            usbCapability = try await transportWakeInstaller.installOrUpgrade(
-                identityURL: paths.privateKey,
-                knownHostsURL: paths.knownHosts,
-                expectedUSBContext: expectedUSBContext,
-                generation: generation
-            )
-        } catch is CancellationError {
-            return retry(
-                stage: .installingTransportWake,
-                failure: .cancelled,
-                remoteState: .keyAuthorized,
-                durableProfile: expectedPending
-            )
-        } catch let failure as TabletTransportWakeInstallationFailure {
-            return retry(
-                stage: .installingTransportWake,
-                failure: .transportWakeInstallFailed(failure),
-                remoteState: .keyAuthorized,
-                durableProfile: expectedPending
-            )
-        } catch {
-            return retry(
-                stage: .installingTransportWake,
-                failure: .processUnavailable,
-                remoteState: .keyAuthorized,
-                durableProfile: expectedPending
-            )
+        if let authorizedCapability,
+           authorizedCapability.isCurrent,
+           authorizedCapability.transportOperational {
+            usbCapability = authorizedCapability
+        } else {
+            do {
+                usbCapability = try await prerequisiteInstaller.installOrRepair(
+                    identityURL: paths.privateKey,
+                    knownHostsURL: paths.knownHosts,
+                    expectedUSBContext: expectedUSBContext,
+                    generation: generation
+                )
+            } catch is CancellationError {
+                return retry(
+                    stage: .installingPrerequisites,
+                    failure: .cancelled,
+                    remoteState: .keyAuthorized,
+                    durableProfile: expectedPending
+                )
+            } catch let failure as TabletPrerequisiteInstallationFailure {
+                return retry(
+                    stage: .installingPrerequisites,
+                    failure: .prerequisiteInstallFailed(failure),
+                    remoteState: .keyAuthorized,
+                    durableProfile: expectedPending
+                )
+            } catch {
+                return retry(
+                    stage: .installingPrerequisites,
+                    failure: .processUnavailable,
+                    remoteState: .keyAuthorized,
+                    durableProfile: expectedPending
+                )
+            }
         }
         if let failure = await usbFailure(expected: expectedUSBContext) {
             return retry(
@@ -412,12 +419,18 @@ actor TabletPairingFinalizer {
             pendingWiFi = intendedPendingWiFi
         }
 
-        return .ready(pendingWiFi)
+        return await finishWiFiPairing(
+            expectedPendingWiFi: pendingWiFi,
+            expectedUSBContext: expectedUSBContext,
+            usbCapability: usbCapability,
+            generation: generation
+        )
     }
 
-    /// Repairs the narrow crash window between a successful remote key append
-    /// and the local authorization checkpoint. It is key-only and read-only on
-    /// the tablet; it never asks for or attempts password authentication.
+    /// Resumes the narrow crash window between a successful remote key append
+    /// and the local authorization checkpoint. It starts with one key-only
+    /// probe, never attempts password authentication, and installs prerequisites
+    /// only when the authorized tablet does not already report a current setup.
     func recoverAuthorizedTabletKey(
         expectedPending: DeviceProfile,
         expectedUSBContext: DirectUSBRouteContext,
@@ -540,13 +553,10 @@ actor TabletPairingFinalizer {
            let currentCapability = proof.capability,
            currentCapability.isCurrent,
            currentCapability.transportOperational {
-            // Recovery is entered after an interrupted owner operation. If the
-            // authenticated probe already proves the complete current tablet
-            // prerequisite set, do not run the persistent installer again.
             capability = currentCapability
         } else {
             do {
-                capability = try await transportWakeInstaller.installOrUpgrade(
+                capability = try await prerequisiteInstaller.installOrRepair(
                     identityURL: paths.privateKey,
                     knownHostsURL: paths.knownHosts,
                     expectedUSBContext: expectedUSBContext,
@@ -554,21 +564,21 @@ actor TabletPairingFinalizer {
                 )
             } catch is CancellationError {
                 return .retryRequired(retryRecord(
-                    stage: .installingTransportWake,
+                    stage: .installingPrerequisites,
                     failure: .cancelled,
                     remoteState: .keyAuthorized,
                     durableProfile: expectedPending
                 ))
-            } catch let failure as TabletTransportWakeInstallationFailure {
+            } catch let failure as TabletPrerequisiteInstallationFailure {
                 return .retryRequired(retryRecord(
-                    stage: .installingTransportWake,
-                    failure: .transportWakeInstallFailed(failure),
+                    stage: .installingPrerequisites,
+                    failure: .prerequisiteInstallFailed(failure),
                     remoteState: .keyAuthorized,
                     durableProfile: expectedPending
                 ))
             } catch {
                 return .retryRequired(retryRecord(
-                    stage: .installingTransportWake,
+                    stage: .installingPrerequisites,
                     failure: .processUnavailable,
                     remoteState: .keyAuthorized,
                     durableProfile: expectedPending
@@ -619,7 +629,17 @@ actor TabletPairingFinalizer {
                 ))
             }
         }
-        return .recovered(recovered)
+        switch await finishWiFiPairing(
+            expectedPendingWiFi: recovered,
+            expectedUSBContext: expectedUSBContext,
+            usbCapability: capability,
+            generation: generation
+        ) {
+        case let .ready(profile):
+            return .recovered(profile)
+        case let .retryRequired(retry):
+            return .retryRequired(retry)
+        }
     }
 
     func resumeWiFiVerification(
@@ -637,7 +657,7 @@ actor TabletPairingFinalizer {
         )
     }
 
-    func repairAuthorizedUSBWake(
+    func repairTabletSetup(
         expectedPendingWiFi: DeviceProfile,
         expectedUSBContext: DirectUSBRouteContext,
         approval: TabletPairingFinalizationApproval,
@@ -652,7 +672,7 @@ actor TabletPairingFinalizer {
         )
     }
 
-    func reauthorizeUSBWake(
+    func reauthorizeAndRepairTabletSetup(
         expectedProfile: DeviceProfile,
         expectedUSBContext: DirectUSBRouteContext,
         password: String,
@@ -873,10 +893,9 @@ actor TabletPairingFinalizer {
                     durableProfile: expectedPendingWiFi
                 )
             }
-            // Repair USB-C is an explicit owner action. Always redeploy the
-            // bundled helper on that path even when the older helper reports
-            // the same capability version: older builds can satisfy the
-            // capability probe without supporting direct-cable token recovery.
+            // Repair Tablet Setup is an explicit owner action. Always run the
+            // idempotent shared transaction on that path. The capability probe
+            // proves the installed result afterward; it does not replace repair.
             if case .finishWiFi = continuation,
                proof.state == .authenticated,
                let capability = proof.capability,
@@ -885,8 +904,8 @@ actor TabletPairingFinalizer {
                 usbCapability = capability
             } else {
                 do {
-                    let repairedCapability = try await transportWakeInstaller
-                        .installOrUpgrade(
+                    let repairedCapability = try await prerequisiteInstaller
+                        .installOrRepair(
                             identityURL: paths.privateKey,
                             knownHostsURL: paths.knownHosts,
                             expectedUSBContext: expectedUSBContext,
@@ -895,7 +914,7 @@ actor TabletPairingFinalizer {
                     guard repairedCapability.isCurrent,
                           repairedCapability.transportOperational else {
                         return retry(
-                            stage: .installingTransportWake,
+                            stage: .installingPrerequisites,
                             failure: .invalidResponse,
                             remoteState: .keyAuthorized,
                             durableProfile: expectedPendingWiFi
@@ -904,21 +923,21 @@ actor TabletPairingFinalizer {
                     usbCapability = repairedCapability
                 } catch is CancellationError {
                     return retry(
-                        stage: .installingTransportWake,
+                        stage: .installingPrerequisites,
                         failure: .cancelled,
                         remoteState: .keyAuthorized,
                         durableProfile: expectedPendingWiFi
                     )
-                } catch let failure as TabletTransportWakeInstallationFailure {
+                } catch let failure as TabletPrerequisiteInstallationFailure {
                     return retry(
-                        stage: .installingTransportWake,
-                        failure: .transportWakeInstallFailed(failure),
+                        stage: .installingPrerequisites,
+                        failure: .prerequisiteInstallFailed(failure),
                         remoteState: .keyAuthorized,
                         durableProfile: expectedPendingWiFi
                     )
                 } catch {
                     return retry(
-                        stage: .installingTransportWake,
+                        stage: .installingPrerequisites,
                         failure: .processUnavailable,
                         remoteState: .keyAuthorized,
                         durableProfile: expectedPendingWiFi

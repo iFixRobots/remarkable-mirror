@@ -1,8 +1,5 @@
 [CmdletBinding()]
-param(
-    [switch]$SkipTabletSetup,
-    [switch]$NoLaunch
-)
+param([switch]$NoLaunch)
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -33,13 +30,6 @@ function Get-RequiredReleaseMetadataString {
         throw "release.json '$Name' must be a non-empty single-line string."
     }
     return $value
-}
-
-if (-not $SkipTabletSetup -and
-    ($PSVersionTable.PSVersion.Major -lt 7 -or
-        ($PSVersionTable.PSVersion.Major -eq 7 -and
-            $PSVersionTable.PSVersion.Minor -lt 5))) {
-    throw 'Tablet setup requires PowerShell 7.5 or newer. Install PowerShell 7 and rerun Install.cmd. -SkipTabletSetup is only for an app-only reinstall of a release whose tablet probe already matches.'
 }
 
 $officialIdentityName = 'A184FD6B-E071-4B75-A3B4-DF4397457284'
@@ -147,9 +137,6 @@ if (-not (Test-Administrator)) {
         '-ExecutionPolicy', 'Bypass',
         '-File', ('"{0}"' -f $PSCommandPath)
     )
-    if ($SkipTabletSetup) {
-        $elevatedArguments += '-SkipTabletSetup'
-    }
     if ($NoLaunch) {
         $elevatedArguments += '-NoLaunch'
     }
@@ -225,21 +212,6 @@ if ($installed.Publisher -ne $expectedPublisher) {
 if ($null -ne $expectedVersion -and
     [string]$installed.Version -cne $expectedVersion) {
     throw "Windows registered version '$($installed.Version)', not '$expectedVersion'."
-}
-
-if (-not $SkipTabletSetup) {
-    $tabletSetupPath = Join-Path $PSScriptRoot 'Install-RemarkableMirrorPrerequisites.ps1'
-    if (-not (Test-Path -LiteralPath $tabletSetupPath -PathType Leaf)) {
-        throw 'The app is installed, but the tablet prerequisite installer is missing. Rebuild the complete release or rerun with -SkipTabletSetup.'
-    }
-
-    Write-Host 'Setting up the connected reMarkable tablet...'
-    try {
-        & $tabletSetupPath
-    }
-    catch {
-        throw "The Windows app is installed, but tablet setup did not finish. The current setup path requires Developer Mode and the existing trusted SSH identity. $($_.Exception.Message)"
-    }
 }
 
 Write-Host "Installed reMarkable Mirror $($installed.Version)."

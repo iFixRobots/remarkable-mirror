@@ -58,7 +58,7 @@
 		O31000000000000000000001 /* TabletWakeClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = O32000000000000000000001 /* TabletWakeClient.swift */; };
 		Q31000000000000000000001 /* TabletPairingFinalizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = Q32000000000000000000001 /* TabletPairingFinalizer.swift */; };
 		R31000000000000000000001 /* ConnectionMonitorPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = R32000000000000000000001 /* ConnectionMonitorPolicy.swift */; };
-		B10000000000000000000001 /* TabletTransportWakeInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000001 /* TabletTransportWakeInstaller.swift */; };
+		B10000000000000000000001 /* TabletPrerequisiteInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000001 /* TabletPrerequisiteInstaller.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -115,7 +115,8 @@
 		O32000000000000000000001 /* TabletWakeClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabletWakeClient.swift; sourceTree = "<group>"; };
 		Q32000000000000000000001 /* TabletPairingFinalizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabletPairingFinalizer.swift; sourceTree = "<group>"; };
 		R32000000000000000000001 /* ConnectionMonitorPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionMonitorPolicy.swift; sourceTree = "<group>"; };
-		B20000000000000000000001 /* TabletTransportWakeInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabletTransportWakeInstaller.swift; sourceTree = "<group>"; };
+		B20000000000000000000001 /* TabletPrerequisiteInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabletPrerequisiteInstaller.swift; sourceTree = "<group>"; };
+		B20000000000000000000002 /* BundleTabletPrerequisites.sh */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = BundleTabletPrerequisites.sh; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -132,6 +133,7 @@
 		A70000000000000000000001 = {
 			isa = PBXGroup;
 			children = (
+				B20000000000000000000002 /* BundleTabletPrerequisites.sh */,
 				A70000000000000000000002 /* ReMarkableMirror */,
 				A70000000000000000000004 /* Products */,
 			);
@@ -190,7 +192,7 @@
 				O32000000000000000000001 /* TabletWakeClient.swift */,
 				Q32000000000000000000001 /* TabletPairingFinalizer.swift */,
 				R32000000000000000000001 /* ConnectionMonitorPolicy.swift */,
-				B20000000000000000000001 /* TabletTransportWakeInstaller.swift */,
+				B20000000000000000000001 /* TabletPrerequisiteInstaller.swift */,
 				A20000000000000000000011 /* Assets.xcassets */,
 				A2000000000000000000000E /* Info.plist */,
 			);
@@ -215,7 +217,7 @@
 				A90000000000000000000001 /* Sources */,
 				A60000000000000000000001 /* Frameworks */,
 				AA0000000000000000000001 /* Resources */,
-				B30000000000000000000001 /* Bundle Tablet Transport Wake */,
+				B30000000000000000000001 /* Bundle Tablet Prerequisites */,
 			);
 			buildRules = (
 			);
@@ -272,7 +274,7 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
-		B30000000000000000000001 /* Bundle Tablet Transport Wake */ = {
+		B30000000000000000000001 /* Bundle Tablet Prerequisites */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
@@ -282,14 +284,14 @@
 			);
 			inputPaths = (
 			);
-			name = "Bundle Tablet Transport Wake";
+			name = "Bundle Tablet Prerequisites";
 			outputFileListPaths = (
 			);
 			outputPaths = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/zsh;
-			shellScript = "set -euo pipefail\n\nif [[ -z \"${TARGET_BUILD_DIR:-}\" || -z \"${UNLOCALIZED_RESOURCES_FOLDER_PATH:-}\" || -z \"${DERIVED_FILE_DIR:-}\" ]]; then\n    print -u2 \"Required Xcode output paths are unavailable.\"\n    exit 1\nfi\n\nexport PATH=\"/opt/homebrew/bin:/usr/local/go/bin:${PATH}\"\nrepository_root=\"${SRCROOT}/../..\"\nbuilder=\"${repository_root}/scripts/Build-RemarkableTransportWakeMac.sh\"\nsource_directory=\"${repository_root}/mirror/agent/deploy\"\nresources_directory=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\ndestination=\"${resources_directory}/TabletTransportWake\"\n\nif [[ ! -x \"${builder}\" ]]; then\n    print -u2 \"The verified tablet transport builder is missing or not executable.\"\n    exit 1\nfi\n/bin/mkdir -p \"${DERIVED_FILE_DIR}\" \"${resources_directory}\"\nstage_directory=$(mktemp -d \"${DERIVED_FILE_DIR}/TabletTransportWake.XXXXXX\")\ncleanup() {\n    if [[ -n \"${stage_directory}\" && -d \"${stage_directory}\" ]]; then\n        /bin/rm -rf -- \"${stage_directory}\"\n    fi\n}\ntrap cleanup EXIT\n\n\"${builder}\" \"${stage_directory}/rmmirror-transport-wake\"\nfor name in rmmirror-transport-wake.service install-transport-wake.sh rmmirror-usb-sleep-guard.conf; do\n    source_path=\"${source_directory}/${name}\"\n    if [[ ! -f \"${source_path}\" || -L \"${source_path}\" ]]; then\n        print -u2 \"Tablet transport source asset is missing or unsafe: ${source_path}\"\n        exit 1\n    fi\n    /bin/cp -f \"${source_path}\" \"${stage_directory}/${name}\"\ndone\n/bin/chmod 0755 \"${stage_directory}/rmmirror-transport-wake\"\n/bin/chmod 0644 \"${stage_directory}/rmmirror-transport-wake.service\" \"${stage_directory}/install-transport-wake.sh\" \"${stage_directory}/rmmirror-usb-sleep-guard.conf\"\n\nif [[ -e \"${destination}\" || -L \"${destination}\" ]]; then\n    if [[ ! -d \"${destination}\" || -L \"${destination}\" ]]; then\n        print -u2 \"Refusing unsafe tablet transport resource destination: ${destination}\"\n        exit 1\n    fi\n    /bin/rm -rf -- \"${destination}\"\nfi\n/bin/mv \"${stage_directory}\" \"${destination}\"\nstage_directory=\n";
+			shellScript = "/bin/zsh \"${SRCROOT}/BundleTabletPrerequisites.sh\"\n";
 			showEnvVarsInLog = 0;
 		};
 /* End PBXShellScriptBuildPhase section */
@@ -348,7 +350,7 @@
 				O31000000000000000000001 /* TabletWakeClient.swift in Sources */,
 				Q31000000000000000000001 /* TabletPairingFinalizer.swift in Sources */,
 				R31000000000000000000001 /* ConnectionMonitorPolicy.swift in Sources */,
-				B10000000000000000000001 /* TabletTransportWakeInstaller.swift in Sources */,
+				B10000000000000000000001 /* TabletPrerequisiteInstaller.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -92,6 +92,11 @@ public sealed class SshFrameSource
             systemctl is-active --quiet rm-sync
         }
 
+        if test "$allow_start" -eq 0 && ! systemctl is-active --quiet rm-sync; then
+          systemctl reset-failed rm-sync.service >/dev/null 2>&1 || true
+          systemctl start rm-sync.service >/dev/null 2>&1 || true
+        fi
+
         if display_ready && runtime_ready; then
           printf '%s\n' 'RMMIRROR_DISPLAY_READY=ready'
           exit 0

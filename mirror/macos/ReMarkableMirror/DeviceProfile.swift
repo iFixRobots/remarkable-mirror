@@ -375,6 +375,21 @@ private struct SSHWireReader {
 }
 
 enum SafeConnectionValue {
+    static func isAbsoluteFileURL(_ url: URL) -> Bool {
+        url.isFileURL &&
+            url.path.first == "/" &&
+            url.path.utf8.count <= 4_096 &&
+            !url.path.contains("\0") &&
+            !url.path.contains("\r") &&
+            !url.path.contains("\n")
+    }
+
+    static func isLowercaseSHA256(_ value: String) -> Bool {
+        value.utf8.count == 64 && value.utf8.allSatisfy {
+            (48...57).contains($0) || (97...102).contains($0)
+        }
+    }
+
     static func isHost(_ value: String) -> Bool {
         guard !value.isEmpty,
               value.count <= 255,

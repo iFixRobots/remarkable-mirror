@@ -7,6 +7,7 @@ using Microsoft.UI.Composition;
 using Microsoft.UI.Input;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Hosting;
@@ -38,7 +39,8 @@ public sealed partial class MainPage : Page
     private static readonly TimeSpan CompletedDocumentDragRetention = TimeSpan.FromMinutes(15);
     private static readonly TimeSpan StaleDocumentDragRetention = TimeSpan.FromDays(1);
     private const int ClipboardCannotOpenHResult = unchecked((int)0x800401D0);
-    private static readonly StartupRouteConfiguration StartupRoutes = ResolveStartupRoutes();
+    private StartupRouteConfiguration _startupRoutes = ResolveStartupRoutes();
+    private readonly TabletSetupCoordinator _tabletSetup = new();
     private readonly MirrorDiagnostics _diagnostics = new();
     private readonly InputPublicationGate _inputPublication = new();
     private readonly WriteableBitmap _displayBitmap = new(
@@ -57,7 +59,9 @@ public sealed partial class MainPage : Page
     private TaskCompletionSource<bool> _inputPreparation = CreatePreparation();
     private CancellationTokenSource? _connectionCancellation;
     private CancellationTokenSource? _connectionAttemptCancellation;
+    private CancellationTokenSource? _tabletSetupCancellation;
     private Task? _connectionAttemptTask;
+    private Task? _tabletSetupTask;
     private Task? _frameDisplayTask;
     private Task? _inputSessionTask;
     private volatile SshInputSession? _inputSession;
@@ -70,6 +74,7 @@ public sealed partial class MainPage : Page
     private bool _haveFrame;
     private volatile MirrorConnectionState _mirrorState = MirrorConnectionState.Waiting;
     private string _connectionDetail = string.Empty;
+    private bool _tabletSetupForceRepair;
     private volatile bool _pageIsLoaded;
     private RemoteInputMode _inputMode = RemoteInputMode.Touch;
     private uint? _activePointerId;
@@ -208,6 +213,29 @@ public sealed partial class MainPage : Page
         }
     }
 
+    private bool IsTabletSetupComplete() =>
+        _startupRoutes.Profile is not null;
+
+    private static string TabletSetupMarkerPath =>
+        Path.Combine(MirrorApplicationData.LocalFolder.Path, "tablet-setup-complete");
+
+    private static bool HasFinishedTabletSetup() =>
+        File.Exists(TabletSetupMarkerPath);
+
+    private static void RememberFinishedTabletSetup()
+    {
+        try
+        {
+            File.WriteAllText(TabletSetupMarkerPath, string.Empty);
+        }
+        catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
+    }
+
     private static TaskCompletionSource<bool> CreatePreparation() =>
         new(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -250,17 +278,27 @@ public sealed partial class MainPage : Page
             _inputPublication.Reset();
             ResetInputRetryPolicy();
             Interlocked.Exchange(ref _activeConnectionAttempt, 0);
-            SetMirrorState(MirrorConnectionState.Waiting);
+            _startupRoutes = ResolveStartupRoutes();
+            var setupComplete = IsTabletSetupComplete() && HasFinishedTabletSetup();
+            _tabletSetupForceRepair = false;
+            SetMirrorState(
+                setupComplete
+                    ? MirrorConnectionState.Waiting
+                    : MirrorConnectionState.SetupRequired);
 
             var cancellation = new CancellationTokenSource();
             _connectionCancellation = cancellation;
             _diagnostics.Record("lifecycle", "Mirror window opened");
             _diagnostics.Record(
                 "wifi profile",
-                StartupRoutes.WifiRoute is null
-                    ? $"Unavailable ({StartupRoutes.ProfileStatus})"
+                _startupRoutes.WifiRoute is null
+                    ? $"Unavailable ({_startupRoutes.ProfileStatus})"
                     : "Ready");
-            _diagnostics.Record("connection", "Waiting for owner connection choice");
+            _diagnostics.Record(
+                "connection",
+                setupComplete
+                    ? "Waiting for owner connection choice"
+                    : "Waiting for owner setup request");
             _frameDisplayTask = DisplayFramesAsync(cancellation.Token);
             _inputSessionTask = MaintainInputSessionAsync(cancellation.Token);
         }
@@ -280,6 +318,21 @@ public sealed partial class MainPage : Page
         _pageIsLoaded = false;
         _toastTimer.Stop();
         DisposeFilesPaneAnimation();
+        _tabletSetupCancellation?.Cancel();
+        if (_tabletSetupTask is { } tabletSetupTask)
+        {
+            try
+            {
+                await tabletSetupTask;
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch (Exception exception)
+            {
+                _diagnostics.Record("shutdown", $"Tablet setup: {exception.GetType().Name}");
+            }
+        }
         await _lifecycleGate.WaitAsync();
         try
         {
@@ -373,6 +426,7 @@ public sealed partial class MainPage : Page
         try
         {
             MirrorRouteGeneration? current;
+            var deferCancellationForInputCleanup = false;
             lock (_routeAdmissionGate)
             {
                 current = Volatile.Read(ref _routeGeneration);
@@ -404,7 +458,13 @@ public sealed partial class MainPage : Page
                     _inputPublication.Complete(current.Id);
                 }
                 _filesReadyGeneration = 0;
-                current?.Cancel();
+                deferCancellationForInputCleanup =
+                    current is not null &&
+                    Interlocked.Read(ref _inputSessionGeneration) == current.Id;
+                if (!deferCancellationForInputCleanup)
+                {
+                    current?.Cancel();
+                }
             }
             Interlocked.Increment(ref _libraryRefreshGeneration);
             SignalFrameRetry();
@@ -430,6 +490,10 @@ public sealed partial class MainPage : Page
             finally
             {
                 _inputLifecycleGate.Release();
+                if (deferCancellationForInputCleanup)
+                {
+                    current?.Cancel();
+                }
             }
 
             var currentDisposed = false;
@@ -539,7 +603,7 @@ public sealed partial class MainPage : Page
         if (_inputRestoreUncertain)
         {
             ShowInfo(
-                "Restart the tablet and reopen Mirror before using controls again.",
+                "Restart tablet and Mirror.",
                 InfoBarSeverity.Warning);
             return;
         }
@@ -671,11 +735,11 @@ public sealed partial class MainPage : Page
 
         using var monitor = request.Kind is DeviceRouteKind.Usb
             ? DeviceConnectionMonitor.ForUsb(
-                StartupRoutes.UsbRoute,
-                StartupRoutes.Profile)
+                _startupRoutes.UsbRoute,
+                _startupRoutes.Profile)
             : DeviceConnectionMonitor.ForWifi(
                 request.Route,
-                StartupRoutes.Profile);
+                _startupRoutes.Profile);
 
         var wifiProbeCount = 0;
         DeviceConnectionStatus? lastPublishedStatus = null;
@@ -781,11 +845,6 @@ public sealed partial class MainPage : Page
 
             if (state.Status is DeviceConnectionStatus.WakeSetupRequired)
             {
-                await RunOnUIThreadAsync(
-                    () => SetMirrorState(
-                        MirrorConnectionState.Error,
-                        ManualConnectionFailureMessage(request.Kind, state.Status)),
-                    applicationCancellationToken).ConfigureAwait(false);
                 return;
             }
         }
@@ -857,7 +916,7 @@ public sealed partial class MainPage : Page
             DeviceConnectionStatus.WifiNetworkMismatch =>
                 "Connect this PC to the Wi-Fi network paired with this reMarkable, then choose Connect Wi-Fi again.",
             DeviceConnectionStatus.WakeSetupRequired =>
-                "Mirror cannot use its tablet setup. Re-run Install.cmd over USB-C, then choose the connection again.",
+                "Mirror cannot use its tablet setup. Choose Repair Tablet Setup with the tablet connected by USB-C.",
             _ when routeKind is DeviceRouteKind.Usb =>
                 "Couldn’t connect over USB-C. Check the cable and tablet, then choose Connect USB-C to try again.",
             _ =>
@@ -1210,6 +1269,48 @@ public sealed partial class MainPage : Page
         var previousDetail = _connectionDetail;
         var (connection, title, body, color, showProgress, showChoices, showDetails) = state switch
         {
+            MirrorConnectionState.SetupRequired => (
+                "Setup",
+                "Set up your reMarkable",
+                detail ?? "Mirror will install its tablet components and authorize this computer over the direct USB-C cable.",
+                Windows.UI.Color.FromArgb(255, 137, 145, 158),
+                false,
+                false,
+                false),
+            MirrorConnectionState.SetupInProgress => (
+                _tabletSetupForceRepair ? "Repair" : "Setup",
+                _tabletSetupForceRepair
+                    ? "Repairing tablet setup"
+                    : "Setting up your reMarkable",
+                detail ?? "Checking the direct USB-C connection.",
+                Windows.UI.Color.FromArgb(255, 226, 163, 58),
+                true,
+                false,
+                false),
+            MirrorConnectionState.SetupPasswordRequired => (
+                "Setup",
+                "Authorize this computer",
+                detail ?? "Enter the one-time Developer Mode password shown on your tablet.",
+                Windows.UI.Color.FromArgb(255, 137, 145, 158),
+                false,
+                false,
+                false),
+            MirrorConnectionState.SetupWifiNotReady => (
+                "Setup",
+                "Finish Wi-Fi setup",
+                detail ?? "Tablet setup is installed. Reconnect Wi-Fi on the tablet, then continue setup.",
+                Windows.UI.Color.FromArgb(255, 137, 145, 158),
+                false,
+                false,
+                false),
+            MirrorConnectionState.SetupNeedsAttention => (
+                "Setup",
+                "Setup needs attention",
+                detail ?? "Check the tablet and direct USB-C cable, then try again.",
+                Windows.UI.Color.FromArgb(255, 224, 92, 92),
+                false,
+                false,
+                false),
             MirrorConnectionState.Preparing => (
                 "Connecting",
                 "Preparing your reMarkable",
@@ -1276,12 +1377,12 @@ public sealed partial class MainPage : Page
                 false),
             MirrorConnectionState.WakeSetupRequired => (
                 "Repair",
-                "Repair tablet wake setup",
-                "Mirror cannot use its tablet wake setup. Re-run Install.cmd with the tablet connected and past its first post-boot unlock.",
+                "Repair tablet setup",
+                "Mirror cannot use its tablet wake setup. Keep the tablet connected, awake and unlocked, then repair it here.",
                 Windows.UI.Color.FromArgb(255, 224, 92, 92),
                 false,
                 false,
-                true),
+                false),
             _ => (
                 "Offline",
                 "Connect to your reMarkable",
@@ -1291,6 +1392,18 @@ public sealed partial class MainPage : Page
                 true,
                 false),
         };
+
+        var showTabletSetup = state is
+            MirrorConnectionState.SetupRequired or
+            MirrorConnectionState.SetupInProgress or
+            MirrorConnectionState.SetupPasswordRequired or
+            MirrorConnectionState.SetupWifiNotReady or
+            MirrorConnectionState.SetupNeedsAttention or
+            MirrorConnectionState.WakeSetupRequired;
+        ConfigureTabletSetupPanel(state);
+        TabletSetupPanel.Visibility = showTabletSetup
+            ? Visibility.Visible
+            : Visibility.Collapsed;
 
         if (previousState == state && string.Equals(previousDetail, body, StringComparison.Ordinal))
         {
@@ -1328,6 +1441,244 @@ public sealed partial class MainPage : Page
             _filesPaneOpen)
         {
             _ = RefreshLibraryAsync();
+        }
+    }
+
+    private void ConfigureTabletSetupPanel(MirrorConnectionState state)
+    {
+        TabletSetupChecklist.Visibility = state is MirrorConnectionState.SetupRequired
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        TabletSetupWifiInstructions.Visibility = state is MirrorConnectionState.SetupWifiNotReady
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        TabletSetupPasswordPanel.Visibility = state is MirrorConnectionState.SetupPasswordRequired
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        TabletSetupValidationText.Text = string.Empty;
+        TabletSetupValidationText.Visibility = Visibility.Collapsed;
+
+        if (state is not MirrorConnectionState.SetupPasswordRequired)
+        {
+            TabletSetupPasswordBox.Password = string.Empty;
+        }
+
+        TabletSetupPrimaryButton.Visibility = Visibility.Visible;
+        switch (state)
+        {
+            case MirrorConnectionState.SetupRequired:
+                TabletSetupPrimaryButton.Content = "Start Setup";
+                AutomationProperties.SetName(
+                    TabletSetupPrimaryButton,
+                    "Start tablet setup");
+                break;
+            case MirrorConnectionState.SetupPasswordRequired:
+                TabletSetupPrimaryButton.Content = "Authorize & Install";
+                AutomationProperties.SetName(
+                    TabletSetupPrimaryButton,
+                    "Authorize this computer and install tablet setup");
+                break;
+            case MirrorConnectionState.SetupWifiNotReady:
+                TabletSetupPrimaryButton.Content = "Continue Setup";
+                AutomationProperties.SetName(
+                    TabletSetupPrimaryButton,
+                    "Continue tablet setup after reconnecting Wi-Fi");
+                break;
+            case MirrorConnectionState.WakeSetupRequired:
+                TabletSetupPrimaryButton.Content = "Repair Tablet Setup";
+                AutomationProperties.SetName(
+                    TabletSetupPrimaryButton,
+                    "Repair tablet setup");
+                break;
+            case MirrorConnectionState.SetupNeedsAttention:
+                TabletSetupPrimaryButton.Content = _tabletSetupForceRepair
+                    ? "Repair Tablet Setup"
+                    : "Try Setup Again";
+                AutomationProperties.SetName(
+                    TabletSetupPrimaryButton,
+                    _tabletSetupForceRepair
+                        ? "Repair tablet setup"
+                        : "Try tablet setup again");
+                break;
+            default:
+                TabletSetupPrimaryButton.Visibility = Visibility.Collapsed;
+                break;
+        }
+    }
+
+    private async void TabletSetupPrimaryButton_Click(object sender, RoutedEventArgs e)
+    {
+        var forceRepair = _tabletSetupForceRepair;
+        string? oneTimePassword = null;
+
+        switch (_mirrorState)
+        {
+            case MirrorConnectionState.SetupRequired:
+                break;
+            case MirrorConnectionState.SetupPasswordRequired:
+                oneTimePassword = TabletSetupPasswordBox.Password;
+                TabletSetupPasswordBox.Password = string.Empty;
+                if (string.IsNullOrWhiteSpace(oneTimePassword))
+                {
+                    TabletSetupValidationText.Text =
+                        "Enter the one-time Developer Mode password shown on your tablet.";
+                    TabletSetupValidationText.Visibility = Visibility.Visible;
+                    TabletSetupPasswordBox.Focus(FocusState.Programmatic);
+                    return;
+                }
+                break;
+            case MirrorConnectionState.SetupWifiNotReady:
+            case MirrorConnectionState.SetupNeedsAttention:
+                break;
+            case MirrorConnectionState.WakeSetupRequired:
+                forceRepair = true;
+                break;
+            default:
+                return;
+        }
+
+        await RunTabletSetupAsync(oneTimePassword, forceRepair);
+    }
+
+    private async Task RunTabletSetupAsync(
+        string? oneTimePassword,
+        bool forceRepair)
+    {
+        var applicationCancellation = _connectionCancellation;
+        if (!_pageIsLoaded ||
+            applicationCancellation is null ||
+            _tabletSetupTask is { IsCompleted: false })
+        {
+            return;
+        }
+
+        _tabletSetupForceRepair = forceRepair;
+        TabletSetupPasswordBox.Password = string.Empty;
+        SetMirrorState(MirrorConnectionState.SetupInProgress);
+
+        var cancellation = CancellationTokenSource.CreateLinkedTokenSource(
+            applicationCancellation.Token);
+        _tabletSetupCancellation = cancellation;
+        var progress = new Progress<TabletSetupPhase>(ReportTabletSetupPhase);
+        var setupTask = _tabletSetup.RunAsync(
+            oneTimePassword,
+            forceRepair,
+            progress,
+            cancellation.Token);
+        oneTimePassword = null;
+        _tabletSetupTask = setupTask;
+
+        try
+        {
+            var result = await setupTask;
+            if (_pageIsLoaded &&
+                ReferenceEquals(_tabletSetupCancellation, cancellation))
+            {
+                ApplyTabletSetupResult(result);
+            }
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
+        }
+        catch (Exception exception)
+        {
+            var target = exception.TargetSite;
+            var location = target?.DeclaringType is null
+                ? target?.Name
+                : $"{target.DeclaringType.Name}.{target.Name}";
+            _diagnostics.Record(
+                "tablet setup",
+                location is null
+                    ? exception.GetType().Name
+                    : $"{exception.GetType().Name} at {location}");
+            if (_pageIsLoaded &&
+                ReferenceEquals(_tabletSetupCancellation, cancellation))
+            {
+                SetMirrorState(
+                    MirrorConnectionState.SetupNeedsAttention,
+                    "Mirror couldn’t finish tablet setup. Check the direct USB-C connection and try again.");
+            }
+        }
+        finally
+        {
+            if (ReferenceEquals(_tabletSetupCancellation, cancellation))
+            {
+                _tabletSetupCancellation = null;
+                _tabletSetupTask = null;
+            }
+            cancellation.Dispose();
+        }
+    }
+
+    private void ReportTabletSetupPhase(TabletSetupPhase phase)
+    {
+        if (!_pageIsLoaded || _mirrorState is not MirrorConnectionState.SetupInProgress)
+        {
+            return;
+        }
+
+        SetMirrorState(
+            MirrorConnectionState.SetupInProgress,
+            phase switch
+            {
+                TabletSetupPhase.CheckingUsb =>
+                    "Checking the direct USB-C connection.",
+                TabletSetupPhase.PairingComputer =>
+                    "Authorizing this computer for your tablet.",
+                TabletSetupPhase.InstallingTabletComponents =>
+                    "Installing the Mirror components on your tablet.",
+                TabletSetupPhase.PreparingWifi =>
+                    "Preparing the tablet for Wi-Fi connections.",
+                _ => "Verifying tablet setup.",
+            });
+    }
+
+    private void ApplyTabletSetupResult(TabletSetupResult result)
+    {
+        switch (result.Status)
+        {
+            case TabletSetupStatus.Ready:
+                _startupRoutes = ResolveStartupRoutes();
+                if (IsTabletSetupComplete())
+                {
+                    RememberFinishedTabletSetup();
+                    _tabletSetupForceRepair = false;
+                    SetMirrorState(MirrorConnectionState.Waiting);
+                }
+                else
+                {
+                    _tabletSetupForceRepair = true;
+                    SetMirrorState(
+                        MirrorConnectionState.SetupNeedsAttention,
+                        "Mirror installed the tablet components but could not load the finished connection profile. Repair tablet setup and try again.");
+                }
+                break;
+            case TabletSetupStatus.PasswordRequired:
+                SetMirrorState(
+                    MirrorConnectionState.SetupPasswordRequired,
+                    result.Message);
+                TabletSetupPasswordBox.Focus(FocusState.Programmatic);
+                break;
+            case TabletSetupStatus.PasswordRejected:
+                SetMirrorState(
+                    MirrorConnectionState.SetupPasswordRequired,
+                    result.Message);
+                TabletSetupValidationText.Text = result.Message;
+                TabletSetupValidationText.Visibility = Visibility.Visible;
+                TabletSetupPasswordBox.Focus(FocusState.Programmatic);
+                break;
+            case TabletSetupStatus.WifiNotReady:
+                SetMirrorState(
+                    MirrorConnectionState.SetupWifiNotReady,
+                    result.Message);
+                break;
+            case TabletSetupStatus.Cancelled:
+                break;
+            default:
+                SetMirrorState(
+                    MirrorConnectionState.SetupNeedsAttention,
+                    result.Message);
+                break;
         }
     }
 
@@ -2121,7 +2472,7 @@ public sealed partial class MainPage : Page
     {
         HideWifiAddressEntry();
         await StartManualConnectionAsync(
-            ManualConnectionRequest.ForUsb(StartupRoutes.UsbRoute));
+            ManualConnectionRequest.ForUsb(_startupRoutes.UsbRoute));
     }
 
     private void ConnectWifiButton_Click(object sender, RoutedEventArgs e) =>
@@ -2140,7 +2491,7 @@ public sealed partial class MainPage : Page
         WifiAddressValidationText.Visibility = Visibility.Collapsed;
         WifiAddressValidationText.Text = string.Empty;
         if (string.IsNullOrWhiteSpace(WifiAddressTextBox.Text) &&
-            StartupRoutes.WifiRoute is { } savedRoute)
+            _startupRoutes.WifiRoute is { } savedRoute)
         {
             WifiAddressTextBox.Text = savedRoute.Host;
         }
@@ -2180,11 +2531,14 @@ public sealed partial class MainPage : Page
 
     private async Task SubmitWifiAddressAsync()
     {
-        var profile = StartupRoutes.Profile;
+        var profile = _startupRoutes.Profile;
         if (profile is null)
         {
-            ShowWifiAddressValidation(
-                "Wi-Fi setup is unavailable. Run Install.cmd over USB-C before connecting over Wi-Fi.");
+            _tabletSetupForceRepair =
+                _startupRoutes.ProfileStatus is DeviceProfileLoadStatus.Ready;
+            SetMirrorState(
+                MirrorConnectionState.SetupRequired,
+                "Finish tablet setup before connecting over Wi-Fi.");
             return;
         }
 
@@ -3726,6 +4080,11 @@ public sealed partial class MainPage : Page
 public enum MirrorConnectionState
 {
     Waiting,
+    SetupRequired,
+    SetupInProgress,
+    SetupPasswordRequired,
+    SetupWifiNotReady,
+    SetupNeedsAttention,
     WakeAndUnlock,
     AwaitingUnlock,
     Sleeping,

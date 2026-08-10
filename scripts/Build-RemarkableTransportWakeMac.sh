@@ -5,12 +5,10 @@ set -euo pipefail
 script_directory=${0:A:h}
 repository_root=${script_directory:h}
 source_directory=${repository_root}/mirror/agent
-package=./cmd/rmmirror-transport-wake
-binary_name=rmmirror-transport-wake
 expected_go_version='go version go1.26.5 darwin/arm64'
 
 if (( $# != 1 )); then
-    print -u2 "Usage: ${0:t} /absolute/output/path/rmmirror-transport-wake"
+    print -u2 "Usage: ${0:t} /absolute/output/path/{rmmirror-transport-wake|rmmirror-probe}"
     exit 64
 fi
 
@@ -19,10 +17,19 @@ if [[ "${output_path}" != /* ]]; then
     print -u2 "The output path must be absolute."
     exit 64
 fi
-if [[ "${output_path:t}" != "${binary_name}" ]]; then
-    print -u2 "The output filename must be ${binary_name}."
-    exit 64
-fi
+binary_name=${output_path:t}
+case "${binary_name}" in
+    rmmirror-transport-wake)
+        package=./cmd/rmmirror-transport-wake
+        ;;
+    rmmirror-probe)
+        package=./cmd/rmmirror-probe
+        ;;
+    *)
+        print -u2 "The output filename must be rmmirror-transport-wake or rmmirror-probe."
+        exit 64
+        ;;
+esac
 if [[ -L "${output_path}" || ( -e "${output_path}" && ! -f "${output_path}" ) ]]; then
     print -u2 "Refusing unsafe output path: ${output_path}"
     exit 1
@@ -139,7 +146,7 @@ assert_static_aarch64_elf() {
     done
 }
 
-build_root=$(mktemp -d "${TMPDIR:-/tmp}/remarkable-transport-wake-build.XXXXXX")
+build_root=$(mktemp -d "${TMPDIR:-/tmp}/remarkable-tablet-binary-build.XXXXXX")
 publish_temporary_path=
 cleanup() {
     if [[ -n "${publish_temporary_path}" && -e "${publish_temporary_path}" ]]; then

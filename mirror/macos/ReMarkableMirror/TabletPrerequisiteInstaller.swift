@@ -1,56 +1,161 @@
 import CryptoKit
 import Foundation
 
-enum TabletTransportWakeAssetName: String, CaseIterable, Equatable, Hashable, Sendable {
-    case binary = "rmmirror-transport-wake"
-    case service = "rmmirror-transport-wake.service"
-    case installer = "install-transport-wake.sh"
+enum TabletPrerequisiteAssetName: String, CaseIterable, Equatable, Hashable, Sendable {
+    case transportWakeBinary = "rmmirror-transport-wake"
+    case transportWakeService = "rmmirror-transport-wake.service"
+    case transportWakeInstaller = "install-transport-wake.sh"
     case sleepGuard = "rmmirror-usb-sleep-guard.conf"
+    case probe = "rmmirror-probe"
+    case xoviArchive = "xovi-aarch64.tar.gz"
+    case filesLoopback = "rmmirror-files-loopback.so"
+    case prerequisiteInstaller = "install-mirror-prerequisites.sh"
+    case contract = "rmmirror-prerequisites.env"
 
     fileprivate var sizeRange: ClosedRange<Int> {
         switch self {
-        case .binary:
+        case .transportWakeBinary, .probe, .filesLoopback:
             1_024...32_000_000
-        case .service, .installer, .sleepGuard:
+        case .xoviArchive:
+            1_000_000...256_000_000
+        case .transportWakeService, .transportWakeInstaller, .sleepGuard,
+             .prerequisiteInstaller, .contract:
             1...1_000_000
         }
     }
 }
 
-struct TabletTransportWakeAsset: Equatable, Sendable {
-    let name: TabletTransportWakeAssetName
+struct TabletPrerequisiteAsset: Equatable, Sendable {
+    let name: TabletPrerequisiteAssetName
     let url: URL
     let sha256: String
 }
 
-protocol TabletTransportWakeAssetProviding: Sendable {
-    func loadAssets() throws -> [TabletTransportWakeAssetName: TabletTransportWakeAsset]
+protocol TabletPrerequisiteAssetProviding: Sendable {
+    func loadAssets() throws -> [TabletPrerequisiteAssetName: TabletPrerequisiteAsset]
 }
 
-enum TabletTransportWakeInstallationFailure: Error, Equatable, Sendable {
+enum TabletPrerequisiteInstallPhase: String, Equatable, Sendable {
+    case starting
+    case acquiringLock = "acquiring_lock"
+    case validatingContract = "validating_contract"
+    case validatingStage = "validating_stage"
+    case validatingTablet = "validating_tablet"
+    case installingXovi = "installing_xovi"
+    case publishingExtensions = "publishing_extensions"
+    case installingProbe = "installing_probe"
+    case retiringFrameStreams = "retiring_frame_streams"
+    case installingTransport = "installing_transport"
+    case validatingInstall = "validating_install"
+    case validatingTransportStatus = "validating_transport_status"
+    case validatingListeners = "validating_listeners"
+    case complete
+
+    var userFacingDescription: String {
+        switch self {
+        case .starting, .acquiringLock:
+            "starting tablet setup"
+        case .validatingContract, .validatingStage:
+            "checking the setup package"
+        case .validatingTablet:
+            "checking tablet compatibility"
+        case .installingXovi:
+            "installing Xovi"
+        case .publishingExtensions:
+            "installing display and Files components"
+        case .installingProbe:
+            "installing the Mirror companion"
+        case .retiringFrameStreams:
+            "closing an older mirror session"
+        case .installingTransport:
+            "installing USB keep-awake"
+        case .validatingInstall, .validatingTransportStatus, .validatingListeners:
+            "verifying tablet setup"
+        case .complete:
+            "finishing tablet setup"
+        }
+    }
+
+}
+
+enum TabletPrerequisiteInstallationFailure: Error, Equatable, Sendable {
     case busy
     case assetsUnavailable
-    case unsafeAsset(TabletTransportWakeAssetName)
+    case unsafeAsset(TabletPrerequisiteAssetName)
     case unsafeCredentialPath
     case unsafeUSBRoute
     case usbUnavailable
     case usbContextChanged
     case processUnavailable
     case stageCreationFailed
-    case uploadFailed(TabletTransportWakeAssetName)
+    case uploadFailed(TabletPrerequisiteAssetName)
     case installFailed
-    case installStageValidationFailed
-    case installerExecutionFailed
-    case installAnchorValidationFailed
-    case installTransportStatusValidationFailed
-    case installListenerValidationFailed
+    case incompatibleXovi
+    case incompatibleInstallTarget
+    case transactionFailed(TabletPrerequisiteInstallPhase)
     case invalidInstallResponse
     case cleanupFailed
     case postInstallVerificationFailed(PassiveRouteProbeDetail)
+
+    var userFacingDescription: String {
+        switch self {
+        case .busy:
+            "waiting for another tablet setup attempt"
+        case .assetsUnavailable, .unsafeAsset:
+            "checking the setup package"
+        case .unsafeCredentialPath, .unsafeUSBRoute, .usbUnavailable,
+             .usbContextChanged:
+            "checking the direct USB-C connection"
+        case .processUnavailable:
+            "starting the tablet setup process"
+        case .stageCreationFailed:
+            "creating a private setup area"
+        case .uploadFailed:
+            "copying the setup package"
+        case .installFailed:
+            "running tablet setup"
+        case .incompatibleXovi:
+            "checking the existing Xovi installation"
+        case .incompatibleInstallTarget:
+            "checking existing Mirror tablet files"
+        case let .transactionFailed(phase):
+            phase.userFacingDescription
+        case .invalidInstallResponse:
+            "confirming the setup result"
+        case .cleanupFailed:
+            "cleaning temporary setup files"
+        case .postInstallVerificationFailed:
+            "verifying tablet setup"
+        }
+    }
+
+    var needsApplicationAttention: Bool {
+        switch self {
+        case .assetsUnavailable, .unsafeAsset, .processUnavailable:
+            true
+        default:
+            false
+        }
+    }
+
+    var needsProfileAttention: Bool {
+        if case .unsafeCredentialPath = self { return true }
+        return false
+    }
+
+    var needsXoviAttention: Bool {
+        if case .incompatibleXovi = self { return true }
+        return false
+    }
+
+    var needsInstallTargetAttention: Bool {
+        if case .incompatibleInstallTarget = self { return true }
+        return false
+    }
 }
 
-protocol TabletTransportWakeInstalling: Actor {
-    func installOrUpgrade(
+protocol TabletPrerequisiteInstalling: Actor {
+    func installOrRepair(
         identityURL: URL,
         knownHostsURL: URL,
         expectedUSBContext: DirectUSBRouteContext,
@@ -58,12 +163,11 @@ protocol TabletTransportWakeInstalling: Actor {
     ) async throws -> PassiveRouteCapability
 }
 
-/// Reads the four signed-app resources used by the transactional tablet-side
-/// transport-wake installer. The resource directory is deliberately exact:
-/// extra, missing, linked, malformed, or oversized assets fail closed before
-/// any tablet process is launched.
-struct BundledTabletTransportWakeAssetProvider: TabletTransportWakeAssetProviding {
-    private static let resourceDirectoryName = "TabletTransportWake"
+/// Loads the complete tablet prerequisite payload from the app bundle. The
+/// directory is exact by design: extra, missing, linked, malformed, oversized,
+/// or wrong-architecture assets fail before any tablet process is launched.
+struct BundledTabletPrerequisiteAssetProvider: TabletPrerequisiteAssetProviding {
+    private static let resourceDirectoryName = "TabletPrerequisites"
 
     private let directoryURL: URL?
 
@@ -78,9 +182,9 @@ struct BundledTabletTransportWakeAssetProvider: TabletTransportWakeAssetProvidin
         self.directoryURL = directoryURL
     }
 
-    func loadAssets() throws -> [TabletTransportWakeAssetName: TabletTransportWakeAsset] {
+    func loadAssets() throws -> [TabletPrerequisiteAssetName: TabletPrerequisiteAsset] {
         guard let directoryURL,
-              Self.isSafeAbsoluteFileURL(directoryURL),
+              SafeConnectionValue.isAbsoluteFileURL(directoryURL),
               let directoryValues = try? directoryURL.resourceValues(forKeys: [
                   .isDirectoryKey,
                   .isSymbolicLinkKey,
@@ -96,19 +200,19 @@ struct BundledTabletTransportWakeAssetProvider: TabletTransportWakeAssetProvidin
                   ],
                   options: []
               ) else {
-            throw TabletTransportWakeInstallationFailure.assetsUnavailable
+            throw TabletPrerequisiteInstallationFailure.assetsUnavailable
         }
 
-        let expectedNames = Set(TabletTransportWakeAssetName.allCases.map(\.rawValue))
+        let expectedNames = Set(TabletPrerequisiteAssetName.allCases.map(\.rawValue))
         guard Set(contents.map(\.lastPathComponent)) == expectedNames,
               contents.count == expectedNames.count else {
-            throw TabletTransportWakeInstallationFailure.assetsUnavailable
+            throw TabletPrerequisiteInstallationFailure.assetsUnavailable
         }
 
-        var assets: [TabletTransportWakeAssetName: TabletTransportWakeAsset] = [:]
-        for name in TabletTransportWakeAssetName.allCases {
+        var assets: [TabletPrerequisiteAssetName: TabletPrerequisiteAsset] = [:]
+        for name in TabletPrerequisiteAssetName.allCases {
             let url = directoryURL.appending(path: name.rawValue)
-            guard Self.isSafeAbsoluteFileURL(url),
+            guard SafeConnectionValue.isAbsoluteFileURL(url),
                   let values = try? url.resourceValues(forKeys: [
                       .isRegularFileKey,
                       .isSymbolicLinkKey,
@@ -119,46 +223,60 @@ struct BundledTabletTransportWakeAssetProvider: TabletTransportWakeAssetProvidin
                   let size = values.fileSize,
                   name.sizeRange.contains(size),
                   let data = try? Data(contentsOf: url, options: [.mappedIfSafe]),
-                  data.count == size,
-                  Self.validate(data: data, for: name) else {
-                throw TabletTransportWakeInstallationFailure.unsafeAsset(name)
+                  data.count == size else {
+                throw TabletPrerequisiteInstallationFailure.unsafeAsset(name)
             }
             let digest = SHA256.hash(data: data)
                 .map { String(format: "%02x", $0) }
                 .joined()
-            assets[name] = TabletTransportWakeAsset(
+            guard Self.validate(data: data, for: name) else {
+                throw TabletPrerequisiteInstallationFailure.unsafeAsset(name)
+            }
+            assets[name] = TabletPrerequisiteAsset(
                 name: name,
                 url: url,
                 sha256: digest
             )
+        }
+        guard let contractAsset = assets[.contract],
+              let contractData = try? Data(
+                  contentsOf: contractAsset.url,
+                  options: [.mappedIfSafe]
+              ),
+              let expectedXoviHash = Self.contractValue(
+                  "RMMIRROR_XOVI_ARCHIVE_SHA256",
+                  in: contractData
+              ),
+              SafeConnectionValue.isLowercaseSHA256(expectedXoviHash),
+              assets[.xoviArchive]?.sha256 == expectedXoviHash else {
+            throw TabletPrerequisiteInstallationFailure.unsafeAsset(.xoviArchive)
         }
         return assets
     }
 
     private static func validate(
         data: Data,
-        for name: TabletTransportWakeAssetName
+        for name: TabletPrerequisiteAssetName
     ) -> Bool {
         switch name {
-        case .binary:
-            return isStaticAArch64Executable(data)
-        case .service:
+        case .transportWakeBinary, .probe:
+            return isAArch64ELF(data, type: 2)
+        case .filesLoopback:
+            return isAArch64ELF(data, type: 3)
+        case .xoviArchive:
+            return data.count >= 2 && data[0] == 0x1f && data[1] == 0x8b
+        case .transportWakeService:
             return text(data, contains: [
                 "Type=simple",
                 "ExecStart=/usr/libexec/rmmirror-transport-wake",
-                "--udc-state-glob /sys/class/udc/*/state",
-                "--power-online /sys/class/power_supply/max77818-charger/online",
                 "--wake-listen 127.0.0.1:51337",
                 "--wake-listen 10.11.99.1:51337",
             ])
-        case .installer:
+        case .transportWakeInstaller:
             return text(data, contains: [
                 "#!/bin/sh",
                 "set -eu",
                 "expected_transport_version=0.6.0",
-                "carrier-qualified-power-hold/v1",
-                "udc_configured_count",
-                "wait_for_operational_status",
                 "RMMIRROR_TRANSPORT_WAKE=installed",
                 "rollback_install_transaction",
             ])
@@ -167,7 +285,30 @@ struct BundledTabletTransportWakeAssetProvider: TabletTransportWakeAssetProvidin
                 "[Service]",
                 "ExecCondition=/usr/libexec/rmmirror-transport-wake hold-system-sleep",
                 "--udc-state-glob /sys/class/udc/*/state",
-                "--power-online /sys/class/power_supply/max77818-charger/online",
+            ])
+        case .prerequisiteInstaller:
+            return text(data, contains: [
+                "#!/bin/sh",
+                "set -eu",
+                "lock_directory=/run/rmmirror-prerequisites-install.lock",
+                "require_hash rmmirror-prerequisites.env",
+                "publish_extension framebuffer-spy.so",
+                "publish_extension xovi-message-broker.so",
+                "publish_extension rmmirror-files-loopback.so",
+                "RMMIRROR_PREREQUISITES_INSTALL_FAILED=$failure_phase",
+                "RMMIRROR_PREREQUISITES=installed",
+            ])
+        case .contract:
+            return text(data, contains: [
+                "RMMIRROR_PREREQUISITES_SCHEMA=rmmirror.prerequisites/v1",
+                "RMMIRROR_TABLET_MODEL=chiappa",
+                "RMMIRROR_TABLET_IMG_VERSION=3.28.0.164",
+                "RMMIRROR_TABLET_OS_BUILD=5.8.199",
+                "RMMIRROR_XOVI_RELEASE=",
+                "RMMIRROR_XOVI_ARCHIVE_SHA256=",
+                "RMMIRROR_PROBE_VERSION=0.4.9",
+                "RMMIRROR_TRANSPORT_VERSION=0.6.0",
+                "RMMIRROR_REQUIRED_EXTENSIONS=framebuffer-spy.so,xovi-message-broker.so,rmmirror-files-loopback.so",
             ])
         }
     }
@@ -180,7 +321,18 @@ struct BundledTabletTransportWakeAssetProvider: TabletTransportWakeAssetProvidin
         return markers.allSatisfy(value.contains)
     }
 
-    private static func isStaticAArch64Executable(_ data: Data) -> Bool {
+    private static func contractValue(_ key: String, in data: Data) -> String? {
+        guard let value = String(data: data, encoding: .utf8) else { return nil }
+        let prefix = "\(key)="
+        let matches = value
+            .split(whereSeparator: \Character.isNewline)
+            .filter { $0.hasPrefix(prefix) }
+        guard matches.count == 1 else { return nil }
+        let result = String(matches[0].dropFirst(prefix.count))
+        return result.isEmpty ? nil : result
+    }
+
+    private static func isAArch64ELF(_ data: Data, type: UInt16) -> Bool {
         guard data.count >= 64,
               data[0] == 0x7f,
               data[1] == 0x45,
@@ -188,20 +340,29 @@ struct BundledTabletTransportWakeAssetProvider: TabletTransportWakeAssetProvidin
               data[3] == 0x46,
               data[4] == 2,
               data[5] == 1,
-              uint16(data, at: 16) == 2,
+              uint16(data, at: 16) == type,
               uint16(data, at: 18) == 183,
               let programHeaderOffset = uint64(data, at: 32),
               let programHeaderSize = uint16(data, at: 54),
-              let programHeaderCount = uint16(data, at: 56) else {
+              let programHeaderCount = uint16(data, at: 56),
+              programHeaderCount > 0,
+              programHeaderCount <= 256,
+              programHeaderSize >= 56,
+              programHeaderOffset <= UInt64(Int.max) else {
             return false
         }
-        guard programHeaderCount == 0 || programHeaderSize >= 56 else { return false }
+        let firstProgramHeader = Int(programHeaderOffset)
+        let tableSize = Int(programHeaderSize) * Int(programHeaderCount)
+        guard firstProgramHeader <= data.count,
+              tableSize <= data.count - firstProgramHeader else {
+            return false
+        }
         for index in 0..<Int(programHeaderCount) {
-            let offset = Int(programHeaderOffset) + index * Int(programHeaderSize)
+            let offset = firstProgramHeader + index * Int(programHeaderSize)
             guard offset >= 0,
                   offset <= data.count - Int(programHeaderSize),
-                  let type = uint32(data, at: offset),
-                  type != 3 else {
+                  let headerType = uint32(data, at: offset),
+                  headerType != 3 else {
                 return false
             }
         }
@@ -230,30 +391,22 @@ struct BundledTabletTransportWakeAssetProvider: TabletTransportWakeAssetProvidin
         return value
     }
 
-    private static func isSafeAbsoluteFileURL(_ url: URL) -> Bool {
-        url.isFileURL &&
-            url.path.first == "/" &&
-            url.path.utf8.count <= 4_096 &&
-            !url.path.contains("\0") &&
-            !url.path.contains("\r") &&
-            !url.path.contains("\n")
-    }
 }
 
-/// Installs or upgrades only the transport-wake prerequisite over the exact
-/// direct USB-C attachment owned by Add This Mac or Repair USB-C. It never
-/// constructs a Wi-Fi connection and it never starts or restarts Xochitl or Xovi.
-actor TabletTransportWakeInstaller: TabletTransportWakeInstalling {
-    static let completionMarker = "RMMIRROR_TRANSPORT_WAKE_DEPLOYED=1\n"
+/// Installs or repairs the complete pinned tablet prerequisite set over the
+/// exact direct USB-C attachment owned by Add This Mac or Repair Tablet Setup.
+/// It never constructs a Wi-Fi route and never receives a tablet password.
+actor TabletPrerequisiteInstaller: TabletPrerequisiteInstalling {
+    static let completionMarker = "RMMIRROR_PREREQUISITES=installed\n"
 
     private static let sshExecutableURL = URL(filePath: "/usr/bin/ssh")
     private static let scpExecutableURL = URL(filePath: "/usr/bin/scp")
-    private static let transferTimeout: Duration = .seconds(60)
-    private static let commandTimeout: Duration = .seconds(60)
+    private static let transferTimeout: Duration = .seconds(120)
+    private static let commandTimeout: Duration = .seconds(180)
     private static let probeTimeout: Duration = .seconds(7)
     private static let outputLimit = 32_768
 
-    private let assetProvider: any TabletTransportWakeAssetProviding
+    private let assetProvider: any TabletPrerequisiteAssetProviding
     private let routeVerifier: any TabletKeyAuthorizationRouteVerifying
     private let processRunner: any ProcessRunning
     private let stageToken: @Sendable () -> String
@@ -261,8 +414,8 @@ actor TabletTransportWakeInstaller: TabletTransportWakeInstalling {
     private var isInstalling = false
 
     init(
-        assetProvider: any TabletTransportWakeAssetProviding =
-            BundledTabletTransportWakeAssetProvider(),
+        assetProvider: any TabletPrerequisiteAssetProviding =
+            BundledTabletPrerequisiteAssetProvider(),
         routeVerifier: any TabletKeyAuthorizationRouteVerifying,
         processRunner: any ProcessRunning,
         stageToken: @escaping @Sendable () -> String = {
@@ -275,25 +428,25 @@ actor TabletTransportWakeInstaller: TabletTransportWakeInstalling {
         self.stageToken = stageToken
     }
 
-    func installOrUpgrade(
+    func installOrRepair(
         identityURL: URL,
         knownHostsURL: URL,
         expectedUSBContext: DirectUSBRouteContext,
         generation: GenerationID
     ) async throws -> PassiveRouteCapability {
         guard !isInstalling else {
-            throw TabletTransportWakeInstallationFailure.busy
+            throw TabletPrerequisiteInstallationFailure.busy
         }
         isInstalling = true
         defer { isInstalling = false }
 
-        let assets: [TabletTransportWakeAssetName: TabletTransportWakeAsset]
+        let assets: [TabletPrerequisiteAssetName: TabletPrerequisiteAsset]
         do {
             assets = try assetProvider.loadAssets()
-        } catch let failure as TabletTransportWakeInstallationFailure {
+        } catch let failure as TabletPrerequisiteInstallationFailure {
             throw failure
         } catch {
-            throw TabletTransportWakeInstallationFailure.assetsUnavailable
+            throw TabletPrerequisiteInstallationFailure.assetsUnavailable
         }
         try Self.validateAssetMetadata(assets)
 
@@ -307,39 +460,39 @@ actor TabletTransportWakeInstaller: TabletTransportWakeInstalling {
                 boundInterface: expectedUSBContext.interfaceName
             )
         } catch SSHRouteError.unsafeCredentialPath {
-            throw TabletTransportWakeInstallationFailure.unsafeCredentialPath
+            throw TabletPrerequisiteInstallationFailure.unsafeCredentialPath
         } catch {
-            throw TabletTransportWakeInstallationFailure.unsafeUSBRoute
+            throw TabletPrerequisiteInstallationFailure.unsafeUSBRoute
         }
 
         let token = stageToken()
         guard token.utf8.count == 32,
               token.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) }) else {
-            throw TabletTransportWakeInstallationFailure.stageCreationFailed
+            throw TabletPrerequisiteInstallationFailure.stageCreationFailed
         }
-        let remoteStage = "/home/root/.rmmirror-transport-stage-\(token)"
-        var stageMayExist = false
+        let remoteStage = "/home/root/.rmmirror-prerequisite-stage-\(token)"
+        var ownsStage = false
 
         do {
             try Task.checkCancellation()
-            stageMayExist = true
             let stageExecution = try await runBound(
                 Self.sshRequest(
                     route: route,
-                    command: "umask 077; test ! -e '\(remoteStage)'; mkdir '\(remoteStage)'",
+                    command: "set -eu; umask 077; test ! -e '\(remoteStage)'; mkdir '\(remoteStage)'; date +%s > '\(remoteStage)/.rmmirror-stage-created'",
                     generation: generation,
-                    role: .transportWakeStage
+                    role: .tabletPrerequisiteStage
                 ),
                 timeout: Self.commandTimeout,
                 expectedUSBContext: expectedUSBContext
             )
             guard Self.isSilentSuccess(stageExecution) else {
-                throw TabletTransportWakeInstallationFailure.stageCreationFailed
+                throw TabletPrerequisiteInstallationFailure.stageCreationFailed
             }
+            ownsStage = true
 
-            for name in TabletTransportWakeAssetName.allCases {
+            for name in TabletPrerequisiteAssetName.allCases {
                 guard let asset = assets[name] else {
-                    throw TabletTransportWakeInstallationFailure.assetsUnavailable
+                    throw TabletPrerequisiteInstallationFailure.assetsUnavailable
                 }
                 let uploadExecution = try await runBound(
                     Self.scpRequest(
@@ -352,7 +505,7 @@ actor TabletTransportWakeInstaller: TabletTransportWakeInstalling {
                     expectedUSBContext: expectedUSBContext
                 )
                 guard Self.isSilentSuccess(uploadExecution) else {
-                    throw TabletTransportWakeInstallationFailure.uploadFailed(name)
+                    throw TabletPrerequisiteInstallationFailure.uploadFailed(name)
                 }
             }
 
@@ -364,7 +517,7 @@ actor TabletTransportWakeInstaller: TabletTransportWakeInstalling {
                         assets: assets
                     ),
                     generation: generation,
-                    role: .transportWakeInstall
+                    role: .tabletPrerequisiteInstall
                 ),
                 timeout: Self.commandTimeout,
                 expectedUSBContext: expectedUSBContext
@@ -376,7 +529,7 @@ actor TabletTransportWakeInstaller: TabletTransportWakeInstalling {
                   !installExecution.standardError.wasTruncated,
                   installExecution.standardError.data.isEmpty,
                   installExecution.standardOutput.data == Data(Self.completionMarker.utf8) else {
-                throw TabletTransportWakeInstallationFailure.invalidInstallResponse
+                throw TabletPrerequisiteInstallationFailure.invalidInstallResponse
             }
 
             try await removeStage(
@@ -385,7 +538,7 @@ actor TabletTransportWakeInstaller: TabletTransportWakeInstalling {
                 expectedUSBContext: expectedUSBContext,
                 generation: generation
             )
-            stageMayExist = false
+            ownsStage = false
 
             let proofExecution = try await runBound(
                 route.authenticationProbeRequest(generation: generation),
@@ -395,7 +548,7 @@ actor TabletTransportWakeInstaller: TabletTransportWakeInstalling {
             guard !proofExecution.standardOutput.wasTruncated,
                   !proofExecution.standardError.wasTruncated,
                   proofExecution.standardError.data.isEmpty else {
-                throw TabletTransportWakeInstallationFailure
+                throw TabletPrerequisiteInstallationFailure
                     .postInstallVerificationFailed(.capabilityResponseInvalid)
             }
             let proof = PassiveRouteProbe.classify(proofExecution)
@@ -404,12 +557,12 @@ actor TabletTransportWakeInstaller: TabletTransportWakeInstalling {
                   let capability = proof.capability,
                   capability.isCurrent,
                   capability.transportOperational else {
-                throw TabletTransportWakeInstallationFailure
+                throw TabletPrerequisiteInstallationFailure
                     .postInstallVerificationFailed(proof.detail)
             }
             return capability
         } catch is CancellationError {
-            if stageMayExist {
+            if ownsStage {
                 await cleanupAfterCancellation(
                     route: route,
                     remoteStage: remoteStage,
@@ -418,8 +571,8 @@ actor TabletTransportWakeInstaller: TabletTransportWakeInstalling {
                 )
             }
             throw CancellationError()
-        } catch let failure as TabletTransportWakeInstallationFailure {
-            if stageMayExist {
+        } catch let failure as TabletPrerequisiteInstallationFailure {
+            if ownsStage {
                 await cleanupIfSameTablet(
                     route: route,
                     remoteStage: remoteStage,
@@ -429,7 +582,7 @@ actor TabletTransportWakeInstaller: TabletTransportWakeInstalling {
             }
             throw failure
         } catch {
-            if stageMayExist {
+            if ownsStage {
                 await cleanupIfSameTablet(
                     route: route,
                     remoteStage: remoteStage,
@@ -437,7 +590,7 @@ actor TabletTransportWakeInstaller: TabletTransportWakeInstalling {
                     generation: generation
                 )
             }
-            throw TabletTransportWakeInstallationFailure.processUnavailable
+            throw TabletPrerequisiteInstallationFailure.processUnavailable
         }
     }
 
@@ -454,7 +607,7 @@ actor TabletTransportWakeInstaller: TabletTransportWakeInstalling {
         } catch is CancellationError {
             throw CancellationError()
         } catch {
-            throw TabletTransportWakeInstallationFailure.processUnavailable
+            throw TabletPrerequisiteInstallationFailure.processUnavailable
         }
         try await requireExactUSBContext(expectedUSBContext)
         try Task.checkCancellation()
@@ -477,7 +630,7 @@ actor TabletTransportWakeInstaller: TabletTransportWakeInstalling {
             expectedUSBContext: expectedUSBContext
         )
         guard Self.isSilentSuccess(execution) else {
-            throw TabletTransportWakeInstallationFailure.cleanupFailed
+            throw TabletPrerequisiteInstallationFailure.cleanupFailed
         }
     }
 
@@ -531,37 +684,28 @@ actor TabletTransportWakeInstaller: TabletTransportWakeInstalling {
         case let .verified(current) where current == expected:
             return
         case .verified:
-            throw TabletTransportWakeInstallationFailure.usbContextChanged
-        case .unavailable:
-            throw TabletTransportWakeInstallationFailure.usbUnavailable
-        case .accessoryApprovalRequired:
-            throw TabletTransportWakeInstallationFailure.usbUnavailable
+            throw TabletPrerequisiteInstallationFailure.usbContextChanged
+        case .unavailable, .accessoryApprovalRequired:
+            throw TabletPrerequisiteInstallationFailure.usbUnavailable
         case .unsafeRoute:
-            throw TabletTransportWakeInstallationFailure.unsafeUSBRoute
+            throw TabletPrerequisiteInstallationFailure.unsafeUSBRoute
         }
     }
 
     private static func validateAssetMetadata(
-        _ assets: [TabletTransportWakeAssetName: TabletTransportWakeAsset]
+        _ assets: [TabletPrerequisiteAssetName: TabletPrerequisiteAsset]
     ) throws {
-        guard Set(assets.keys) == Set(TabletTransportWakeAssetName.allCases),
-              assets.count == TabletTransportWakeAssetName.allCases.count else {
-            throw TabletTransportWakeInstallationFailure.assetsUnavailable
+        guard Set(assets.keys) == Set(TabletPrerequisiteAssetName.allCases),
+              assets.count == TabletPrerequisiteAssetName.allCases.count else {
+            throw TabletPrerequisiteInstallationFailure.assetsUnavailable
         }
-        for name in TabletTransportWakeAssetName.allCases {
+        for name in TabletPrerequisiteAssetName.allCases {
             guard let asset = assets[name],
                   asset.name == name,
-                  asset.url.isFileURL,
-                  asset.url.path.first == "/",
+                  SafeConnectionValue.isAbsoluteFileURL(asset.url),
                   asset.url.lastPathComponent == name.rawValue,
-                  !asset.url.path.contains("\0"),
-                  !asset.url.path.contains("\r"),
-                  !asset.url.path.contains("\n"),
-                  asset.sha256.utf8.count == 64,
-                  asset.sha256.utf8.allSatisfy({
-                      (48...57).contains($0) || (97...102).contains($0)
-                  }) else {
-                throw TabletTransportWakeInstallationFailure.unsafeAsset(name)
+                  SafeConnectionValue.isLowercaseSHA256(asset.sha256) else {
+                throw TabletPrerequisiteInstallationFailure.unsafeAsset(name)
             }
         }
     }
@@ -587,7 +731,7 @@ actor TabletTransportWakeInstaller: TabletTransportWakeInstalling {
 
     private static func scpRequest(
         route: SSHRoute,
-        asset: TabletTransportWakeAsset,
+        asset: TabletPrerequisiteAsset,
         remoteStage: String,
         generation: GenerationID
     ) -> ProcessRequest {
@@ -598,7 +742,7 @@ actor TabletTransportWakeInstaller: TabletTransportWakeInstalling {
                 "root@\(route.host):\(remoteStage)/\(asset.name.rawValue)",
             ],
             generation: generation,
-            role: .transportWakeUpload,
+            role: .tabletPrerequisiteUpload,
             outputLimit: outputLimit
         )
     }
@@ -612,80 +756,30 @@ actor TabletTransportWakeInstaller: TabletTransportWakeInstalling {
             route: route,
             command: "rm -rf '\(remoteStage)'",
             generation: generation,
-            role: .transportWakeCleanup
+            role: .tabletPrerequisiteCleanup
         )
     }
 
     private static func installCommand(
         remoteStage: String,
-        assets: [TabletTransportWakeAssetName: TabletTransportWakeAsset]
+        assets: [TabletPrerequisiteAssetName: TabletPrerequisiteAsset]
     ) -> String {
-        let binaryHash = assets[.binary]!.sha256
-        let serviceHash = assets[.service]!.sha256
-        let installerHash = assets[.installer]!.sha256
-        let sleepGuardHash = assets[.sleepGuard]!.sha256
+        let installerHash = assets[.prerequisiteInstaller]!.sha256
         return """
         set -eu
-        failure_phase=starting
-        report_failure() {
-          status=$?
-          trap - EXIT
-          if test "$status" -ne 0; then
-            printf '%s\n' "RMMIRROR_TRANSPORT_WAKE_INSTALL_FAILED=$failure_phase" >&2
-          fi
-          exit "$status"
-        }
-        trap report_failure EXIT
         stage='\(remoteStage)'
-        failure_phase=validating_stage
         test -d "$stage"
         test ! -L "$stage"
-        test "$(sha256sum "$stage/rmmirror-transport-wake" | cut -d' ' -f1)" = '\(binaryHash)'
-        test "$(sha256sum "$stage/rmmirror-transport-wake.service" | cut -d' ' -f1)" = '\(serviceHash)'
-        test "$(sha256sum "$stage/install-transport-wake.sh" | cut -d' ' -f1)" = '\(installerHash)'
-        test "$(sha256sum "$stage/rmmirror-usb-sleep-guard.conf" | cut -d' ' -f1)" = '\(sleepGuardHash)'
-        chmod 0700 "$stage/install-transport-wake.sh"
-        failure_phase=running_installer
-        "$stage/install-transport-wake.sh" install >/dev/null
-        failure_phase=validating_anchors
-        test "$(sha256sum /usr/libexec/rmmirror-transport-wake | cut -d' ' -f1)" = '\(binaryHash)'
-        test "$(sha256sum /usr/lib/systemd/system/rmmirror-transport-wake.service | cut -d' ' -f1)" = '\(serviceHash)'
-        test "$(sha256sum /usr/lib/systemd/system/systemd-suspend-then-hibernate.service.d/50-rmmirror-usb-carrier.conf | cut -d' ' -f1)" = '\(sleepGuardHash)'
-        systemctl is-active --quiet rmmirror-transport-wake.service
-        test -L /usr/lib/systemd/system/multi-user.target.wants/rmmirror-transport-wake.service
-        test "$(readlink /usr/lib/systemd/system/multi-user.target.wants/rmmirror-transport-wake.service)" = '../rmmirror-transport-wake.service'
-        test "$(systemctl is-enabled rmmirror-transport-wake.service)" = 'static'
-        multi_user_wants=$(systemctl show --property=Wants --value -- multi-user.target)
-        case " $multi_user_wants " in
-          *" rmmirror-transport-wake.service "*) ;;
-          *) exit 1 ;;
-        esac
-        loaded_guard=$(systemctl show --property=DropInPaths --value -- systemd-suspend-then-hibernate.service)
-        case " $loaded_guard " in
-          *" /usr/lib/systemd/system/systemd-suspend-then-hibernate.service.d/50-rmmirror-usb-carrier.conf "*) ;;
-          *) exit 1 ;;
-        esac
-        failure_phase=validating_transport_status
-        grep -q '"schema":"rmmirror.transport-wake/v1"' /run/rmmirror-transport-wake.json
-        grep -q '"usb_connection_policy":"carrier-qualified-power-hold/v1"' /run/rmmirror-transport-wake.json
-        grep -q '"power_known":true' /run/rmmirror-transport-wake.json
-        grep -q '"connection_known":true' /run/rmmirror-transport-wake.json
-        grep -q '"usb_power_online":true' /run/rmmirror-transport-wake.json
-        grep -q '"usb_connected":true' /run/rmmirror-transport-wake.json
-        grep -q '"usb_data_qualified":true' /run/rmmirror-transport-wake.json
-        grep -q '"state":"holding"' /run/rmmirror-transport-wake.json
-        grep -q '"wake_lock_active":true' /run/rmmirror-transport-wake.json
-        grep -q '"system_sleep_blocked":true' /run/rmmirror-transport-wake.json
-        grep -q '"wake_endpoint_healthy":true' /run/rmmirror-transport-wake.json
-        ! grep -q '"error":' /run/rmmirror-transport-wake.json
-        failure_phase=validating_listeners
-        listener_addresses=$(netstat -lnt 2>/dev/null | awk '$4 ~ /:51337$/ { print $4 }')
-        test "$(printf '%s\n' "$listener_addresses" | grep -c '^127[.]0[.]0[.]1:51337$')" -eq 1
-        test "$(printf '%s\n' "$listener_addresses" | grep -c '^10[.]11[.]99[.]1:51337$')" -eq 1
-        test "$(printf '%s\n' "$listener_addresses" | grep -c ':51337$')" -eq 2
-        failure_phase=complete
-        trap - EXIT
-        printf '%s\n' 'RMMIRROR_TRANSPORT_WAKE_DEPLOYED=1'
+        test "$(sha256sum "$stage/install-mirror-prerequisites.sh" | cut -d' ' -f1)" = '\(installerHash)'
+        chmod 0700 "$stage/install-mirror-prerequisites.sh"
+        RMMIRROR_CONTRACT_SHA256='\(assets[.contract]!.sha256)' \
+        RMMIRROR_TRANSPORT_WAKE_SHA256='\(assets[.transportWakeBinary]!.sha256)' \
+        RMMIRROR_TRANSPORT_SERVICE_SHA256='\(assets[.transportWakeService]!.sha256)' \
+        RMMIRROR_TRANSPORT_INSTALLER_SHA256='\(assets[.transportWakeInstaller]!.sha256)' \
+        RMMIRROR_SLEEP_GUARD_SHA256='\(assets[.sleepGuard]!.sha256)' \
+        RMMIRROR_PROBE_SHA256='\(assets[.probe]!.sha256)' \
+        RMMIRROR_FILES_LOOPBACK_SHA256='\(assets[.filesLoopback]!.sha256)' \
+        "$stage/install-mirror-prerequisites.sh"
         """
     }
 
@@ -699,33 +793,43 @@ actor TabletTransportWakeInstaller: TabletTransportWakeInstalling {
 
     private static func installFailure(
         from execution: ProcessExecutionResult
-    ) -> TabletTransportWakeInstallationFailure {
+    ) -> TabletPrerequisiteInstallationFailure {
         guard !execution.standardError.wasTruncated,
               let standardError = String(
-                data: execution.standardError.data,
-                encoding: .utf8
-              ),
-              let marker = standardError
-                .split(whereSeparator: \Character.isNewline)
-                .last(where: {
-                    $0.hasPrefix("RMMIRROR_TRANSPORT_WAKE_INSTALL_FAILED=")
-                })
-                .map(String.init) else {
+                  data: execution.standardError.data,
+                  encoding: .utf8
+              ) else {
             return .installFailed
         }
-        switch marker {
-        case "RMMIRROR_TRANSPORT_WAKE_INSTALL_FAILED=validating_stage":
-            return .installStageValidationFailed
-        case "RMMIRROR_TRANSPORT_WAKE_INSTALL_FAILED=running_installer":
-            return .installerExecutionFailed
-        case "RMMIRROR_TRANSPORT_WAKE_INSTALL_FAILED=validating_anchors":
-            return .installAnchorValidationFailed
-        case "RMMIRROR_TRANSPORT_WAKE_INSTALL_FAILED=validating_transport_status":
-            return .installTransportStatusValidationFailed
-        case "RMMIRROR_TRANSPORT_WAKE_INSTALL_FAILED=validating_listeners":
-            return .installListenerValidationFailed
-        default:
+        let lines = standardError
+            .split(whereSeparator: \Character.isNewline)
+            .map(String.init)
+        let permanentXoviFailures = Set([
+            "rmmirror-prerequisite: xovi_incompatible",
+            "rmmirror-prerequisite: xovi_version_mismatch",
+            "rmmirror-prerequisite: xovi_asset_mismatch:xovi.so",
+            "rmmirror-prerequisite: xovi_asset_mismatch:start",
+            "rmmirror-prerequisite: xovi_asset_mismatch:stock",
+            "rmmirror-prerequisite: xovi_asset_mismatch:inactive-extensions/framebuffer-spy.so",
+            "rmmirror-prerequisite: xovi_asset_mismatch:inactive-extensions/xovi-message-broker.so",
+        ])
+        if lines.contains(where: permanentXoviFailures.contains) {
+            return .incompatibleXovi
+        }
+        if lines.contains("rmmirror-prerequisite: install_target_incompatible") {
+            return .incompatibleInstallTarget
+        }
+        let prefix = "RMMIRROR_PREREQUISITES_INSTALL_FAILED="
+        guard let rawPhase = lines
+            .reversed()
+            .compactMap({ line -> String? in
+                guard line.hasPrefix(prefix) else { return nil }
+                return String(line.dropFirst(prefix.count))
+            })
+            .first,
+              let phase = TabletPrerequisiteInstallPhase(rawValue: rawPhase) else {
             return .installFailed
         }
+        return .transactionFailed(phase)
     }
 }

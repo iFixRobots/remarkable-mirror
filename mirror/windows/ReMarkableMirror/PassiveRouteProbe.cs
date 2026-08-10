@@ -21,6 +21,9 @@ internal sealed class PassiveRouteProbe
     private const string ExpectedTransportSchema = "rmmirror.transport-wake/v1";
     private const string ExpectedUsbConnectionPolicy = "carrier-qualified-power-hold/v1";
     private const string ExpectedXoviVersion = "v19-23052026";
+    private const string ExpectedTabletModel = "reMarkable Chiappa";
+    private const string ExpectedOsVersion = "3.28.0.164";
+    private const string ExpectedOsBuild = "5.8.199";
 
     private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan BannerTimeout = TimeSpan.FromSeconds(2);
@@ -39,6 +42,7 @@ internal sealed class PassiveRouteProbe
         if test -z "$active_root"; then
           active_root="$(awk '$2 == "/" { print $1; exit }' /proc/mounts 2>/dev/null || true)"
         fi
+        tablet_model="$(tr -d '\000' < /sys/firmware/devicetree/base/model 2>/dev/null || true)"
         os_version="$(sed -n 's/^IMG_VERSION=//p' /etc/os-release 2>/dev/null | head -n 1 | tr -d '"')"
         os_build="$(sed -n 's/^VERSION_ID=//p' /etc/os-release 2>/dev/null | head -n 1 | tr -d '"')"
         kernel_release="$(uname -r 2>/dev/null || true)"
@@ -52,6 +56,7 @@ internal sealed class PassiveRouteProbe
 
         printf '%s\n' "RMMIRROR_CAP_BOOT_ID=$boot_id"
         printf '%s\n' "RMMIRROR_CAP_ACTIVE_ROOT=$active_root"
+        printf '%s\n' "RMMIRROR_CAP_TABLET_MODEL=$tablet_model"
         printf '%s\n' "RMMIRROR_CAP_OS_VERSION=$os_version"
         printf '%s\n' "RMMIRROR_CAP_OS_BUILD=$os_build"
         printf '%s\n' "RMMIRROR_CAP_KERNEL=$kernel_release"
@@ -66,8 +71,9 @@ internal sealed class PassiveRouteProbe
         mismatch=0
         test -n "$boot_id" || mismatch=1
         test -n "$active_root" || mismatch=1
-        test -n "$os_version" || mismatch=1
-        test -n "$os_build" || mismatch=1
+        test "$tablet_model" = 'reMarkable Chiappa' || mismatch=1
+        test "$os_version" = '3.28.0.164' || mismatch=1
+        test "$os_build" = '5.8.199' || mismatch=1
         test -n "$kernel_release" || mismatch=1
         test "$probe_version" = '0.4.9' || mismatch=1
         test "$transport_version" = '0.6.0' || mismatch=1
@@ -440,6 +446,7 @@ internal sealed class PassiveRouteProbe
         if (!TryGetSafeValue(values, "RMMIRROR_CAP_BOOT_ID", out var bootId) ||
             !Guid.TryParseExact(bootId, "D", out _) ||
             !TryGetSafeUnixPath(values, "RMMIRROR_CAP_ACTIVE_ROOT", out var activeRoot) ||
+            !TryGetSafeValue(values, "RMMIRROR_CAP_TABLET_MODEL", out var tabletModel) ||
             !TryGetSafeValue(values, "RMMIRROR_CAP_OS_VERSION", out var osVersion) ||
             !TryGetSafeValue(values, "RMMIRROR_CAP_OS_BUILD", out var osBuild) ||
             !TryGetSafeValue(values, "RMMIRROR_CAP_KERNEL", out var kernelRelease) ||
@@ -463,6 +470,7 @@ internal sealed class PassiveRouteProbe
         return new PassiveRouteCapability(
             bootId,
             activeRoot,
+            tabletModel,
             osVersion,
             osBuild,
             kernelRelease,
@@ -473,6 +481,9 @@ internal sealed class PassiveRouteProbe
             string.Equals(transportActive, "active", StringComparison.Ordinal),
             string.Equals(wakeEndpointHealthy, "true", StringComparison.Ordinal),
             xoviVersion,
+            string.Equals(tabletModel, ExpectedTabletModel, StringComparison.Ordinal) &&
+            string.Equals(osVersion, ExpectedOsVersion, StringComparison.Ordinal) &&
+            string.Equals(osBuild, ExpectedOsBuild, StringComparison.Ordinal) &&
             string.Equals(probeVersion, ExpectedProbeVersion, StringComparison.Ordinal) &&
             string.Equals(transportVersion, ExpectedTransportVersion, StringComparison.Ordinal) &&
             string.Equals(transportSchema, ExpectedTransportSchema, StringComparison.Ordinal) &&
@@ -615,6 +626,7 @@ internal sealed record PassiveRouteProbeResult(
 internal sealed record PassiveRouteCapability(
     string BootId,
     string ActiveRoot,
+    string TabletModel,
     string OsVersion,
     string OsBuild,
     string KernelRelease,

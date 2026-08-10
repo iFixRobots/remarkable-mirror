@@ -52,6 +52,12 @@ jobs:
           --no-restore
           -p:Platform=x64
 
+      - name: Parse tablet installer shells
+        shell: bash
+        run: |
+          sh -n mirror/agent/deploy/install-mirror-prerequisites.sh
+          sh -n mirror/agent/deploy/install-transport-wake.sh
+
       - name: Parse PowerShell sources
         shell: pwsh
         run: |

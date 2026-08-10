@@ -104,6 +104,7 @@ actor ConnectionCoordinator {
     private enum PendingAuthorizationNextStep: Sendable {
         case checkAuthorization
         case enterPassword
+        case retryPrerequisites(String)
     }
 
     private struct PairingFinalizationDisposition: Sendable {
@@ -187,6 +188,14 @@ actor ConnectionCoordinator {
 
         func requiringPassword() -> PairingFinalizationDisposition {
             withPendingAuthorizationNextStep(.enterPassword)
+        }
+
+        func retryingPrerequisites(
+            after failureDescription: String
+        ) -> PairingFinalizationDisposition {
+            withPendingAuthorizationNextStep(
+                .retryPrerequisites(failureDescription)
+            )
         }
 
         func withManualEvidence(
@@ -483,6 +492,15 @@ actor ConnectionCoordinator {
     @discardableResult
     func connect(target: ManualConnectionTarget) async -> Bool {
         guard !isShuttingDown, !isStoppingActiveWork else { return false }
+
+        let profileState = await profileStore.load()
+        guard !isShuttingDown else { return false }
+        guard case let .ready(profile) = profileState,
+              profile.pairingState == .ready else {
+            await loadProfileAndContinue()
+            return false
+        }
+
         let route = target.route
         let connectionDeadline = monitorServices.monotonicNow() +
             Self.initialConnectionRecoveryLimit
@@ -496,60 +514,41 @@ actor ConnectionCoordinator {
             return true
         }
         manualInitialConnectionDeadline = connectionDeadline
-
-        let profileState = await profileStore.load()
         guard !isShuttingDown else {
             manualInitialConnectionDeadline = nil
             isStoppingActiveWork = false
             return false
         }
 
-        switch profileState {
-        case let .ready(profile)
-            where profile.pairingState == .ready ||
-                profile.pairingState == .pendingWiFiVerification:
-            let manualWiFi: ManualWiFiConnection?
-            switch target {
-            case .usb:
-                manualWiFi = nil
-            case let .wifi(host):
-                guard TabletWiFiPairingProbe.isGlobalIPv4Host(host),
-                      let context = try? monitorServices.currentWiFiSessionContext() else {
-                    manualInitialConnectionDeadline = nil
-                    isStoppingActiveWork = false
-                    manualStep = .chooseConnection
-                    await publishApplication(.offline)
-                    return true
-                }
-                manualWiFi = ManualWiFiConnection(
-                    host: host,
-                    context: context
-                )
-            }
-            manualStep = switch route {
-            case .usb:
-                profile.pairingState == .pendingWiFiVerification
-                    ? .connectUSBBeforeWiFi
-                    : .connectUSB
-            case .wifi:
-                .connectWiFi
-            }
-            let started = await beginMonitoring(
-                profile: profile,
-                requestedRoute: route,
-                manualWiFi: manualWiFi
-            )
-            if !started {
+        let manualWiFi: ManualWiFiConnection?
+        switch target {
+        case .usb:
+            manualWiFi = nil
+        case let .wifi(host):
+            guard TabletWiFiPairingProbe.isGlobalIPv4Host(host),
+                  let context = try? monitorServices.currentWiFiSessionContext() else {
                 manualInitialConnectionDeadline = nil
+                isStoppingActiveWork = false
+                manualStep = .chooseConnection
+                await publishApplication(.offline)
+                return true
             }
-            isStoppingActiveWork = false
-            return started
-        case .ready, .missing, .invalid:
-            manualInitialConnectionDeadline = nil
-            isStoppingActiveWork = false
-            await loadProfileAndContinue()
-            return true
+            manualWiFi = ManualWiFiConnection(
+                host: host,
+                context: context
+            )
         }
+        manualStep = route == .usb ? .connectUSB : .connectWiFi
+        let started = await beginMonitoring(
+            profile: profile,
+            requestedRoute: route,
+            manualWiFi: manualWiFi
+        )
+        if !started {
+            manualInitialConnectionDeadline = nil
+        }
+        isStoppingActiveWork = false
+        return started
     }
 
     func diagnosticReport() async -> String {
@@ -791,9 +790,9 @@ actor ConnectionCoordinator {
             case .pendingTabletAuthorization:
                 manualStep = .checkTabletAuthorization
                 await diagnostics.record(.profilePendingApproval)
-                await publishApplication(.awaitingTabletAuthorizationCheck)
+                await publishApplication(.awaitingTabletAuthorizationCheck(nil))
             case .pendingWiFiVerification:
-                manualStep = .connectUSBBeforeWiFi
+                manualStep = .finishWiFi
                 await publishApplication(.awaitingWiFiVerification)
             case .ready:
                 manualStep = .chooseConnection
@@ -921,6 +920,11 @@ actor ConnectionCoordinator {
             let disposition = Self.disposition(for: result)
             if case let .retryRequired(retry) = result {
                 switch retry.failure {
+                case let .prerequisiteInstallFailed(failure):
+                    return Self.pendingPrerequisiteFailureDisposition(
+                        disposition,
+                        failure: failure
+                    )
                 case .keyAuthorizationFailed(.invalidPassword),
                      .keyAuthorizationFailed(.busy):
                     return disposition.requiringPassword()
@@ -992,14 +996,20 @@ actor ConnectionCoordinator {
                 return Self.disposition(for: result)
             case let .retryRequired(retry):
                 await diagnostics.recordPairingFailure(retry)
-                return Self.disposition(for: result)
-                    .requiringAuthorizationCheck()
+                let disposition = Self.disposition(for: result)
+                if case let .prerequisiteInstallFailed(failure) = retry.failure {
+                    return Self.pendingPrerequisiteFailureDisposition(
+                        disposition,
+                        failure: failure
+                    )
+                }
+                return disposition.requiringAuthorizationCheck()
             }
 
         case .repairUSB:
             await diagnostics.record(.setupStarted)
             await publishApplication(.setupInProgress)
-            let result = await pairingFinalizer.repairAuthorizedUSBWake(
+            let result = await pairingFinalizer.repairTabletSetup(
                 expectedPendingWiFi: profile,
                 expectedUSBContext: usbContext,
                 approval: .ownerApproved,
@@ -1020,7 +1030,7 @@ actor ConnectionCoordinator {
         case let .reauthorizeUSB(password):
             await diagnostics.record(.setupStarted)
             await publishApplication(.setupInProgress)
-            let result = await pairingFinalizer.reauthorizeUSBWake(
+            let result = await pairingFinalizer.reauthorizeAndRepairTabletSetup(
                 expectedProfile: profile,
                 expectedUSBContext: usbContext,
                 password: password,
@@ -1096,6 +1106,28 @@ actor ConnectionCoordinator {
         case .keyAuthorizationFailed:
             return disposition.withManualEvidence(
                 .usbRepairRequired(.authorizationUncertain)
+            )
+        case let .prerequisiteInstallFailed(failure):
+            if failure.needsXoviAttention {
+                return disposition.withManualEvidence(.xoviAttention)
+            }
+            if failure.needsInstallTargetAttention {
+                return disposition.withManualEvidence(
+                    .tabletInstallAttention(failure.userFacingDescription)
+                )
+            }
+            if failure.needsApplicationAttention {
+                return disposition.withManualEvidence(
+                    .setupPackageAttention(failure.userFacingDescription)
+                )
+            }
+            if failure.needsProfileAttention {
+                return disposition.requiringProfileAttention()
+            }
+            return disposition.withManualEvidence(
+                .usbRepairRequired(
+                    .prerequisiteInstallFailed(failure.userFacingDescription)
+                )
             )
         default:
             return disposition.withManualEvidence(
@@ -1216,8 +1248,16 @@ actor ConnectionCoordinator {
                     if let evidence = disposition.manualEvidence {
                         await publishApplication(evidence)
                     } else {
-                        await publishApplication(.awaitingTabletAuthorizationCheck)
+                        await publishApplication(
+                            .awaitingTabletAuthorizationCheck(nil)
+                        )
                     }
+                case let .retryPrerequisites(failureDescription):
+                    manualStep = .checkTabletAuthorization
+                    await diagnostics.record(.profilePendingApproval)
+                    await publishApplication(
+                        .awaitingTabletAuthorizationCheck(failureDescription)
+                    )
                 }
             case .pendingWiFiVerification:
                 if let evidence = disposition.manualEvidence {
@@ -1228,9 +1268,7 @@ actor ConnectionCoordinator {
                     }
                     await publishApplication(evidence)
                 } else {
-                    manualStep = manualStep == .finishWiFi
-                        ? .finishWiFi
-                        : .connectUSBBeforeWiFi
+                    manualStep = .finishWiFi
                     await publishApplication(.awaitingWiFiVerification)
                 }
             case .ready:
@@ -1296,9 +1334,11 @@ actor ConnectionCoordinator {
         switch result {
         case .authorizationStillRequired:
             .unchanged
-        case .recovered:
+        case let .recovered(profile):
             PairingFinalizationDisposition(
-                remoteState: .keyAuthorized,
+                remoteState: profile.pairingState == .ready
+                    ? .wifiSSHEnabled
+                    : .keyAuthorized,
                 wakeTokenCleanup: .notNeeded,
                 requiresProfileAttention: false
             )
@@ -1362,7 +1402,7 @@ actor ConnectionCoordinator {
             await diagnostics.record(.profilePendingApproval)
             await publishApplication(.awaitingTabletAuthorization)
         case .awaitingWiFiVerification:
-            manualStep = .connectUSBBeforeWiFi
+            manualStep = .finishWiFi
             await publishApplication(.awaitingWiFiVerification)
         case .alreadyReady:
             manualStep = .chooseConnection
@@ -1957,7 +1997,7 @@ actor ConnectionCoordinator {
         switch request {
         case .authorize:
             // The password was never sent. Do not retain it; return directly to
-            // the explicit Add This Mac action instead of inserting a key check.
+            // the explicit authorization step instead of inserting a key check.
             return disposition.requiringPassword()
         case .checkAuthorization:
             return disposition.requiringAuthorizationCheck()
@@ -2515,7 +2555,7 @@ actor ConnectionCoordinator {
             let operation = clearActiveRouteState()
             if hadActiveRoute {
                 manualConnectionSessionEnded = true
-                manualStep = manualConnectionRecoveryStep()
+                manualStep = .chooseConnection
             }
             await publish(
                 evidence: hadActiveRoute ? .readyToConnect : .connecting,
@@ -2546,7 +2586,7 @@ actor ConnectionCoordinator {
             )
         case .failed:
             manualConnectionSessionEnded = true
-            manualStep = manualConnectionRecoveryStep()
+            manualStep = .chooseConnection
             let operation = clearActiveRouteState()
             await publish(
                 evidence: .attention,
@@ -2586,12 +2626,48 @@ actor ConnectionCoordinator {
             routeTransitionReservation = nil
         }
         manualConnectionSessionEnded = true
-        manualStep = manualConnectionRecoveryStep()
+        manualStep = manualConnectionRecoveryStep(for: evidence)
         await publishApplication(evidence)
     }
 
-    private func manualConnectionRecoveryStep() -> ConnectionManualStep {
-        .chooseConnection
+    private func manualConnectionRecoveryStep(
+        for evidence: ConnectionEvidence
+    ) -> ConnectionManualStep {
+        switch evidence {
+        case .repair:
+            .repairUSB
+        case .usbRepairRequired(.keyRejected):
+            .reauthorizeUSB
+        case .usbRepairRequired:
+            .repairUSB
+        default:
+            .chooseConnection
+        }
+    }
+
+    private static func pendingPrerequisiteFailureDisposition(
+        _ disposition: PairingFinalizationDisposition,
+        failure: TabletPrerequisiteInstallationFailure
+    ) -> PairingFinalizationDisposition {
+        if failure.needsXoviAttention {
+            return disposition.withManualEvidence(.xoviAttention)
+        }
+        if failure.needsInstallTargetAttention {
+            return disposition.withManualEvidence(
+                .tabletInstallAttention(failure.userFacingDescription)
+            )
+        }
+        if failure.needsApplicationAttention {
+            return disposition.withManualEvidence(
+                .setupPackageAttention(failure.userFacingDescription)
+            )
+        }
+        if failure.needsProfileAttention {
+            return disposition.requiringProfileAttention()
+        }
+        return disposition.retryingPrerequisites(
+            after: failure.userFacingDescription
+        )
     }
 
     private func recordProbeMismatch(_ detail: PassiveRouteProbeDetail) async {
@@ -3592,7 +3668,7 @@ actor ConnectionCoordinator {
     private func reserveManualSessionRetirement(generation: GenerationID) {
         guard activeRouteGeneration == generation else { return }
         manualConnectionSessionEnded = true
-        manualStep = manualConnectionRecoveryStep()
+        manualStep = .chooseConnection
         routeTransitionReservation = generation
         monitorObservationEpoch.advance()
     }
@@ -3615,6 +3691,16 @@ actor ConnectionCoordinator {
     private func stopPairingFinalizationOperation() async throws {
         guard let operation = pairingFinalizationOperation else { return }
         operation.task.cancel()
+        // The cancelled operation owns a bounded, exact-route cleanup. Let it
+        // finish before closing the generation that cleanup must use.
+        await operation.task.value
+
+        guard isPairingFinalizationOperation(
+            id: operation.id,
+            generation: operation.generation
+        ) else {
+            return
+        }
 
         var retirementFailed = false
         do {
@@ -3622,8 +3708,6 @@ actor ConnectionCoordinator {
         } catch {
             retirementFailed = true
         }
-        await operation.task.value
-
         guard isPairingFinalizationOperation(
             id: operation.id,
             generation: operation.generation

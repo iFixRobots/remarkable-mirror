@@ -554,15 +554,22 @@ public sealed class DeviceProfileStore
             (allowSlash && character == '/'));
     }
 
-    private static void ApplyCurrentUserOnlyAcl(FileSystemInfo fileSystemInfo)
+    internal static void ApplyCurrentUserOnlyAcl(FileSystemInfo fileSystemInfo)
     {
         var sid = WindowsIdentity.GetCurrent().User ??
             throw new InvalidOperationException("Could not determine the current Windows user SID.");
 
         if (fileSystemInfo is DirectoryInfo directory)
         {
+            var current = FileSystemAclExtensions.GetAccessControl(
+                directory,
+                AccessControlSections.Owner);
+            var ownsDirectory = sid.Equals(current.GetOwner(typeof(SecurityIdentifier)));
             var security = new DirectorySecurity();
-            security.SetOwner(sid);
+            if (!ownsDirectory)
+            {
+                security.SetOwner(sid);
+            }
             security.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
             security.AddAccessRule(new FileSystemAccessRule(
                 sid,
@@ -574,8 +581,15 @@ public sealed class DeviceProfileStore
             return;
         }
 
+        var currentFile = FileSystemAclExtensions.GetAccessControl(
+            (FileInfo)fileSystemInfo,
+            AccessControlSections.Owner);
+        var ownsFile = sid.Equals(currentFile.GetOwner(typeof(SecurityIdentifier)));
         var fileSecurity = new FileSecurity();
-        fileSecurity.SetOwner(sid);
+        if (!ownsFile)
+        {
+            fileSecurity.SetOwner(sid);
+        }
         fileSecurity.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
         fileSecurity.AddAccessRule(new FileSystemAccessRule(
             sid,

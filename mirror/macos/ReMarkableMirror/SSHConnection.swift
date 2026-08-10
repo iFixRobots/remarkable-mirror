@@ -40,10 +40,10 @@ enum ProcessRole: String, Hashable, Sendable {
     case pairingHostScan
     case pairingRouteCheck
     case tabletKeyAuthorization
-    case transportWakeStage
-    case transportWakeUpload
-    case transportWakeInstall
-    case transportWakeCleanup
+    case tabletPrerequisiteStage
+    case tabletPrerequisiteUpload
+    case tabletPrerequisiteInstall
+    case tabletPrerequisiteCleanup
 }
 
 enum ProcessIOMode: Equatable, Sendable {

@@ -726,7 +726,7 @@ private enum DisplayPreparationFailureFactory {
     static func protocolMismatch(_ detail: String) -> DisplayPreparationFailure {
         DisplayPreparationFailure(
             kind: .protocolMismatch,
-            message: "The tablet mirror companion is incompatible with this app. Choose Set Up Again to update Mirror setup.",
+            message: "The tablet mirror companion is incompatible with this app. Choose \(RecoveryCardAction.repairUSB.label) to update it.",
             canAutoRetry: false,
             technicalDetail: detail
         )
@@ -740,7 +740,7 @@ private enum DisplayPreparationFailureFactory {
             kind: .companionNotReady,
             message: autoRetry
                 ? "The tablet display service is still starting. Wait a moment, then choose a connection again."
-                : "The tablet display service could not be prepared safely. Choose Set Up Again before connecting.",
+                : "The tablet display service could not be prepared safely. Choose \(RecoveryCardAction.repairUSB.label) before connecting.",
             canAutoRetry: false,
             technicalDetail: detail
         )
@@ -780,7 +780,7 @@ private enum DisplayPreparationFailureFactory {
             status.errorCode == "xovi_worker_executable_failed" {
             return DisplayPreparationFailure(
                 kind: .companionMissing,
-                message: "Tablet mirror setup is incomplete. Choose Set Up Again to repair it.",
+                message: "Tablet mirror setup is incomplete. Choose \(RecoveryCardAction.repairUSB.label) to repair it.",
                 canAutoRetry: false,
                 technicalDetail: detail
             )
@@ -788,7 +788,7 @@ private enum DisplayPreparationFailureFactory {
         if status.outcome == .failedUnknown {
             return DisplayPreparationFailure(
                 kind: .companionFailed,
-                message: "The tablet display service stopped in an unverified state. Choose Set Up Again before connecting.",
+                message: "The tablet display service stopped in an unverified state. Choose \(RecoveryCardAction.repairUSB.label) before connecting.",
                 canAutoRetry: false,
                 technicalDetail: detail
             )
@@ -804,7 +804,7 @@ private enum DisplayPreparationFailureFactory {
         if containsAny(error, "rmmirror: companion_missing") {
             return DisplayPreparationFailure(
                 kind: .companionMissing,
-                message: "Tablet mirror setup is incomplete. Choose Set Up Again to repair it.",
+                message: "Tablet mirror setup is incomplete. Choose \(RecoveryCardAction.repairUSB.label) to repair it.",
                 canAutoRetry: false,
                 technicalDetail: technicalDetail(status: status, standardError: error)
             )
@@ -854,7 +854,7 @@ private enum DisplayPreparationFailureFactory {
         ) {
             return DisplayPreparationFailure(
                 kind: .authenticationRejected,
-                message: "This Mac is no longer authorized to connect to the tablet. Choose Set Up Again before connecting.",
+                message: "This Mac is no longer authorized to connect to the tablet. Choose \(RecoveryCardAction.repairUSB.label) before connecting.",
                 canAutoRetry: false,
                 technicalDetail: detail
             )
@@ -867,7 +867,7 @@ private enum DisplayPreparationFailureFactory {
         ) {
             return DisplayPreparationFailure(
                 kind: .companionMissing,
-                message: "The mirror companion is missing on the tablet. Choose Set Up Again to repair it.",
+                message: "The mirror companion is missing on the tablet. Choose \(RecoveryCardAction.repairUSB.label) to repair it.",
                 canAutoRetry: false,
                 technicalDetail: detail
             )
@@ -875,7 +875,7 @@ private enum DisplayPreparationFailureFactory {
         if containsAny(error, "rmmirror-probe:") {
             return DisplayPreparationFailure(
                 kind: .companionFailed,
-                message: "The tablet mirror companion stopped unexpectedly. Copy Connection Diagnostics from the Help menu, then choose Set Up Again.",
+                message: "The tablet mirror companion stopped unexpectedly. Copy Connection Diagnostics from the Help menu, then choose \(RecoveryCardAction.repairUSB.label).",
                 canAutoRetry: false,
                 technicalDetail: detail
             )

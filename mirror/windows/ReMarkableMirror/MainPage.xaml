@@ -431,6 +431,69 @@
                                 </StackPanel>
                             </StackPanel>
 
+                            <StackPanel
+                                x:Name="TabletSetupPanel"
+                                Spacing="10"
+                                Visibility="Collapsed">
+                                <StackPanel
+                                    x:Name="TabletSetupChecklist"
+                                    Spacing="4"
+                                    Visibility="Collapsed">
+                                    <TextBlock
+                                        FontSize="12"
+                                        FontWeight="SemiBold"
+                                        Foreground="{StaticResource InkBrush}"
+                                        Text="Before you begin" />
+                                    <TextBlock
+                                        FontSize="12"
+                                        Foreground="{StaticResource MutedBrush}"
+                                        LineHeight="18"
+                                        Text="&#x2022; Back up your tablet.&#x0a;&#x2022; Enable Developer Mode and finish the reset.&#x0a;&#x2022; Sign in again and reconnect Wi-Fi.&#x0a;&#x2022; Complete the first unlock.&#x0a;&#x2022; Enable the USB web interface.&#x0a;&#x2022; Connect directly with a USB-C cable."
+                                        TextWrapping="Wrap" />
+                                </StackPanel>
+
+                                <TextBlock
+                                    x:Name="TabletSetupWifiInstructions"
+                                    FontSize="12"
+                                    Foreground="{StaticResource MutedBrush}"
+                                    LineHeight="18"
+                                    Text="Reconnect Wi-Fi on your reMarkable and wait until it shows connected."
+                                    TextWrapping="Wrap"
+                                    Visibility="Collapsed" />
+
+                                <StackPanel
+                                    x:Name="TabletSetupPasswordPanel"
+                                    Spacing="7"
+                                    Visibility="Collapsed">
+                                    <TextBlock
+                                        FontSize="12"
+                                        FontWeight="SemiBold"
+                                        Foreground="{StaticResource InkBrush}"
+                                        Text="One-time Developer Mode password" />
+                                    <PasswordBox
+                                        x:Name="TabletSetupPasswordBox"
+                                        AutomationProperties.Name="One-time Developer Mode password"
+                                        MaxLength="128"
+                                        PasswordRevealMode="Peek"
+                                        PlaceholderText="Enter the password shown on your tablet" />
+                                </StackPanel>
+
+                                <TextBlock
+                                    x:Name="TabletSetupValidationText"
+                                    FontSize="12"
+                                    Foreground="#FFB42318"
+                                    TextWrapping="Wrap"
+                                    Visibility="Collapsed" />
+
+                                <Button
+                                    x:Name="TabletSetupPrimaryButton"
+                                    HorizontalAlignment="Left"
+                                    AutomationProperties.Name="Start tablet setup"
+                                    Click="TabletSetupPrimaryButton_Click"
+                                    Content="Start Setup"
+                                    Style="{StaticResource PrimaryConnectionButtonStyle}" />
+                            </StackPanel>
+
                             <StackPanel Orientation="Horizontal" Spacing="4">
                                 <Button
                                     x:Name="CopyConnectionDetailsButton"

@@ -23,9 +23,14 @@ build_number=$(plutil -extract CFBundleVersion raw -expect string "${info_plist}
 bundle_identifier=$(plutil -extract CFBundleIdentifier raw -expect string "${info_plist}")
 executable=$(plutil -extract CFBundleExecutable raw -expect string "${info_plist}")
 binary_path=${app_path}/Contents/MacOS/${executable}
-tablet_transport_asset_directory_name=TabletTransportWake
-tablet_transport_binary_name=rmmirror-transport-wake
-tablet_transport_source_directory=${repository_root}/mirror/agent/deploy
+tablet_prerequisite_asset_directory_name=TabletPrerequisites
+tablet_prerequisite_source_directory=${repository_root}/mirror/agent/deploy
+contract_path=${tablet_prerequisite_source_directory}/rmmirror-prerequisites.env
+contract_helpers=${repository_root}/scripts/lib/RemarkableMacPrerequisiteContract.zsh
+xovi_notice_source_directory=${repository_root}/mirror/third-party/xovi
+third_party_notices_source=${repository_root}/THIRD_PARTY_NOTICES.md
+files_loopback_sha256=${RMMIRROR_FILES_LOOPBACK_SHA256:-}
+files_loopback_receipt=${derived_data_path}/Build/Products/${configuration}/rmmirror-files-loopback.sha256
 
 if [[ "${bundle_identifier}" != "${expected_bundle_identifier}" ]]; then
     print -u2 "Refusing to package unexpected bundle identifier: ${bundle_identifier}"
@@ -44,20 +49,51 @@ if [[ ! -x "${binary_path}" ]]; then
     exit 1
 fi
 
-assert_static_aarch64_elf() {
+if [[ ! -f "${contract_helpers}" || -L "${contract_helpers}" ]]; then
+    print -u2 "The prerequisite contract helpers are missing or unsafe."
+    exit 1
+fi
+source "${contract_helpers}"
+if [[ ! -f "${contract_path}" || -L "${contract_path}" ]]; then
+    print -u2 "The tablet prerequisite contract is missing or unsafe."
+    exit 1
+fi
+rmmirror_validate_contract "${contract_path}"
+xovi_release=$(rmmirror_contract_value "${contract_path}" RMMIRROR_XOVI_RELEASE)
+xovi_archive_sha256=$(rmmirror_contract_value "${contract_path}" RMMIRROR_XOVI_ARCHIVE_SHA256)
+if ! print -r -- "${xovi_release}" | LC_ALL=C /usr/bin/grep -Eq '^v[0-9]+-[0-9]+$' ||
+    ! rmmirror_is_sha256 "${xovi_archive_sha256}"; then
+    print -u2 "The tablet prerequisite contract contains an invalid Xovi release or digest."
+    exit 1
+fi
+if [[ -z "${files_loopback_sha256}" ]]; then
+    if [[ ! -f "${files_loopback_receipt}" || -L "${files_loopback_receipt}" ]]; then
+        print -u2 "The Files loopback build receipt is missing. Build the app again before packaging it."
+        exit 1
+    fi
+    IFS= read -r files_loopback_sha256 < "${files_loopback_receipt}" || true
+fi
+if ! rmmirror_is_sha256 "${files_loopback_sha256}"; then
+    print -u2 "The Files loopback build receipt does not contain a verified digest."
+    exit 1
+fi
+
+assert_aarch64_elf() {
     local candidate=$1
+    local expected_type=$2
+    local label=$3
     local raw
-    local -a bytes machine_bytes offset_bytes entry_size_bytes count_bytes type_bytes
-    local machine program_header_offset program_header_entry_size program_header_count
+    local -a bytes elf_type_bytes machine_bytes offset_bytes entry_size_bytes count_bytes type_bytes
+    local elf_type machine program_header_offset program_header_entry_size program_header_count
     local file_size entry_offset program_header_type index
 
     if [[ ! -f "${candidate}" || -L "${candidate}" ]]; then
-        print -u2 "Refusing tablet transport binary that is missing or a symbolic link: ${candidate}"
+        print -u2 "Refusing ${label} that is missing or a symbolic link: ${candidate}"
         return 1
     fi
     file_size=$(/usr/bin/stat -f '%z' "${candidate}")
     if (( file_size < 64 )); then
-        print -u2 "Refusing tablet transport binary that is too small to be ELF."
+        print -u2 "Refusing ${label} that is too small to be ELF."
         return 1
     fi
 
@@ -65,23 +101,35 @@ assert_static_aarch64_elf() {
     bytes=(${=raw})
     if (( ${#bytes} != 7 )) ||
         (( bytes[1] != 127 || bytes[2] != 69 || bytes[3] != 76 || bytes[4] != 70 )); then
-        print -u2 "Refusing tablet transport binary that is not ELF."
+        print -u2 "Refusing ${label} that is not ELF."
         return 1
     fi
     if (( bytes[5] != 2 || bytes[6] != 1 || bytes[7] != 1 )); then
-        print -u2 "Refusing tablet transport binary that is not 64-bit little-endian ELF."
+        print -u2 "Refusing ${label} that is not 64-bit little-endian ELF."
+        return 1
+    fi
+
+    raw=$(/usr/bin/od -An -v -tu1 -j 16 -N 2 "${candidate}")
+    elf_type_bytes=(${=raw})
+    if (( ${#elf_type_bytes} != 2 )); then
+        print -u2 "Refusing ${label} with a truncated ELF type field."
+        return 1
+    fi
+    elf_type=$(( elf_type_bytes[1] | (elf_type_bytes[2] << 8) ))
+    if (( elf_type != expected_type )); then
+        print -u2 "Refusing ${label} with ELF type ${elf_type}; expected ${expected_type}."
         return 1
     fi
 
     raw=$(/usr/bin/od -An -v -tu1 -j 18 -N 2 "${candidate}")
     machine_bytes=(${=raw})
     if (( ${#machine_bytes} != 2 )); then
-        print -u2 "Refusing tablet transport binary with a truncated ELF machine field."
+        print -u2 "Refusing ${label} with a truncated ELF machine field."
         return 1
     fi
     machine=$(( machine_bytes[1] | (machine_bytes[2] << 8) ))
     if (( machine != 183 )); then
-        print -u2 "Refusing tablet transport binary with ELF machine ${machine}; expected AArch64 183."
+        print -u2 "Refusing ${label} with ELF machine ${machine}; expected AArch64 183."
         return 1
     fi
 
@@ -89,7 +137,7 @@ assert_static_aarch64_elf() {
     offset_bytes=(${=raw})
     if (( ${#offset_bytes} != 8 )) ||
         (( offset_bytes[5] != 0 || offset_bytes[6] != 0 || offset_bytes[7] != 0 || offset_bytes[8] != 0 )); then
-        print -u2 "Refusing tablet transport binary with an unsupported ELF program-header offset."
+        print -u2 "Refusing ${label} with an unsupported ELF program-header offset."
         return 1
     fi
     program_header_offset=$((
@@ -104,18 +152,18 @@ assert_static_aarch64_elf() {
     raw=$(/usr/bin/od -An -v -tu1 -j 56 -N 2 "${candidate}")
     count_bytes=(${=raw})
     if (( ${#entry_size_bytes} != 2 || ${#count_bytes} != 2 )); then
-        print -u2 "Refusing tablet transport binary with a truncated ELF program-header table."
+        print -u2 "Refusing ${label} with a truncated ELF program-header table."
         return 1
     fi
     program_header_entry_size=$(( entry_size_bytes[1] | (entry_size_bytes[2] << 8) ))
     program_header_count=$(( count_bytes[1] | (count_bytes[2] << 8) ))
     if (( program_header_entry_size != 56 || program_header_count == 0 || program_header_count > 256 )); then
-        print -u2 "Refusing tablet transport binary with an invalid ELF program-header table."
+        print -u2 "Refusing ${label} with an invalid ELF program-header table."
         return 1
     fi
     if (( program_header_offset < 64 ||
           program_header_offset + (program_header_entry_size * program_header_count) > file_size )); then
-        print -u2 "Refusing tablet transport binary with an out-of-bounds ELF program-header table."
+        print -u2 "Refusing ${label} with an out-of-bounds ELF program-header table."
         return 1
     fi
 
@@ -124,7 +172,7 @@ assert_static_aarch64_elf() {
         raw=$(/usr/bin/od -An -v -tu1 -j ${entry_offset} -N 4 "${candidate}")
         type_bytes=(${=raw})
         if (( ${#type_bytes} != 4 )); then
-            print -u2 "Refusing tablet transport binary with a truncated ELF program header."
+            print -u2 "Refusing ${label} with a truncated ELF program header."
             return 1
         fi
         program_header_type=$((
@@ -134,50 +182,66 @@ assert_static_aarch64_elf() {
             (type_bytes[4] << 24)
         ))
         if (( program_header_type == 3 )); then
-            print -u2 "Refusing tablet transport binary with a dynamic ELF interpreter."
+            print -u2 "Refusing ${label} with a dynamic ELF interpreter."
             return 1
         fi
     done
 }
 
-assert_tablet_transport_assets() {
+assert_tablet_prerequisite_assets() {
     local candidate_app=$1
-    local asset_directory=${candidate_app}/Contents/Resources/${tablet_transport_asset_directory_name}
-    local name source_path candidate_path safe_directory
-    local -a expected_names entries
+    local asset_directory=${candidate_app}/Contents/Resources/${tablet_prerequisite_asset_directory_name}
+    local legacy_asset_directory=${candidate_app}/Contents/Resources/TabletTransportWake
+    local notice_directory=${candidate_app}/Contents/Resources/ThirdParty/Xovi
+    local bundled_third_party_notices=${candidate_app}/Contents/Resources/THIRD_PARTY_NOTICES.md
+    local name source_path candidate_path safe_directory actual_hash
+    local -a expected_names entries expected_notice_names notice_entries
+
+    if [[ -e "${legacy_asset_directory}" || -L "${legacy_asset_directory}" ]]; then
+        print -u2 "Refusing app with the obsolete TabletTransportWake payload."
+        return 1
+    fi
 
     expected_names=(
         rmmirror-transport-wake
         rmmirror-transport-wake.service
         install-transport-wake.sh
         rmmirror-usb-sleep-guard.conf
+        rmmirror-probe
+        xovi-aarch64.tar.gz
+        rmmirror-files-loopback.so
+        install-mirror-prerequisites.sh
+        rmmirror-prerequisites.env
     )
+    expected_notice_names=(NOTICE.txt LICENSE-GPL-3.0.txt)
     for safe_directory in \
         "${candidate_app}" \
         "${candidate_app}/Contents" \
         "${candidate_app}/Contents/Resources" \
-        "${asset_directory}"; do
+        "${asset_directory}" \
+        "${candidate_app}/Contents/Resources/ThirdParty" \
+        "${notice_directory}"; do
         if [[ ! -d "${safe_directory}" || -L "${safe_directory}" ]]; then
-            print -u2 "Refusing app without a safe ${tablet_transport_asset_directory_name} resource path."
+            print -u2 "Refusing app without a safe tablet prerequisite resource path."
             return 1
         fi
     done
 
     entries=("${asset_directory}"/*(DN))
     if (( ${#entries} != ${#expected_names} )); then
-        print -u2 "Refusing app whose ${tablet_transport_asset_directory_name} directory does not contain exactly four assets."
+        print -u2 "Refusing app whose ${tablet_prerequisite_asset_directory_name} directory does not contain exactly nine assets."
         return 1
     fi
     for name in ${expected_names}; do
         candidate_path=${asset_directory}/${name}
         if [[ ! -f "${candidate_path}" || -L "${candidate_path}" ]]; then
-            print -u2 "Refusing app with missing, non-regular, or symbolic-link tablet transport asset: ${name}"
+            print -u2 "Refusing app with missing, non-regular, or symbolic-link tablet prerequisite asset: ${name}"
             return 1
         fi
     done
     for candidate_path in ${entries}; do
         if (( ${expected_names[(Ie)${candidate_path:t}]} == 0 )); then
-            print -u2 "Refusing unexpected tablet transport asset: ${candidate_path:t}"
+            print -u2 "Refusing unexpected tablet prerequisite asset: ${candidate_path:t}"
             return 1
         fi
     done
@@ -185,23 +249,66 @@ assert_tablet_transport_assets() {
     for name in \
         rmmirror-transport-wake.service \
         install-transport-wake.sh \
-        rmmirror-usb-sleep-guard.conf; do
-        source_path=${tablet_transport_source_directory}/${name}
+        rmmirror-usb-sleep-guard.conf \
+        install-mirror-prerequisites.sh \
+        rmmirror-prerequisites.env; do
+        source_path=${tablet_prerequisite_source_directory}/${name}
         candidate_path=${asset_directory}/${name}
         if [[ ! -f "${source_path}" || -L "${source_path}" ]]; then
-            print -u2 "Tablet transport source asset is missing or unsafe: ${source_path}"
+            print -u2 "Tablet prerequisite source asset is missing or unsafe: ${source_path}"
             return 1
         fi
         if ! /usr/bin/cmp -s "${source_path}" "${candidate_path}"; then
-            print -u2 "Refusing tablet transport asset that differs from the repository source: ${name}"
+            print -u2 "Refusing tablet prerequisite asset that differs from the repository source: ${name}"
             return 1
         fi
     done
 
-    assert_static_aarch64_elf "${asset_directory}/${tablet_transport_binary_name}"
+    actual_hash=$(/usr/bin/shasum -a 256 "${asset_directory}/xovi-aarch64.tar.gz" | /usr/bin/awk '{print $1}')
+    if [[ "${actual_hash}" != "${xovi_archive_sha256}" ]]; then
+        print -u2 "Refusing Xovi archive that differs from the pinned digest."
+        return 1
+    fi
+    actual_hash=$(/usr/bin/shasum -a 256 "${asset_directory}/rmmirror-files-loopback.so" | /usr/bin/awk '{print $1}')
+    if [[ "${actual_hash}" != "${files_loopback_sha256}" ]]; then
+        print -u2 "Refusing Files loopback extension that differs from the verified build."
+        return 1
+    fi
+
+    notice_entries=("${notice_directory}"/*(DN))
+    if (( ${#notice_entries} != ${#expected_notice_names} )); then
+        print -u2 "Refusing app whose Xovi notice directory does not contain exactly two files."
+        return 1
+    fi
+    for name in ${expected_notice_names}; do
+        source_path=${xovi_notice_source_directory}/${name}
+        candidate_path=${notice_directory}/${name}
+        if [[ ! -f "${source_path}" || -L "${source_path}" ||
+              ! -f "${candidate_path}" || -L "${candidate_path}" ]] ||
+            ! /usr/bin/cmp -s "${source_path}" "${candidate_path}"; then
+            print -u2 "Refusing missing or modified Xovi notice: ${name}"
+            return 1
+        fi
+    done
+    for candidate_path in ${notice_entries}; do
+        if (( ${expected_notice_names[(Ie)${candidate_path:t}]} == 0 )); then
+            print -u2 "Refusing unexpected Xovi notice: ${candidate_path:t}"
+            return 1
+        fi
+    done
+    if [[ ! -f "${third_party_notices_source}" || -L "${third_party_notices_source}" ||
+          ! -f "${bundled_third_party_notices}" || -L "${bundled_third_party_notices}" ]] ||
+        ! /usr/bin/cmp -s "${third_party_notices_source}" "${bundled_third_party_notices}"; then
+        print -u2 "Refusing app without the exact repository third-party notices."
+        return 1
+    fi
+
+    assert_aarch64_elf "${asset_directory}/rmmirror-transport-wake" 2 "tablet transport executable"
+    assert_aarch64_elf "${asset_directory}/rmmirror-probe" 2 "tablet probe executable"
+    assert_aarch64_elf "${asset_directory}/rmmirror-files-loopback.so" 3 "Files loopback extension"
 }
 
-assert_tablet_transport_assets "${app_path}"
+assert_tablet_prerequisite_assets "${app_path}"
 
 assert_path_absent() {
     local candidate_binary=$1
@@ -356,7 +463,7 @@ if [[ "${verified_identifier}" != "${bundle_identifier}" ||
     exit 1
 fi
 assert_no_local_build_paths "${verified_binary_path}"
-assert_tablet_transport_assets "${verified_app}"
+assert_tablet_prerequisite_assets "${verified_app}"
 if [[ "${signature_label}" == signed || "${signature_label}" == notarized ||
       "${signature_label}" == ad-hoc ]]; then
     codesign --verify --deep --strict "${verified_app}"
