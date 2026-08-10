@@ -62,10 +62,16 @@ The Windows SDK supplied by Visual Studio must include x64 `makeappx.exe` and
 
 ### macOS
 
-Use an Apple-silicon Mac with stable Xcode 26, the pinned Go release, and the
-Xcode command-line tools. The build script defaults to
+Use an Apple-silicon Mac with stable Xcode 26, the pinned Go release,
+PowerShell 7, Docker Desktop with Linux containers, and the Xcode command-line
+tools. The build script defaults to
 `/Applications/Xcode.app` and produces an arm64 app unless another supported
 architecture is requested explicitly.
+
+The Mac build command uses the same deterministic Files loopback builder as the
+Windows package. It builds that tablet extension locally when a CI-verified
+artifact was not supplied, so contributors do not need to set private build
+variables.
 
 ## Validate shared and tablet code
 
@@ -131,9 +137,11 @@ dotnet publish $project `
     -o artifacts\remarkable-mirror-portable
 ```
 
-The portable executable can run Mirror, but it cannot prepare a new tablet.
-First-time provisioning belongs to the complete installer package described in
-[Getting started](GETTING_STARTED.md).
+The portable executable embeds the same tablet setup payload and can run the
+app-led setup flow when the required Windows OpenSSH and PowerShell tools are
+available. The complete installer remains the supported first-time Windows
+distribution described in [Windows Getting started](GETTING_STARTED.md). The
+native Mac app uses its own package; it does not use the Windows portable EXE.
 
 For a local development package, use a unique identity and a clearly local
 publisher:
@@ -162,10 +170,12 @@ scripts/Package-RemarkableMirrorMac.sh
 The default build is an unsigned arm64 app. Signing and notarization require
 release credentials and are separate release steps.
 
-The macOS app is a real native host. Its current setup flow installs only the
-transport-wake prerequisite, not the probe and Xovi stack. Follow
-[macOS Getting started](macos/GETTING_STARTED.md), and keep this installer gap
-separate from claims about the app itself.
+The macOS package embeds the two static Linux ARM64 programs, pinned Xovi
+archive, three Mirror extensions, shared tablet transaction, transport service,
+suspend guard, and required notices. **Authorize & Install** and **Repair
+Tablet Setup** invoke the same tablet-side transaction as Windows through a
+native Mac adapter. Follow [macOS Getting started](macos/GETTING_STARTED.md),
+and keep source/package validation separate from physical-tablet proof.
 
 ## Connection invariants
 
@@ -182,9 +192,16 @@ Keep these behaviors shared:
 - Files opens its SSH-forwarded service only after the owner opens Files.
 - Entered addresses stay out of diagnostics and persistent profile data.
 
-Windows labels the action **Connect Wi-Fi**; macOS labels it
-**Connect via Wi-Fi**. On Mac, **Connection > Set Up Wi-Fi…** is a separate
-optional persistent setup action and must not gate the manual IP path.
+Both hosts label the action **Connect Wi-Fi**. First-time setup prepares Wi-Fi
+SSH and protected host state, but the connection action still requires an
+owner-entered IPv4 address.
+
+Host setup is native and app-led on both platforms: **Start Setup** verifies
+direct USB, **Authorize & Install** owns the password-backed mutation, and an
+explicit resume or repair action handles interruptions. Both host adapters
+stage the exact same prerequisite payload and invoke one repository-owned
+tablet transaction. Do not fork tablet mutation behavior back into PowerShell
+and Swift bodies.
 
 Reuse the proven transport, identity, cable, and wake mechanisms. Manual
 admission is a gate in front of those mechanisms, not a replacement transport
@@ -207,9 +224,10 @@ stack.
 
 ## Continuous integration
 
-The Windows CI job runs Go tests and vet, a locked Debug x64 Windows build, and
-PowerShell parsing. The macOS package job builds and audits the unsigned arm64
-app on the configured macOS runner.
+The Windows CI job runs Go tests and vet, a locked Debug x64 Windows build,
+and PowerShell and tablet-shell parsing. The macOS package job builds and audits
+the unsigned arm64 app and its exact tablet prerequisite payload on the
+configured macOS runner.
 
 CI proves source and artifact construction. It does not prove a fresh-tablet
 install, authentication, physical input, suspend recovery, or user acceptance.

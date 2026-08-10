@@ -1,7 +1,12 @@
 # What Mirror changes
 
-Read this before running `Install.cmd`. Mirror is not a normal app-only install:
-it adds software and credentials to a reMarkable in Developer Mode.
+Read this before choosing **Start Setup** or **Repair Tablet Setup**. Mirror is
+not a normal app-only install: the owner-started flow adds software and one
+host credential to a reMarkable in Developer Mode.
+
+Installing or opening the desktop app does not change the tablet. The changes
+below begin only after the owner starts setup or repair over direct USB-C and,
+for first authorization, submits the one-time Developer Mode root password.
 
 ## On the Windows account
 
@@ -20,9 +25,23 @@ First-time setup creates or stores:
 The private key authenticates as tablet root. Protect it as a root credential.
 Mirror never stores the tablet root password or Wi-Fi password.
 
+## On the Mac account
+
+The native Mac setup stores its dedicated OpenSSH identity and profile under:
+
+```text
+~/Library/Application Support/com.ifixrobots.ReMarkableMirror/
+```
+
+Setup stores its protected network-context secret and wake token in the Data
+Protection Keychain. Those values are Mac-specific; they are not copied from
+the Windows profile. The current Mac package is unsigned and not notarized.
+
 ## On the tablet
 
-The complete Windows installer:
+The owner-authorized Windows and macOS setup paths both invoke the same
+tablet-side prerequisite transaction. Together with the native host's key and
+Wi-Fi finalization, Mirror:
 
 - appends the dedicated public key to `/home/root/.ssh/authorized_keys`;
 - installs `/home/root/.local/bin/rmmirror-probe`;
@@ -35,12 +54,17 @@ The complete Windows installer:
 - installs `rmmirror-transport-wake` and its systemd service;
 - installs the USB suspend guard;
 - stores a root-owned wake token at `/data/rmmirror/wake-token`; and
-- enables reMarkable's Developer Mode SSH-over-WLAN setting with
-  `rm-ssh-over-wlan on`.
+- enables reMarkable's Developer Mode SSH-over-WLAN setting.
 
-The installer checks the exact Paper Pro Move input devices and stops if the
-expected hardware is absent. It modifies only the active A/B root slot. A
-firmware update can activate the other slot without these components.
+The shared transaction is staged as exactly nine release-pinned assets and
+verifies every SHA-256 before mutation. Windows and macOS use different native
+adapters but do not carry separate tablet installation bodies. See
+[Tablet setup internals](DEVICE_SETUP.md).
+
+The installer checks the Paper Pro Move model, supported software build, and
+exact input devices before it changes the tablet. It modifies only the active
+A/B root slot. A firmware update can activate the other slot without these
+components.
 
 ## What runs at boot
 
@@ -75,7 +99,8 @@ again.
 
 After a firmware or root-slot switch, do not blindly reinstall. First confirm
 that the Mirror release explicitly supports the new software version. If it
-does, connect and unlock over USB, then rerun that release's `Install.cmd`.
+does, connect and unlock over USB, then choose **Repair Tablet Setup** in the
+matching Windows or Mac build.
 
 ## Removal boundary
 
@@ -83,3 +108,7 @@ The transport package has a component-level removal mode, but the repository
 does not yet provide one tested operation that reverses every host and tablet
 change listed above. See [Uninstall status](UNINSTALL.md) before installing if
 complete stock restoration is a requirement.
+
+Removing either desktop app, or choosing **Set Up Again…** on macOS, does not
+remove the authorized tablet key, shared tablet components, wake token, or
+Wi-Fi SSH setting.

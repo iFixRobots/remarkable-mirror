@@ -9,12 +9,13 @@ removal commands from this page.
 ## What can be removed locally
 
 Windows can remove the installed app through **Settings > Apps > Installed
-apps**. The macOS development build can remove its app bundle, and
-**Set Up Again…** can
-remove Mirror-owned local Mac pairing state.
+apps**. The macOS development build can remove its app bundle, and **Set Up
+Again…** can remove Mirror-owned local Mac pairing state.
 
-Those actions do not undo tablet changes. Removing the desktop app also does
-not necessarily remove:
+Those actions do not undo tablet changes. In particular, neither app removal
+nor macOS **Set Up Again…** removes the authorized tablet key or any installed
+probe, Xovi extension, Files loopback, transport service, or suspend guard.
+Removing the desktop app also does not necessarily remove:
 
 - the Windows SSH key and pinned host file;
 - the protected wake token and device profile;

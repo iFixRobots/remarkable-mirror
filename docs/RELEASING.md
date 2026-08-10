@@ -10,9 +10,9 @@ A release may contain four kinds of output:
 
 | Output | Purpose | Public-release requirement |
 | --- | --- | --- |
-| Windows installer ZIP | Complete Windows app and first-time tablet provisioning | Stable publisher signature and clean-device acceptance |
-| Windows portable EXE | App-only use after the installer/setup path | Authenticode signature and matching source |
-| macOS app ZIP | Native SwiftUI/AppKit desktop app | Developer ID signing, notarization, and a clearly stated setup-prerequisite limit |
+| Windows installer ZIP | Native Windows app plus host-native tablet provisioning/repair | Stable publisher signature and clean-device acceptance |
+| Windows portable EXE | Native app with the embedded app-led setup payload | Authenticode signature, matching source, and clean-device acceptance |
+| macOS app ZIP | Native SwiftUI/AppKit app plus host-native tablet provisioning/repair | Developer ID signing, notarization, exact prerequisite payload audit, and clean-device acceptance |
 | Linux ARM64 components | Probe, transport wake, and Xovi Files extension for the tablet | Corresponding source and reproducible build metadata |
 
 There is no Linux desktop package.
@@ -30,8 +30,9 @@ Before the first public release:
    history. Deleting a file from the tip is not history sanitization.
 3. Inventory existing Actions artifacts and remove anything that should not
    become visible with the repository.
-4. Exercise the published Windows Getting started path on a clean Windows
-   account and a freshly reset, explicitly supported tablet.
+4. Exercise both published host-native setup paths on clean host accounts and a
+   freshly reset, explicitly supported tablet. Record Windows and macOS
+   acceptance separately.
 5. Publish a tested uninstall or recovery-to-stock procedure for every
    persistent host and tablet change.
 6. Replace the local self-signed Windows development identity with a stable
@@ -40,8 +41,9 @@ Before the first public release:
    labeled development artifact, but it is not a public-release download.
 8. Publish an exact model and firmware support policy. Do not imply that any
    retail tablet version is supported.
-9. Keep the current Mac setup-prerequisite limitation and the role of the
-   tablet's ARM64 Linux components visible in the README and release notes.
+9. Keep the different host-native setup flows, shared tablet prerequisite
+   result, separate Wi-Fi/profile state, and the role of the tablet's ARM64
+   Linux components visible in the README and release notes.
 10. Change repository visibility only after every earlier gate passes and the
    owner gives a separate explicit instruction.
 
@@ -95,6 +97,9 @@ Verify each artifact independently:
 - Windows Authenticode and MSIX identities match the published signer;
 - the macOS app has the expected bundle identity, architecture, signature, and
   notarization result;
+- the Mac bundle contains the exact audited probe, Xovi/extensions, Files
+  loopback, transport-wake, service, suspend guard, shared transaction, and
+  required notices with no unexpected payload entry;
 - packaged hashes match `release.json` and the published checksums;
 - all tablet binaries are static Linux AArch64 objects with recorded versions
   and hashes;
@@ -121,6 +126,7 @@ Compilation and package inspection do not prove the device path. On the exact
 supported tablet and firmware, exercise:
 
 - first provisioning from the published Windows package;
+- first provisioning and explicit repair from the published macOS package;
 - manual USB-C connection from an idle launch;
 - manual Wi-Fi connection using the entered address;
 - both directions of the clickable Live route switch;

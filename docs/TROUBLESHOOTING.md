@@ -1,18 +1,15 @@
 # Troubleshooting
 
-For a first Windows installation, keep [Getting started](GETTING_STARTED.md)
-open and stop at the first failed step. The visible Mirror status is more useful
-than repeatedly rerunning the installer or starting the same connection again.
-
-The macOS app is a real native host, but its current setup flow does not install
-every tablet prerequisite. If Mac setup reports a missing probe or Xovi
-runtime, run the complete Windows installer once; see
-[Platform support](PLATFORM_SUPPORT.md).
+For first setup, keep the Getting started guide included with your host package
+open and stop at the first failed step. Both native apps can install or repair
+the same tablet prerequisite set through different explicit setup flows. The
+visible Mirror state is more useful than repeatedly rerunning setup or starting
+the same connection again.
 
 ## USB does not create the direct tablet network
 
-First-time setup requires the physical USB network. With
-the tablet connected through a data-capable USB-C cable, Windows should show
+First-time setup requires a verified direct USB connection. With the tablet
+connected through a data-capable USB-C cable, Windows should show
 `10.11.99.11/27` and the tablet should answer as `10.11.99.1`.
 
 Check Windows:
@@ -30,10 +27,14 @@ If both are missing:
 4. unplug and reconnect USB once; and
 5. check Windows Device Manager for a disabled or failed USB network adapter.
 
-Do not try to do first-time setup over Wi-Fi. The installer must see the tablet
-over USB before it changes anything.
+Do not try to do first-time setup over Wi-Fi. The selected host setup must
+verify the tablet over direct USB before it changes anything.
 
-## SSH host scan returns nothing
+On macOS, use a direct Mac port and choose **Start Setup** or **Retry Setup**.
+The app verifies the exact cable context before authorization; do not replace
+that check with a manually entered IP.
+
+## Setup cannot pin the tablet identity
 
 An open TCP port alone is not enough. First pairing needs a real SSH host-key
 response from the unlocked Developer Mode system.
@@ -42,33 +43,31 @@ response from the unlocked Developer Mode system.
 - Wake the tablet.
 - Complete its first passcode unlock after the current boot.
 - Confirm Developer Mode is still enabled.
-- Run only the `ssh-keyscan.exe` command from Getting started again.
+- Return to Mirror and choose its explicit setup retry once.
 
-Do not disable strict host-key checking to make this symptom disappear.
+Mirror performs the host-key scan and pinning. Do not run a replacement manual
+pairing flow or disable strict host-key checking to make this symptom
+disappear.
 
 ## A Mirror SSH key already exists
 
-This usually means setup was started before. Do not overwrite the private key.
-Set the normal paths:
+This usually means setup was started before. Mirror safely reuses a valid
+dedicated private key and derives its public key again. The normal Windows
+paths are:
 
 ```powershell
 $key = Join-Path $env:USERPROFILE '.ssh\remarkable_chiappa_ed25519'
 $knownHosts = Join-Path $env:USERPROFILE '.ssh\remarkable_known_hosts'
 ```
 
-If you know the private key was created for Mirror, reuse it. Run the complete
-**Pair one dedicated SSH key** block in Getting started. That block derives a
-fresh `.pub` file from the private key instead of trusting an old public side
-file. The direct-USB scan refreshes the tablet host key before the public key is
-installed again, which is the correct path after a factory reset.
+Choose **Start Setup** or the offered resume action. The app reuses and proves
+the key before installing anything. Do not create another key just to bypass a
+host-identity mismatch.
 
-Do not test against stale host trust after a factory reset, and do not create
-another key just to bypass the mismatch.
-
-If you do not know where the private key came from, stop. Move the key, its
-`.pub` file if present, and the known-hosts file to a private backup location
-before starting pairing again. Never delete or publish them while diagnosing
-setup.
+If you do not know where the private key came from, or Mirror reports that the
+connected tablet does not match the pinned identity, stop. Preserve the key and
+known-hosts file and ask for support. Never delete, move, or publish them while
+diagnosing setup.
 
 ## A manual connection could not start
 
@@ -102,8 +101,10 @@ A tablet update may have removed the components Mirror installed.
 
 First confirm that the release explicitly supports the tablet's current
 software version. If it does not, stop and report the version. If it does,
-connect and unlock over USB-C, then run that supported release's `Install.cmd`
-again. Do not use **Retry** until setup finishes.
+connect and unlock over USB-C, then choose **Repair Tablet Setup** in the
+matching Windows or Mac build. Both apps invoke the same tablet-side
+prerequisite transaction; neither runs automatically. Do not use an ordinary
+connection **Retry** until setup finishes.
 
 The installer publishes the transport service's ordinary-boot dependency under
 `/usr/lib/systemd/system` instead of the tablet's volatile `/etc` overlay.
@@ -170,8 +171,9 @@ files.
   a successful **Build Windows downloads** Actions run.
 - Extract the GitHub artifact, then extract the versioned installer ZIP inside
   it before running `Install.cmd`.
-- Do not use the portable `ReMarkableMirror.exe` for first-time setup. It does
-  not install the tablet components or create the Windows device profile.
+- Use the complete installer for the supported first-time path. Current
+  portable development builds carry the setup payload, but they do not install
+  Windows prerequisites, app registration, or the package certificate.
 - Use PowerShell 7.5 or newer.
 - Keep the MSIX, certificate, dependency package, installer, and `components`
   directory together.
@@ -187,8 +189,8 @@ a public code-signing identity.
 
 First confirm that the release explicitly supports the tablet's new software
 version. If it does not, stop and report the new version. If it does, connect
-and unlock over USB-C, then run that supported release's `Install.cmd` again.
-Automatic OTA repair is not ready yet.
+and unlock over USB-C, then choose **Repair Tablet Setup** in the matching
+Windows or Mac build. Automatic OTA repair is not ready yet.
 
 ## Reporting a problem
 

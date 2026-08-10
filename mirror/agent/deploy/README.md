@@ -140,8 +140,28 @@ non-authoritative status diagnostics.
 
 ## Installation and recovery
 
-The installer expects the ARM64 `rmmirror-transport-wake` binary beside the
-service and install script. Direct tablet use is:
+`install-mirror-prerequisites.sh` is the one complete tablet-side transaction
+used by both native hosts. Each host creates a private USB-only SSH stage,
+uploads the exact nine-asset payload, supplies verified SHA-256 values, invokes
+that script, requires its completion marker, removes the stage, and then proves
+the installed capability. The script installs or repairs the pinned Xovi tree,
+three Mirror extensions, `rmmirror-probe`, and transport-wake. It fails closed
+on unknown or mismatched Xovi state and never starts Xovi or Xochitl. A later
+valid transaction also removes leased Mirror stages with an exact reserved name
+after they are at least one hour old, so interrupted transfers are reclaimed
+without touching a concurrent upload or a lookalike path. A stage left by an
+older build has no lease and is intentionally not guessed at or removed
+automatically; support should confirm its exact reserved name before cleanup.
+
+The transaction is not a standalone copy-and-run command: its digest variables,
+exact stage, owner action, pinned SSH identity, and direct USB route belong to
+the native host adapter. `rmmirror-prerequisites.env` is the canonical target
+model and software, schema, version, Xovi hash, transport policy, and
+extension-set contract.
+
+The narrower transport installer expects the ARM64
+`rmmirror-transport-wake` binary beside the service and install script. Direct
+transport-only maintenance is:
 
 ```sh
 ./install-transport-wake.sh install
@@ -149,9 +169,9 @@ service and install script. Direct tablet use is:
 ```
 
 Installation affects only the currently active A/B root slot. After an OTA or
-slot switch, connect by USB, complete the first post-boot unlock, and rerun
-`Install.cmd`. Automatic installation on a newly active root slot is not
-implemented.
+slot switch, connect by USB, complete the first post-boot unlock, and choose
+**Repair Tablet Setup** in a matching supported host build. Automatic
+installation on a newly active root slot is not implemented.
 
 The unit is static: it has no `[Install]` section. The
 installer publishes an exact package-owned
@@ -170,19 +190,18 @@ health always requires the current USB connection-policy marker; rollback also
 accepts the marker-free carrier-only `0.6.0` health contract when that is the
 service it restored. Removal validates that link before its first mutation and
 preserves `/data/rmmirror/wake-token` so reinstalling does not silently
-invalidate the paired Windows host.
+invalidate authorized hosts.
 
-The host-side entry point is
-`scripts/Install-RemarkableMirrorPrerequisites.ps1`. It stages and verifies the
-release components, installs the service, retrieves the wake token over the
-direct USB SSH connection, and stores that token for the current Windows user
-without printing it. For Wi-Fi Mirror it also runs `rm-ssh-over-wlan on`, checks
-the root `dropbear-wlan.socket`, and confirms that Wi-Fi reaches the same tablet
-identity first saved over USB. This enables root SSH on the tablet's Wi-Fi
-interface. The dedicated SSH key is passphrase-free because every product
-connection uses `BatchMode=yes`; protect it as a root credential. Use Wi-Fi
-Mirror on your home Wi-Fi, not on public or guest Wi-Fi. If you do not control
-who can join the network, use USB-C instead.
+The Windows host adapter is
+`scripts/Install-RemarkableMirrorPrerequisites.ps1`; the macOS adapter is
+`TabletPrerequisiteInstaller.swift`. **Authorize & Install**, an explicit
+resume, and **Repair Tablet Setup** reach those adapters through their native
+setup coordinators. Both invoke the shared transaction. The coordinators then
+finalize protected wake/network state, run `rm-ssh-over-wlan on`, check the root
+`dropbear-wlan.socket`, and confirm that Wi-Fi reaches the same tablet identity
+first saved over USB. The dedicated SSH key is passphrase-free because every
+product connection uses `BatchMode=yes`; protect it as a root credential. Use
+Wi-Fi Mirror on a network you control, not on public or guest Wi-Fi.
 
 The Windows capture helper starts external tools under a gated Job Object. It
 writes the serialized launcher payload over standard input after job assignment
@@ -232,12 +251,16 @@ Linux has already suspended, press the tablet's physical power button once,
 unlock it, then explicitly choose **Connect USB-C** or **Connect Wi-Fi** again.
 Mirror does not reopen or move the retired route by itself.
 
-The Mac contract is separate. Launch and cable appearance do not communicate
+The Mac host experience remains native. **Start Setup** verifies direct USB and
+uses a current authorized setup without reinstalling it. **Authorize &
+Install** owns key authorization and persistent installation only when needed;
+**Continue Setup** and **Repair Tablet Setup** resume or repair that flow. All
+remain explicitly owner-started. Launch and cable appearance do not communicate
 with the tablet. One explicit **Connect USB-C** click owns a bounded direct-cable
 wake, service-recovery, authentication, and connection session. That session
 never selects or falls back to Wi-Fi. Entering the tablet passcode is the only
 owner intervention authorized USB use may require. The connection card places
-**Connect via Wi‑Fi** directly below **Connect USB-C**. Choosing the Wi-Fi action
+**Connect Wi‑Fi** directly below **Connect USB-C**. Choosing the Wi-Fi action
 first opens a local prompt for the tablet’s IPv4 address and says the tablet must
 be awake but may stay locked. Submitting starts one Wi-Fi-only attempt to that
 address, bound to the current Wi-Fi context and authenticated with the saved

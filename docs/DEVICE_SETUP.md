@@ -1,83 +1,182 @@
-# Tablet setup reference
+# Tablet setup internals
 
-This is the compact operator reference. For a first installation, follow
-[Getting started](GETTING_STARTED.md) from the top.
+This is the technical reference for contributors and operators. New users
+should follow [Windows setup](GETTING_STARTED.md) or
+[macOS setup](macos/GETTING_STARTED.md); the apps perform these steps.
 
-## Admission checklist
+## User-visible contract
 
-- supported reMarkable Paper Pro Move model and firmware;
-- reMarkable Developer Mode enabled;
-- first physical passcode unlock after the current boot completed;
-- direct USB tablet address `10.11.99.1`;
-- direct Windows address `10.11.99.11/27`;
-- physical route `10.11.99.0/27`;
-- dedicated key at `%USERPROFILE%\.ssh\remarkable_chiappa_ed25519`;
-- pinned host key at `%USERPROFILE%\.ssh\remarkable_known_hosts`;
-- **Settings > General > Storage > USB web interface** enabled; and
-- tablet Wi-Fi rejoined and explicitly **Connected** after the Developer Mode
-  reset.
+Both native apps present the same setup stages in their own platform-native UI:
 
-Developer Mode factory-resets the tablet, deletes saved Wi-Fi networks, and
-exposes root SSH. The generated root credential is under **Settings > General >
-Help > About > Copyrights and Licenses**. Follow reMarkable's official
-[Developer Mode documentation](https://developer.remarkable.com/documentation/developer-mode).
+1. show the Developer Mode/reset disclosure and preparation checklist;
+2. verify one direct USB-C connection;
+3. prove an existing dedicated key and inspect the installed tablet payload;
+4. return to the chooser immediately when that setup is already complete;
+5. otherwise ask for the one-time Developer Mode root password in a secure
+   field, authorize the host, and install the shared tablet payload;
+6. enable and verify Developer Mode SSH over Wi-Fi; and
+7. return to the manual USB-C/Wi-Fi chooser without connecting.
 
-## Installation
+The first attempt is **Start Setup**. An interrupted attempt becomes one
+explicit resume or repair action. Nothing starts because the app launched, a
+cable appeared, or the network changed.
 
-The complete first setup uses the Windows package over direct USB. Keep the
-tablet connected and past its first post-boot unlock while `Install.cmd`:
+The app cannot automate Developer Mode, its factory reset, account sign-in,
+Wi-Fi password entry, the first physical unlock, USB accessory approval, or
+finding and entering the generated root password.
 
-1. verifies the release metadata and staged assets;
-2. validates the Paper Pro Move input devices;
-3. installs the pinned Xovi runtime and three active extensions;
-4. installs the capture/input probe;
-5. installs and verifies the transport-wake service and USB suspend guard;
-6. stores the protected wake token and host profile; and
-7. enables and verifies Developer Mode SSH over Wi-Fi.
+## Admission checks
 
-The detailed persistent footprint and compatibility side effects are in
-[What Mirror changes](TABLET_CHANGES.md).
+Setup admits only:
 
-The Windows launcher owns SSH/SCP children through a gated Job Object and sends
-its serialized payload over standard input. Do not move the remote script back
-into `-EncodedCommand`; it can exceed Windows command-line limits.
+- a supported Paper Pro Move (`chiappa`) and firmware;
+- reMarkable Developer Mode;
+- an awake tablet past its first post-boot unlock;
+- one direct data-capable USB-C connection;
+- direct tablet address `10.11.99.1`;
+- the stock **USB web interface** enabled; and
+- tablet Wi-Fi explicitly rejoined after the Developer Mode reset.
 
-## Runtime lifecycle
+Windows also verifies the expected `10.11.99.11/27` address and
+`10.11.99.0/27` route on a physical USB adapter. macOS verifies its direct
+cable context and any required accessory approval.
 
-Launching Mirror performs no tablet probe or wake.
+## SSH authorization
+
+First trust is established only over the verified cable network.
+
+- The host creates or reuses one dedicated passphrase-free Ed25519 key.
+- It scans and pins exactly one Ed25519 tablet host key.
+- The owner enters the generated Developer Mode root password once.
+- The host appends only its public key to
+  `/home/root/.ssh/authorized_keys` and proves key-only access.
+- Later USB-C and Wi-Fi sessions require that pinned tablet identity.
+
+Windows stores the dedicated identity at:
+
+```text
+%USERPROFILE%\.ssh\remarkable_chiappa_ed25519
+%USERPROFILE%\.ssh\remarkable_known_hosts
+```
+
+The private-key ACL is restricted to the current Windows account. The Windows
+password bridge carries the password in memory to system OpenSSH; it is not put
+in a command line, environment variable, file, or log.
+
+macOS keeps its app-owned OpenSSH material and profile under:
+
+```text
+~/Library/Application Support/com.ifixrobots.ReMarkableMirror/
+```
+
+The root password is never saved. The dedicated private key authenticates as
+tablet root and must be protected as a root credential.
+
+## One shared tablet transaction
+
+Windows and macOS use different host adapters but one tablet mutation body:
+
+- Windows: `TabletSetupCoordinator` and `OpenSshSetupClient`, then
+  `scripts/Install-RemarkableMirrorPrerequisites.ps1`;
+- macOS: `TabletPairingFinalizer` and `TabletPrerequisiteInstaller.swift`; and
+- tablet: `mirror/agent/deploy/install-mirror-prerequisites.sh`.
+
+Each adapter uploads the exact nine-asset payload to a private, leased USB-only
+SSH stage:
+
+```text
+install-mirror-prerequisites.sh
+install-transport-wake.sh
+rmmirror-files-loopback.so
+rmmirror-prerequisites.env
+rmmirror-probe
+rmmirror-transport-wake
+rmmirror-transport-wake.service
+rmmirror-usb-sleep-guard.conf
+xovi-aarch64.tar.gz
+```
+
+`rmmirror-prerequisites.env` is the canonical schema, version, Xovi hash,
+transport policy, and extension-set contract. The host supplies verified
+SHA-256 values for every asset. The tablet script rechecks them before its first
+installation mutation.
+
+The transaction:
+
+1. validates the target model, input devices, asset contract, and existing Xovi
+   state;
+2. installs or repairs the pinned Xovi runtime;
+3. activates `framebuffer-spy.so`, `xovi-message-broker.so`, and
+   `rmmirror-files-loopback.so`;
+4. installs `rmmirror-probe`;
+5. installs and verifies transport-wake and the USB suspend guard;
+6. proves the completed capability state;
+7. writes an exact completion marker; and
+8. removes its private remote stage.
+
+Unknown, unmarked, or incompatible Xovi state fails closed. The transaction
+does not start Xovi or Xochitl and does not install persistent virtual input.
+Rollback restores the previous package-owned files and service state when an
+installation step fails.
+
+After the shared transaction, the native coordinator enables
+`rm-ssh-over-wlan`, verifies the tablet's Wi-Fi listener, and proves that the
+Wi-Fi route presents the same pinned SSH identity. This is setup preparation,
+not a connection attempt. The app still returns to the manual chooser.
+
+## Persistent result
+
+Completed app-led setup leaves:
+
+- the dedicated host public key;
+- `rmmirror-probe`;
+- pinned Xovi and the three active Mirror extensions;
+- transport-wake, its systemd service, and the USB suspend guard;
+- the root-owned wake token; and
+- Developer Mode SSH over Wi-Fi.
+
+Each host keeps its own private key, pinned host identity, local readiness
+profile, and protected wake/network state. Hosts do not copy those secrets or
+profiles to one another. See [What Mirror changes](TABLET_CHANGES.md) for exact
+paths and side effects.
+
+## Runtime boundary
+
+Setup completion never starts a mirror session.
 
 - **Connect USB-C** owns one bounded direct-cable attempt.
-- **Connect Wi-Fi** reveals an IPv4 field, then owns one bounded attempt against
-  the submitted address.
-- The selected route is pinned to its frame, input, wake, and Files generation.
-- Failures retire that generation and return to manual choices.
-- There is no background route monitor, fallback, promotion, or reconnection.
-- Clicking the Live status delegates to the opposite existing manual action.
+- The Wi-Fi action opens an IPv4 field, then owns one bounded attempt against
+  that address.
+- Clicking a Live status delegates to the opposite existing manual action.
+- A retired generation does not fall back, switch, or reconnect.
 - Files starts only when the owner opens Files.
 
 Virtual input is session-only. No input service, Xochitl boot dependency, udev
 rule, or persistent input hook is installed.
 
-## Wi-Fi boundary
+## Repair and recovery
 
-Mirror never needs the Wi-Fi password. Wi-Fi use requires the tablet and host
-on the approved paired network, the dedicated key and pinned identity, Developer
-Mode SSH-over-WLAN, and an awake Wi-Fi radio.
+Setup and repair are safe to retry only through the app's explicit action.
 
-The entered IPv4 address selects only the explicit attempt. It does not replace
-the pinned tablet identity or paired Windows network checks. Files remains on
-tablet loopback and travels through SSH forwarding.
+- A missing key or identity mismatch stops before tablet installation.
+- An interrupted upload leaves no successful completion marker; a later
+  explicit attempt uses a new leased stage.
+- A valid existing key lets the app resume without asking for the password
+  again.
+- A supported component mismatch runs the same transaction in repair mode.
+- A firmware/root-slot switch requires a supported build and explicit USB-C
+  repair.
+- Automatic root-slot repair and complete stock restoration are not
+  implemented.
 
-## Firmware updates
+Do not disable strict host-key checking, replace an existing key casually, or
+run the tablet script outside its native adapter. See
+[Troubleshooting](TROUBLESHOOTING.md) and
+[Uninstall status](UNINSTALL.md).
 
-The tablet uses A/B root slots. An update can activate a root without the
-matching Mirror components.
+## Evidence boundary
 
-1. Confirm the release supports the new software version.
-2. If it does not, stop and report the version.
-3. If it does, connect and unlock over USB.
-4. Run that release's `Install.cmd` again.
-5. Reopen Mirror and explicitly choose a connection.
-
-Automatic root-slot repair is not implemented. Complete stock removal is also
-not yet supported; see [Uninstall status](UNINSTALL.md).
+Source review, policy checks, compilation, package inspection, installation,
+authentication, and physical-device acceptance are different evidence levels.
+Do not describe the complete first-run path as physically accepted until that
+exact host, package, and freshly reset tablet path has been exercised.

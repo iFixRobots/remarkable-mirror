@@ -61,12 +61,14 @@ token in the Data Protection Keychain. Direct USB-C does not use those secrets.
 
 **Set Up Again…** removes Mirror-owned local Mac profile, SSH, and Keychain
 material. It does not remove the authorized tablet key or disable tablet Wi-Fi
-SSH.
+SSH, and it does not uninstall the tablet prerequisite components. Removing the
+app bundle has the same tablet-side limitation.
 
 ## Network boundary
 
-Setup enables Developer Mode root SSH over Wi-Fi and authorizes a dedicated
-key. Anyone who obtains that private key can access the paired tablet as root.
+Owner-approved host setup authorizes a dedicated key. Persistent Wi-Fi setup
+separately enables and verifies Developer Mode root SSH over Wi-Fi. Anyone who
+obtains that private key can access the paired tablet as root.
 
 - Use Wi-Fi Mirror only on a network you control.
 - Use USB-C on public, guest, or shared networks.

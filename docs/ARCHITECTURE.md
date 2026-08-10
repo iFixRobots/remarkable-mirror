@@ -18,6 +18,45 @@ Tablet                       |
   +-- transport-wake --------+-- direct-USB/loopback status and wake
 ```
 
+## Owner-started first-time setup
+
+Both desktop hosts own first-time setup inside the native app. Their controls
+and presentation are platform-native, but the state machine is the same:
+
+```text
+Start Setup
+    |
+verify direct USB-C
+    |
+prove existing authorization + inspect tablet prerequisites
+    |
+    +-- already complete --> refresh local profile --> manual chooser
+    |
+authorize dedicated key with one-time root password
+    |
+stage + run shared nine-asset tablet transaction
+    |
+enable and verify Wi-Fi SSH against pinned identity
+    |
+manual USB-C / Wi-Fi chooser
+```
+
+Construction and local readiness checks are network-inert. Each transition
+that can contact or change the tablet is admitted by the owner's **Start
+Setup**, **Authorize & Install**, **Continue Setup**, or repair action. Setup
+completion does not create a connection generation.
+
+Developer Mode, its factory reset, account sign-in, Wi-Fi password entry, the
+first unlock, and USB accessory approval remain outside the app's authority.
+
+The host adapters are deliberately small. Windows uses
+`TabletSetupCoordinator`, `OpenSshSetupClient`, and the PowerShell prerequisite
+adapter. macOS uses `TabletPairingFinalizer` and
+`TabletPrerequisiteInstaller`. Both stage the exact payload declared by
+`rmmirror-prerequisites.env` and invoke
+`install-mirror-prerequisites.sh`; tablet mutation logic is not duplicated in
+the native hosts.
+
 ## Owner-selected connection lifecycle
 
 Launching a desktop app loads local state only. Cable and network changes do not
@@ -26,8 +65,7 @@ probe, wake, or connect to the tablet.
 An owner action creates one bounded connection attempt:
 
 - **Connect USB-C** checks only the direct cable;
-- the Wi-Fi action (**Connect Wi-Fi** on Windows and **Connect via Wi-Fi** on
-  macOS) checks only the entered Wi-Fi route; and
+- **Connect Wi-Fi** checks only the entered Wi-Fi route; and
 - a successful attempt publishes one route generation.
 
 That generation owns its frame, input, wake, SSH, and Files work. The host never
@@ -52,20 +90,27 @@ First pairing happens over the direct Developer Mode USB network. The host pins
 the tablet's Ed25519 SSH identity and creates a dedicated host key. Wi-Fi later
 uses that same pinned tablet identity.
 
+The root password crosses only the password-backed authorization boundary and
+is never saved. Windows carries it to system OpenSSH through a current-user
+memory channel. macOS uses its secure native authorization sheet. Both append
+only their dedicated public key and then require key-only proof.
+
+After authorization, the shared tablet transaction verifies every staged
+SHA-256, the hardware contract, and existing Xovi ownership before mutation. It
+installs or repairs the Mirror-owned probe, Xovi extensions, Files loopback,
+and transport service, then returns one exact capability result.
+
 Windows stores the paired network context and validates it before publishing
 Wi-Fi. macOS binds a submitted Wi-Fi attempt to the current Wi-Fi context. On
 both hosts, a user-entered IPv4 address selects one attempt; it is not persisted
 and does not become the tablet identity.
 
-The Mac profile stores fixed relative credential names and a pinned identity.
-The optional persistent **Connection > Set Up Wi-Fi…** action stores its
-protected network-context secret and wake token in the Data Protection
-Keychain. It is separate from the manual IP connection path. Direct USB-C does
-not use those secrets.
-
-The macOS app can authorize a Mac-specific key and install the transport-wake
-subset, but its current setup flow does not install the probe and Xovi runtime.
-Run the complete Windows setup once to install those prerequisites.
+Wi-Fi enablement and verification happen after the shared transaction as part
+of the same owner-started setup operation. The native coordinator runs
+`rm-ssh-over-wlan on`, verifies the Wi-Fi listener, and requires the same pinned
+tablet identity. Each host stores its own protected network context, wake-token
+reference, and local readiness profile. Neither host copies the other's local
+state. Direct USB-C does not depend on Wi-Fi state.
 
 ## Frame capture
 
@@ -175,10 +220,12 @@ new session.
 
 ## Persistent footprint
 
-The Windows installer installs the probe, pinned Xovi runtime, three active
-extensions, transport-wake service, suspend guard, wake token, device profile,
-and Wi-Fi SSH setting. It also moves two incompatible Xovi extensions to the
-inactive directory. See [What Mirror changes](TABLET_CHANGES.md).
+Both native setup paths install or repair the same probe, pinned Xovi runtime,
+three active extensions, transport-wake service, and suspend guard. The shared
+transaction also moves two incompatible Xovi extensions to the inactive
+directory. Each owner-authorized host adds its own public key. The app-led
+coordinator then enables Wi-Fi SSH and records host-specific protected
+readiness state. See [What Mirror changes](TABLET_CHANGES.md).
 
 Only the active A/B root slot is modified. Firmware updates can require a
 supported package reinstall. There is no complete tested stock-restoration

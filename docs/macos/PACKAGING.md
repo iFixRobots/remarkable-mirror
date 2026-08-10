@@ -6,8 +6,8 @@ not public releases.
 
 ## Build
 
-Use an Apple-silicon Mac with stable Xcode 26 and the Go version pinned by the
-repository:
+Use an Apple-silicon Mac with stable Xcode 26, the Go version pinned by the
+repository, PowerShell 7, and Docker Desktop running Linux containers:
 
 ```zsh
 scripts/Build-RemarkableMirrorMac.sh
@@ -17,8 +17,12 @@ scripts/Package-RemarkableMirrorMac.sh
 The build script:
 
 - selects the `ReMarkableMirror` scheme;
+- builds the Files loopback extension deterministically when a verified CI
+  artifact was not supplied;
 - builds the requested architecture for macOS 14 or newer;
-- bundles the Linux ARM64 transport-wake component;
+- builds and bundles the Linux ARM64 probe and transport-wake programs;
+- bundles the pinned Xovi archive, Files loopback extension, shared tablet
+  prerequisite transaction, service, suspend guard, and required notices;
 - verifies the bundle identifier, version, executable, and architectures; and
 - leaves the build output unregistered with Launch Services.
 
@@ -28,8 +32,10 @@ The package script creates:
 artifacts/macos/package/reMarkable-Mirror-<version>-macOS-<architecture>-unsigned.zip
 ```
 
-It stages a fresh app copy, validates the embedded tablet component and app
-identity, creates one ZIP, extracts it again, and verifies the packaged app.
+It stages a fresh app copy, validates the exact embedded tablet payload and app
+identity, rejects missing, linked, malformed, wrong-architecture, or unexpected
+payload entries, creates one ZIP, extracts it again, and verifies the packaged
+app.
 
 ## Install a development build
 
@@ -70,11 +76,13 @@ A public Mac artifact requires all of the following:
 - a SHA-256 published beside the download;
 - matching public source and license notices;
 - launch and connection testing from the packaged app; and
-- release notes that state the current setup-prerequisite boundary.
+- release notes that distinguish source/package validation from physical
+  first-install and repair evidence.
 
-The current Mac setup flow installs the transport-wake component but not every
-tablet prerequisite. That installer limitation is separate from the native
-app's ability to connect to the real tablet.
+The unsigned development package contains the full prerequisite payload used by
+**Authorize & Install** and **Repair Tablet Setup**. That source/package result
+does not prove a fresh physical-tablet installation, repair, signing identity,
+or notarized distribution.
 
 See [Development](../DEVELOPMENT.md) and
 [Releasing](../RELEASING.md).
