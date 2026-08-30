@@ -1,0 +1,44 @@
+# Security policy
+
+## Supported versions
+
+Security fixes target the latest release and `main`.
+
+## Report privately
+
+Do not open a public issue for a vulnerability, credential exposure, or a bug
+that could damage tablet content.
+
+Use GitHub's
+[private vulnerability reporting](https://github.com/iFixRobots/remarkable-mirror/security/advisories/new).
+Include the affected version, impact, reproduction steps, and the smallest
+example needed to show the problem.
+Remove passwords, tokens, private keys, document contents, and unnecessary
+personal network details.
+
+The maintainer will acknowledge actionable reports, investigate privately, and
+coordinate publication after a fix is available.
+
+## Security boundaries
+
+- Mirror assumes Developer Mode is already enabled by the device owner.
+- First trust is established over the direct physical USB link.
+- Use Wi-Fi Mirror on your home Wi-Fi, not on public or guest Wi-Fi. If you do
+  not control who can join the network, use USB-C instead.
+- Setup enables the tablet's root SSH-over-WLAN feature. Mirror uses a dedicated
+  passphrase-free key because its SSH processes run with `BatchMode=yes`. Anyone
+  who obtains that private key can authenticate as root to the paired tablet.
+- Files travels through authenticated SSH and is not exposed directly on Wi-Fi.
+- The wake HTTP endpoint binds only to tablet loopback and the direct USB-C
+  attachment. It never listens on the tablet's Wi-Fi address. Windows sends its
+  wake bearer only through a verified direct connection. On Mac, status and a
+  strictly gated power-button-equivalent wake may omit the bearer only on the
+  exact direct-cable listener; loopback and Wi-Fi never receive that exception.
+- Private signing keys and tablet credentials are never repository assets.
+
+Download Mirror from this repository's GitHub Releases page and compare the
+published SHA-256 when you need to verify a file.
+
+Developer Mode and third-party tablet software reduce some of the tablet's
+built-in protections. Read reMarkable's current Developer Mode and warranty
+terms before installing.
