@@ -1,0 +1,184 @@
+#!/usr/bin/expect -f
+
+# Keep the password and public key inside this process and its SSH child. No
+# spawned dialogue, diagnostics, or application payload is copied to output.
+log_user 0
+exp_internal 0
+set timeout 8
+
+if {$argc != 2} {
+    exit 64
+}
+
+set interface_name [lindex $argv 0]
+set known_hosts_path [lindex $argv 1]
+if {![regexp {^[A-Za-z][A-Za-z0-9]{0,14}$} $interface_name]} {
+    exit 64
+}
+if {![string match {/*} $known_hosts_path] ||
+    [string bytelength $known_hosts_path] > 4096 ||
+    [string first "\x00" $known_hosts_path] >= 0 ||
+    [string first "\r" $known_hosts_path] >= 0 ||
+    [string first "\n" $known_hosts_path] >= 0} {
+    exit 64
+}
+
+fconfigure stdin -encoding utf-8 -translation lf
+if {[gets stdin password] < 0 ||
+    [string bytelength $password] < 1 ||
+    [string bytelength $password] > 1024 ||
+    [string first "\x00" $password] >= 0 ||
+    [string first "\r" $password] >= 0 ||
+    [string first "\n" $password] >= 0} {
+    exit 65
+}
+if {[gets stdin public_key] < 0 ||
+    [string bytelength $public_key] < 1 ||
+    [string bytelength $public_key] > 4096 ||
+    ![regexp {^ssh-ed25519 [A-Za-z0-9+/]+=*( .*)?$} $public_key]} {
+    unset password
+    exit 65
+}
+if {[gets stdin unexpected_line] >= 0} {
+    unset password
+    unset public_key
+    exit 65
+}
+
+proc quote_openssh_path {value} {
+    set escaped [string map [list "\\" "\\\\" "\"" "\\\""] $value]
+    return "\"$escaped\""
+}
+
+set remote_command {
+    tablet_model="$(tr -d '\000' < /sys/firmware/devicetree/base/model 2>/dev/null || true)"
+    test "$tablet_model" = 'reMarkable Chiappa' || exit 83
+    umask 077
+    key_directory=/home/root/.ssh
+    key_file=$key_directory/authorized_keys
+    if test -e "$key_directory" || test -L "$key_directory"; then
+        test -d "$key_directory" && test ! -L "$key_directory" || exit 70
+    else
+        mkdir "$key_directory" || exit 70
+    fi
+    chmod 700 "$key_directory" || exit 71
+    if test -e "$key_file" || test -L "$key_file"; then
+        test -f "$key_file" && test ! -L "$key_file" || exit 72
+    else
+        : > "$key_file" || exit 73
+    fi
+    chmod 600 "$key_file" || exit 74
+    printf '%s\n' RMMIRROR_AUTH_READY
+    IFS= read -r key || exit 75
+    test -n "$key" || exit 76
+    if ! grep -F -x "$key" "$key_file" >/dev/null 2>&1; then
+        if test -s "$key_file"; then
+            last_character="$(tail -c 1 "$key_file")" || exit 77
+            if test -n "$last_character"; then
+                printf '\n' >> "$key_file" || exit 77
+            fi
+        fi
+        printf '%s\n' "$key" >> "$key_file" || exit 77
+    fi
+    printf '%s\n' RMMIRROR_AUTHORIZED
+    exit 0
+}
+
+set ssh_arguments [list \
+    -F /dev/null \
+    -o BatchMode=no \
+    -o IdentitiesOnly=yes \
+    -o IdentityAgent=none \
+    -o PubkeyAuthentication=no \
+    -o HostbasedAuthentication=no \
+    -o GSSAPIAuthentication=no \
+    -o PasswordAuthentication=yes \
+    -o KbdInteractiveAuthentication=no \
+    -o PreferredAuthentications=password \
+    -o StrictHostKeyChecking=yes \
+    -o HostKeyAlgorithms=ssh-ed25519 \
+    -o "UserKnownHostsFile=[quote_openssh_path $known_hosts_path]" \
+    -o GlobalKnownHostsFile=/dev/null \
+    -o HostKeyAlias=10.11.99.1 \
+    -o CheckHostIP=no \
+    -o UpdateHostKeys=no \
+    -o VerifyHostKeyDNS=no \
+    -o "BindInterface=$interface_name" \
+    -o ConnectTimeout=3 \
+    -o ConnectionAttempts=1 \
+    -o NumberOfPasswordPrompts=1 \
+    -o LogLevel=ERROR \
+    -T \
+    root@10.11.99.1 \
+    $remote_command]
+
+if {[catch {spawn -noecho /usr/bin/ssh {*}$ssh_arguments}]} {
+    unset password
+    unset public_key
+    exit 66
+}
+
+set password_sent 0
+set key_sent 0
+set authorized 0
+expect {
+    -nocase -re {password:[[:space:]]*$} {
+        if {$password_sent} {
+            unset password
+            unset public_key
+            exit 67
+        }
+        if {[catch {send -- "$password\r"}]} {
+            unset password
+            unset public_key
+            exit 68
+        }
+        unset password
+        set password_sent 1
+        exp_continue -continue_timer
+    }
+    -exact "RMMIRROR_AUTH_READY\r\n" {
+        if {!$password_sent || $key_sent} {
+            unset public_key
+            exit 69
+        }
+        if {[catch {send -- "$public_key\r"}]} {
+            unset public_key
+            exit 69
+        }
+        unset public_key
+        set key_sent 1
+        exp_continue -continue_timer
+    }
+    -exact "RMMIRROR_AUTHORIZED\r\n" {
+        set authorized 1
+        exp_continue -continue_timer
+    }
+    -nocase -re {(permission denied|authentication failed)} {
+        catch {unset password}
+        catch {unset public_key}
+        exit 78
+    }
+    -re {(REMOTE HOST IDENTIFICATION HAS CHANGED|Host key verification failed)} {
+        catch {unset password}
+        catch {unset public_key}
+        exit 79
+    }
+    timeout {
+        catch {unset password}
+        catch {unset public_key}
+        exit 80
+    }
+    eof {
+        catch {unset password}
+        catch {unset public_key}
+        if {[catch {wait} wait_result]} {
+            exit 81
+        }
+        set exit_status [lindex $wait_result 3]
+        if {$exit_status == 0 && $authorized && $key_sent} {
+            exit 0
+        }
+        exit 82
+    }
+}

@@ -1,0 +1,35 @@
+XOVI and reMarkable XOVI extensions
+==================================
+
+reMarkable Mirror redistributes the unmodified upstream
+`xovi-aarch64.tar.gz` release artifact named below. Mirror's installer selects
+the upstream framebuffer-spy and xovi-message-broker extensions from that
+archive and also installs the Mirror-owned rmmirror-files-loopback extension.
+XOVI remains tethered: it is never configured to start at boot.
+
+Release: rm-xovi-extensions v19-23052026
+Release commit: 7874154dba6793cc68a15fae0fb9dd272c4ed20a
+Archive SHA-256: 32d64d1262ddc984e3235c7d0340a398fe6d5b3efa6a979865f5977b32630d27
+Release source: https://github.com/asivery/rm-xovi-extensions/tree/7874154dba6793cc68a15fae0fb9dd272c4ed20a
+Release artifact: https://github.com/asivery/rm-xovi-extensions/releases/tag/v19-23052026
+License: GNU GPL v3; see LICENSE-GPL-3.0.txt.
+
+The archive's `xovi.so` is the unmodified XOVI v0.3.3 aarch64 release asset.
+
+XOVI release: v0.3.3
+XOVI commit: 0c8d5269b55c851901d4e4a754dc2d7deab40b17
+xovi.so SHA-256: d4df820c25c634c511de11067279d8310fa4f656dc52bd4540db6beac4ffd446
+XOVI source: https://github.com/asivery/xovi/tree/0c8d5269b55c851901d4e4a754dc2d7deab40b17
+License at this exact release commit: GNU GPL v3; see LICENSE-GPL-3.0.txt.
+
+No source inside the redistributed upstream archive was modified. The
+corresponding upstream source remains available at the exact public commit links
+above.
+
+rmmirror-files-loopback is a GPL-3.0-only Mirror-owned extension derived from
+the native address-selection hooks in upstream webserver-remote. Its source is
+at mirror/agent/xovi/rmmirror-files-loopback/ in this repository. The full GNU
+GPL version 3 license is supplied as LICENSE-GPL-3.0.txt.
+
+reMarkable Mirror is an independent project and is not affiliated with the
+upstream XOVI authors.

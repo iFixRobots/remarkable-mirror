@@ -1,0 +1,45 @@
+# Build and package output
+/artifacts/
+/tmp/
+**/bin/
+**/obj/
+
+# Local credentials and configuration
+.env
+.env.*
+**/.ssh/
+*.key
+*.pem
+*.ppk
+*.pfx
+*.p12
+*.cer
+**/remarkable_chiappa_ed25519
+**/remarkable_chiappa_ed25519.pub
+**/remarkable_known_hosts
+**/remarkable_chiappa_wake_token
+**/device-profile.json
+**/.device-profile.json.*.tmp
+
+# Local device evidence and captures
+/private/
+/captures/
+*.rmdoc
+*.rm
+
+# Editor and operating-system files
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+Thumbs.db
+Desktop.ini
+.DS_Store
+**/xcuserdata/
+*.xcuserstate
+DerivedData/
+
+# Language caches
+__pycache__/
+*.pyc

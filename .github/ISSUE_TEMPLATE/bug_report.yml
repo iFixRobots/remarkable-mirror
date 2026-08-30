@@ -1,0 +1,107 @@
+name: Bug report
+description: Report a reproducible reMarkable Mirror problem
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        reMarkable Mirror has native Windows and macOS desktop apps. Windows has the complete installer/setup path; the current macOS development build is unsigned. Small ARM64 Linux components run on the tablet and support both apps.
+
+        Do not post passwords, keys, tokens, document contents or filenames, IP addresses, personal network details, device identifiers, or unreviewed diagnostics. Report security problems privately through the Security tab.
+
+  - type: dropdown
+    id: host-platform
+    attributes:
+      label: Host platform
+      options:
+        - Windows 11 x64
+        - macOS on Apple silicon (unsigned development build)
+        - Linux desktop (not supported)
+        - Other or unknown
+    validations:
+      required: true
+
+  - type: input
+    id: host-version
+    attributes:
+      label: Host OS version
+      placeholder: Windows 11 24H2 or macOS 15.6
+    validations:
+      required: true
+
+  - type: input
+    id: mirror-version
+    attributes:
+      label: Mirror version
+      placeholder: Version shown by the app or package
+    validations:
+      required: true
+
+  - type: input
+    id: package-source
+    attributes:
+      label: Package source
+      description: Name the release, GitHub Actions run, or local commit/build. Do not paste credentials or private URLs.
+      placeholder: Release tag, Actions run number, or commit SHA
+    validations:
+      required: true
+
+  - type: input
+    id: tablet-model
+    attributes:
+      label: Tablet model
+      placeholder: reMarkable Paper Pro Move
+    validations:
+      required: true
+
+  - type: input
+    id: tablet-firmware
+    attributes:
+      label: Tablet firmware version
+      placeholder: Version shown under tablet software settings
+    validations:
+      required: true
+
+  - type: dropdown
+    id: route
+    attributes:
+      label: Selected route or stage
+      options:
+        - USB-C
+        - Wi-Fi
+        - Switching between USB-C and Wi-Fi
+        - No connection established
+        - Setup, Files, or another non-connection step
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Start with the manual button or command you selected. Include whether the tablet was awake and unlocked.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy check
+      options:
+        - label: I reviewed this report and removed credentials, keys, tokens, document data, IP addresses, personal network details, device identifiers, and unreviewed diagnostics.
+          required: true
