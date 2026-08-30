@@ -421,7 +421,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = ReMarkableMirror/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks";
-				MARKETING_VERSION = 0.2.2;
+				MARKETING_VERSION = 0.2.3;
 				PRODUCT_BUNDLE_IDENTIFIER = com.ifixrobots.ReMarkableMirror;
 				PRODUCT_MODULE_NAME = ReMarkableMirror;
 				PRODUCT_NAME = "reMarkable Mirror";
@@ -443,7 +443,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = ReMarkableMirror/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks";
-				MARKETING_VERSION = 0.2.2;
+				MARKETING_VERSION = 0.2.3;
 				PRODUCT_BUNDLE_IDENTIFIER = com.ifixrobots.ReMarkableMirror;
 				PRODUCT_MODULE_NAME = ReMarkableMirror;
 				PRODUCT_NAME = "reMarkable Mirror";

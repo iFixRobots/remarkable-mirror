@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.3
 
 - Windows setup now completes entirely over USB-C, matching macOS: Wi-Fi SSH
   is enabled over the cable, the nmcli-based discovery is gone, untested
